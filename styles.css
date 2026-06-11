@@ -29,6 +29,7 @@ body {
 }
 
 .hero {
+  position: relative;
   min-height: 100vh;
   min-height: 100svh;
   display: grid;
@@ -73,6 +74,32 @@ h1 span {
   font-size: clamp(16px, 1.45vw, 19px);
 }
 
+.hidden-entrance {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  opacity: 0.04;
+  background: var(--teal);
+  text-decoration: none;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.hidden-entrance:hover,
+.hidden-entrance:focus-visible {
+  opacity: 0.28;
+  transform: translateY(-1px);
+}
+
+.hidden-entrance:focus-visible {
+  outline: 2px solid rgba(21, 156, 165, 0.48);
+  outline-offset: 4px;
+}
+
 @keyframes hero-in {
   from {
     opacity: 0;
@@ -108,6 +135,11 @@ h1 span {
   .hero-copy p:last-of-type {
     margin-top: 9px;
     font-size: 15px;
+  }
+
+  .hidden-entrance {
+    right: 18px;
+    bottom: 18px;
   }
 }
 
