@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Personal_Web 私人工具中心静态占位页，真实权限保护尚未实现。"
+    >
+    <title>Personal Hub Placeholder</title>
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./script.js" defer></script>
+  </head>
+  <body data-page="hub">
+    <main class="private-page hub-page" aria-labelledby="page-title">
+      <section class="private-panel hub-panel">
+        <div class="private-mark" aria-hidden="true">
+          <img src="./assets/icon.svg" alt="" width="34" height="34">
+        </div>
+
+        <p class="status-badge">Static placeholder</p>
+        <h1 id="page-title">Personal Hub</h1>
+        <p class="private-copy">
+          No real authentication or permission protection is implemented yet.
+          Do not store private data here.
+        </p>
+
+        <div class="hub-grid" aria-label="Future app placeholders">
+          <article class="app-card">
+            <p class="card-status">Placeholder</p>
+            <h2>App 01</h2>
+            <p>Detailed UI and content will be designed in a later branch.</p>
+          </article>
+          <article class="app-card">
+            <p class="card-status">Placeholder</p>
+            <h2>App 02</h2>
+            <p>Detailed UI and content will be designed in a later branch.</p>
+          </article>
+          <article class="app-card">
+            <p class="card-status">Placeholder</p>
+            <h2>App 03</h2>
+            <p>Detailed UI and content will be designed in a later branch.</p>
+          </article>
+        </div>
+
+        <div class="private-actions">
+          <a class="secondary-action" href="./login.html">Back to private entrance</a>
+          <a class="secondary-action" href="./index.html">Back to public homepage</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

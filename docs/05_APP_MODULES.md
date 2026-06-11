@@ -13,6 +13,10 @@
 - 测试
 - 文档说明
 
+当前静态阶段不实现任何子应用。
+`hub.html` 只作为 Personal Hub 占位页，
+不包含 todo、memo、admin panel、database UI、settings UI 或 dashboard 逻辑。
+
 ## 2. Initial App Ideas
 
 | App Name | Purpose | Status | Permission Required | Notes |

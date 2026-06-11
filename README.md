@@ -1,75 +1,160 @@
 # Personal_Web
 
-Personal_Web 是一个长期个人工具中心网站项目。
+Personal_Web 是一个长期个人网站项目。
+当前阶段是 **static preview**：只包含纯静态页面、样式、脚本和项目文档。
 
-当前阶段：纯静态首页。
+长期方向是：
 
-当前阶段不需要备案、不需要服务器、不需要数据库。当前也没有登录、没有用户系统、没有权限系统、没有后端。
+- public visitor-facing website；
+- private personal tools hub。
 
-## 如何打开
+当前只整理静态基础，不实现真实业务功能。
 
-直接双击：
+## Current stage
+
+- Current stage: static preview
+- No backend
+- No database
+- No real login
+- No authentication
+- No authorization
+- No private data storage
+- No external CDN
+- No external resources outside this project folder
+- Generated `.lnk` files are ignored and must not be committed
+
+## Safety warnings
+
+- Do not enter real passwords.
+- Do not store private data in the current static version.
+- The hidden entrance is only a visual placeholder,
+  not a security mechanism.
+- The hidden entrance leads to `login.html` first.
+- `login.html` is a future login/private entrance placeholder.
+- `hub.html` is only a static Personal Hub placeholder.
+- Child apps are placeholders only.
+- Real security must be implemented later with proper authentication
+  and authorization.
+
+## How to open
+
+Open the homepage directly:
 
 ```text
 index.html
 ```
 
-或者在浏览器中打开该文件。
+Or run a local static server from the project root:
 
-## 如何创建桌面快捷方式
+```powershell
+python -m http.server 8000
+```
 
-在项目根目录打开 PowerShell，执行：
+Then open:
+
+```text
+http://localhost:8000/
+```
+
+The placeholder pages can also be opened directly:
+
+```text
+login.html
+hub.html
+```
+
+## Desktop shortcut
+
+To create a Windows desktop shortcut, run this from the project root:
 
 ```powershell
 ./scripts/create_desktop_shortcut.ps1
 ```
 
-创建完成后，桌面会出现：
+The script creates `Personal_Web.lnk` on the desktop and opens `index.html`
+through the default file association.
+If the project folder moves, recreate the shortcut.
 
-```text
-Personal_Web
-```
+The desktop shortcut icon uses `assets/shortcut-icon-current.ico`,
+generated from `assets/icon.jpg`.
 
-以后双击该快捷方式即可在默认浏览器中打开网页，不会弹出终端窗口。
+Generated `.lnk` files must not be committed.
 
-如果移动了项目文件夹，请重新运行脚本创建快捷方式。
-
-## 当前文件结构
+## File structure
 
 ```text
 Personal_Web/
 ├── index.html
+├── login.html
+├── hub.html
 ├── styles.css
 ├── script.js
 ├── assets/
-│   └── icon.svg
+│   ├── icon.svg
+│   ├── icon.jpg
+│   ├── shortcut-icon.ico
+│   └── shortcut-icon-current.ico
 ├── scripts/
 │   └── create_desktop_shortcut.ps1
 ├── docs/
+│   ├── 00_PROJECT_OVERVIEW.md
+│   ├── 01_INFORMATION_ARCHITECTURE.md
+│   ├── 02_PUBLIC_SITE_DESIGN.md
+│   ├── 03_PERSONAL_HUB_DESIGN.md
+│   ├── 04_USER_ROLE_PERMISSION.md
+│   ├── 05_APP_MODULES.md
+│   ├── 06_VISUAL_STYLE_GUIDE.md
+│   ├── 07_ROUTE_AND_SECURITY_RULES.md
+│   ├── 08_DESIGN_DECISIONS.md
 │   ├── PROJECT_GUIDE.md
-│   └── PROJECT_HISTORY.md
+│   ├── PROJECT_HISTORY.md
+│   └── assets/
+│       └── README.md
 ├── README.md
 └── .gitignore
 ```
 
-## 当前阶段说明
+Key paths:
 
-本次只完成纯静态 homepage，用于本地验证文件结构、页面打开、Hello World 显示、本地资源引用和桌面快捷方式。
+- `index.html`
+- `login.html`
+- `hub.html`
+- `styles.css`
+- `script.js`
+- `assets/icon.svg`
+- `assets/icon.jpg`
+- `assets/shortcut-icon.ico`
+- `assets/shortcut-icon-current.ico`
+- `scripts/create_desktop_shortcut.ps1`
+- `docs/00_PROJECT_OVERVIEW.md`
+- `docs/01_INFORMATION_ARCHITECTURE.md`
+- `docs/02_PUBLIC_SITE_DESIGN.md`
+- `docs/03_PERSONAL_HUB_DESIGN.md`
+- `docs/04_USER_ROLE_PERMISSION.md`
+- `docs/05_APP_MODULES.md`
+- `docs/06_VISUAL_STYLE_GUIDE.md`
+- `docs/07_ROUTE_AND_SECURITY_RULES.md`
+- `docs/08_DESIGN_DECISIONS.md`
+- `docs/PROJECT_GUIDE.md`
+- `docs/PROJECT_HISTORY.md`
+- `docs/assets/README.md`
 
-后续会逐步扩展，但本次不做部署、不做数据库、不做登录、不引入框架。
+## Current pages
 
-## Project Design Docs
+- `index.html`: public visitor-facing homepage.
+- `login.html`: static private entrance placeholder. It does not authenticate anyone.
+- `hub.html`: static Personal Hub placeholder. It must not be used for private data.
 
-Personal_Web 的项目定位是：个人公开网站 + 私人工具中心。
+## Project docs
 
-当前阶段是设计确认阶段，不急于写业务代码。`docs/` 文件夹是项目设计目标、信息架构、权限模型、视觉风格和设计决策的唯一权威记录。
+The `docs/` folder records the long-term direction, information architecture,
+role model, route model, visual style, and design decisions.
 
-重要原则：
+Important principles:
 
-- 先文档，后代码；
-- 公开网站和私人工具中心分离；
-- 隐藏入口只是视觉彩蛋，不是安全措施；
-- 私人工具中心必须经过登录和权限校验；
-- 子应用必须模块化，方便长期扩展。
-
-如果网站格局、权限边界、路由结构或子应用范围发生变化，应先更新 `docs/` 中的相关文档，再修改代码。
+- Public pages and private tools must stay separated.
+- Hidden entrance is only a visual design element.
+- Future private routes must rely on real authentication, authorization,
+  server-side checks, and route protection.
+- Any future backend, database, or authentication work must be designed
+  and verified separately.
