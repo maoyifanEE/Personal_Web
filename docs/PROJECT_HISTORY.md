@@ -1,5 +1,35 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-11 - Private entrance flow refinement
+
+### 本次目标
+
+- 保持首页三行文字和透明隐藏入口不变。
+- 明确隐藏入口后的正确流程：index.html -> login.html -> hub.html。
+- 将 login.html 优化为未来登录入口占位页。
+- 将 hub.html 优化为 Personal Hub 占位页，并加入三个子应用占位卡片。
+- 保持静态、安全边界清晰，不实现真实功能。
+
+### 实际完成
+
+- 保持 `index.html` 极简三行首页和透明隐藏入口。
+- 将 `login.html` 调整为安静的未来私有入口占位页。
+- 在 `login.html` 增加静态预览操作，链接到 `hub.html`。
+- 将 `hub.html` 调整为 Personal Hub 占位页。
+- 在 `hub.html` 增加三个子应用占位卡片：App 01、App 02、App 03。
+- 补充占位页、操作链接、卡片和移动端样式。
+- 更新 README，说明当前流程和安全边界。
+
+### 未改变
+
+- 未实现真实登录。
+- 未实现假登录。
+- 未实现数据库。
+- 未实现后端。
+- 未实现权限系统。
+- 未实现具体子应用 UI。
+- 未实现具体子应用内容。
+
 ## 2026-06-11 - Static foundation cleanup
 
 ### 本次目标

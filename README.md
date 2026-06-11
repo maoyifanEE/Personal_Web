@@ -26,6 +26,10 @@ Personal_Web 是一个长期个人网站项目。当前阶段是 **static previe
 - Do not enter real passwords.
 - Do not store private data in the current static version.
 - The hidden entrance is only a visual placeholder, not a security mechanism.
+- The hidden entrance leads to `login.html` first.
+- `login.html` is a future login/private entrance placeholder.
+- `hub.html` is only a static Personal Hub placeholder.
+- Child apps are placeholders only.
 - Real security must be implemented later with proper authentication and authorization.
 
 ## How to open

@@ -13,34 +13,42 @@
     <script src="./script.js" defer></script>
   </head>
   <body data-page="hub">
-    <header class="site-header" aria-label="Site header">
-      <a class="brand-mark" href="./index.html" aria-label="Back to Personal_Web home">
-        <img src="./assets/icon.svg" alt="" width="32" height="32">
-      </a>
-      <span class="status-badge">Placeholder</span>
-    </header>
+    <main class="private-page hub-page" aria-labelledby="page-title">
+      <section class="private-panel hub-panel">
+        <div class="private-mark" aria-hidden="true">
+          <img src="./assets/icon.svg" alt="" width="34" height="34">
+        </div>
 
-    <main class="page-shell placeholder-shell">
-      <section class="placeholder-panel" aria-labelledby="page-title">
-        <p class="eyebrow">Personal hub</p>
-        <h1 id="page-title">Personal Hub Placeholder</h1>
-        <p>
-          This is only a Personal Hub placeholder. There is no real login protection
-          and no real permission validation yet.
-        </p>
-        <p>
-          This page must not be used to store private data. Future private tools
-          will only be enabled after real authentication and authorization are implemented.
+        <p class="status-badge">Static placeholder</p>
+        <h1 id="page-title">Personal Hub</h1>
+        <p class="private-copy">
+          No real authentication or permission protection is implemented yet.
+          Do not store private data here.
         </p>
 
-        <div class="actions">
-          <a class="text-link" href="./index.html">Back to public homepage</a>
+        <div class="hub-grid" aria-label="Future app placeholders">
+          <article class="app-card">
+            <p class="card-status">Placeholder</p>
+            <h2>App 01</h2>
+            <p>Detailed UI and content will be designed in a later branch.</p>
+          </article>
+          <article class="app-card">
+            <p class="card-status">Placeholder</p>
+            <h2>App 02</h2>
+            <p>Detailed UI and content will be designed in a later branch.</p>
+          </article>
+          <article class="app-card">
+            <p class="card-status">Placeholder</p>
+            <h2>App 03</h2>
+            <p>Detailed UI and content will be designed in a later branch.</p>
+          </article>
+        </div>
+
+        <div class="private-actions">
+          <a class="secondary-action" href="./login.html">Back to private entrance</a>
+          <a class="secondary-action" href="./index.html">Back to public homepage</a>
         </div>
       </section>
     </main>
-
-    <footer class="site-footer">
-      <p>Static placeholder only. Private app features are intentionally absent.</p>
-    </footer>
   </body>
 </html>
