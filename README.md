@@ -1,6 +1,7 @@
 # Personal_Web
 
-Personal_Web 是一个长期个人网站项目。当前阶段是 **static preview**：只包含纯静态页面、样式、脚本和项目文档。
+Personal_Web 是一个长期个人网站项目。
+当前阶段是 **static preview**：只包含纯静态页面、样式、脚本和项目文档。
 
 长期方向是：
 
@@ -25,12 +26,14 @@ Personal_Web 是一个长期个人网站项目。当前阶段是 **static previe
 
 - Do not enter real passwords.
 - Do not store private data in the current static version.
-- The hidden entrance is only a visual placeholder, not a security mechanism.
+- The hidden entrance is only a visual placeholder,
+  not a security mechanism.
 - The hidden entrance leads to `login.html` first.
 - `login.html` is a future login/private entrance placeholder.
 - `hub.html` is only a static Personal Hub placeholder.
 - Child apps are placeholders only.
-- Real security must be implemented later with proper authentication and authorization.
+- Real security must be implemented later with proper authentication
+  and authorization.
 
 ## How to open
 
@@ -67,9 +70,12 @@ To create a Windows desktop shortcut, run this from the project root:
 ./scripts/create_desktop_shortcut.ps1
 ```
 
-The script creates `Personal_Web.lnk` on the desktop and opens `index.html` through the default file association. If the project folder moves, recreate the shortcut.
+The script creates `Personal_Web.lnk` on the desktop and opens `index.html`
+through the default file association.
+If the project folder moves, recreate the shortcut.
 
-The desktop shortcut icon uses `assets/shortcut-icon-current.ico`, generated from `assets/icon.jpg`.
+The desktop shortcut icon uses `assets/shortcut-icon-current.ico`,
+generated from `assets/icon.jpg`.
 
 Generated `.lnk` files must not be committed.
 
@@ -140,11 +146,14 @@ Key paths:
 
 ## Project docs
 
-The `docs/` folder records the long-term direction, information architecture, role model, route model, visual style, and design decisions.
+The `docs/` folder records the long-term direction, information architecture,
+role model, route model, visual style, and design decisions.
 
 Important principles:
 
 - Public pages and private tools must stay separated.
 - Hidden entrance is only a visual design element.
-- Future private routes must rely on real authentication, authorization, server-side checks, and route protection.
-- Any future backend, database, or authentication work must be designed and verified separately.
+- Future private routes must rely on real authentication, authorization,
+  server-side checks, and route protection.
+- Any future backend, database, or authentication work must be designed
+  and verified separately.

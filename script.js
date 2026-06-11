@@ -1,1 +1,3 @@
-console.log("Personal_Web homepage loaded.");
+console.log(
+  "Personal_Web homepage loaded."
+);

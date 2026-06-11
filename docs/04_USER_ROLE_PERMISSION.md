@@ -20,9 +20,11 @@
 
 - Website owner.
 - Full administrative control in the future.
-- Can manage private tools, settings, users, and permissions after real auth is implemented.
+- Can manage private tools, settings, users, and permissions
+  after real auth is implemented.
 
-Older terms such as Admin/User should not be used as role names unless a document explicitly explains that they have been replaced by Owner/Member.
+Older terms such as Admin/User should not be used as role names unless
+a document explicitly explains that they have been replaced by Owner/Member.
 
 ## 2. Permission Principle
 
@@ -56,7 +58,8 @@ None of them provide real security yet.
 
 前端不显示某个入口，也不代表用户真的没有访问能力。
 
-Hidden entrance is only a visual design element. Hidden entrance is not a security mechanism.
+Hidden entrance is only a visual design element.
+Hidden entrance is not a security mechanism.
 
 未来安全必须依赖真实认证、授权、服务端检查和路由保护。
 

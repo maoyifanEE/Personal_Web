@@ -11,9 +11,12 @@
 ### 实际完成
 
 - 将用户提供的图片保存在 `assets/icon.jpg`。
-- 基于 `assets/icon.jpg` 生成 Windows 快捷方式兼容的多尺寸 `assets/shortcut-icon.ico`。
-- 复制生成 `assets/shortcut-icon-current.ico`，用于避开 Windows 桌面图标缓存。
-- 更新 `scripts/create_desktop_shortcut.ps1`，让生成的 `Personal_Web.lnk` 使用 `assets/shortcut-icon-current.ico`。
+- 基于 `assets/icon.jpg` 生成 Windows 快捷方式兼容的多尺寸
+  `assets/shortcut-icon.ico`。
+- 复制生成 `assets/shortcut-icon-current.ico`，
+  用于避开 Windows 桌面图标缓存。
+- 更新 `scripts/create_desktop_shortcut.ps1`，
+  让生成的 `Personal_Web.lnk` 使用 `assets/shortcut-icon-current.ico`。
 - 更新 README，记录快捷方式图标资源路径。
 
 ### 是否涉及数据库
@@ -90,7 +93,8 @@
 - 重整 `.gitignore`，保证每条规则独立成行。
 - 重整 `scripts/create_desktop_shortcut.ps1`，补充日志和注释。
 - 更新 `README.md`，说明当前静态阶段、限制、打开方式和文件结构。
-- 定向修正 docs 中 Visitor / Member / Owner 角色命名、Public Routes / Auth Route / Private Routes 路由分类和隐藏入口安全说明。
+- 定向修正 docs 中 Visitor / Member / Owner 角色命名、
+  Public Routes / Auth Route / Private Routes 路由分类和隐藏入口安全说明。
 
 ### 修改范围
 
