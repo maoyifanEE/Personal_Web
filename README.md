@@ -21,6 +21,7 @@ Personal_Web 是一个长期个人网站项目。
 - No private data storage
 - No external CDN
 - No external resources outside this project folder
+- Generated `.lnk` files are ignored and must not be committed
 
 ## Safety warnings
 

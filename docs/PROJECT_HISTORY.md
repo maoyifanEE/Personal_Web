@@ -1,5 +1,46 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-11 - Pre-merge engineering cleanup
+
+### 本次目标
+
+- 保持首页 UI、三行文字和页面流程不变。
+- 修复 `.gitignore`，确保本地缓存、环境变量、构建产物和 `.lnk` 被忽略。
+- 格式化 Markdown、CSS、JavaScript 和 PowerShell 文本文件。
+- 检查桌面快捷方式脚本引用的图标文件真实存在。
+- 修正文档中 Public 仓库现状和长期 Private Repo 方向的冲突。
+- 明确公开首页不是控制台，Personal Hub 才是未来工具控制台。
+
+### 实际完成
+
+- 保持 `index.html -> login.html -> hub.html` 页面流程不变。
+- 保持首页三行文字和透明隐藏入口不变。
+- 更新 `.gitignore`，补充 `.cache/`、`.tmp/`、`.vite/` 等忽略规则。
+- 格式化 README、项目历史和相关 Markdown 长行。
+- 格式化 `script.js`，保持原有日志行为不变。
+- 检查 `scripts/create_desktop_shortcut.ps1` 语法和图标文件引用。
+- 修正 `docs/PROJECT_GUIDE.md` 中关于仓库可见性和首页/Hub 定位的表述。
+
+### 未改变
+
+- 未改首页 UI。
+- 未改页面流程。
+- 未新增真实登录。
+- 未新增权限系统。
+- 未新增数据库。
+- 未新增后端。
+- 未新增框架。
+- 未新增子应用内容。
+
+### 测试结果
+
+- [x] `.gitignore` 每条规则独立成行。
+- [x] `assets/icon.jpg` 存在。
+- [x] `assets/shortcut-icon-current.ico` 存在。
+- [x] PowerShell 脚本语法检查通过。
+- [x] `script.js` 语法检查通过。
+- [x] 项目内没有 `.lnk` 文件。
+
 ## 2026-06-11 - Desktop shortcut icon update
 
 ### 本次目标

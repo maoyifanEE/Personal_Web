@@ -8,4 +8,7 @@ desktop.ini
 node_modules/
 dist/
 build/
+.cache/
+.tmp/
+.vite/
 *.lnk
