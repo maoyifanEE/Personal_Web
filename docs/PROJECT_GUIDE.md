@@ -136,20 +136,24 @@ AI / Codex 的职责是：
 ```text
 /
 ├── /login
-├── /dashboard
-├── /settings
-├── /admin
-└── /apps/xxx
+├── /hub
+│   ├── /hub/apps
+│   ├── /hub/settings
+│   └── /hub/admin
+├── /about
+├── /works
+└── /articles
 ```
 
 说明：
 
-* `/`：网站入口；
-* `/login`：登录页面；
-* `/dashboard`：登录后的主控制台；
-* `/settings`：用户设置；
-* `/admin`：Owner 管理页面；
-* `/apps/xxx`：不同子应用入口。
+* `/`：公开首页；
+* `/about`、`/works`、`/articles`：未来公开路由；
+* `/login`：Auth Route，登录页面可以未登录访问，但不能暴露私人数据；
+* `/hub`：Private Route，未来登录后的主控制台；
+* `/hub/settings`：Private Route，未来设置页面；
+* `/hub/admin`：Private Route，未来 Owner 管理页面；
+* `/hub/apps`：Private Route，未来不同子应用入口。
 
 子应用示例：
 
@@ -289,15 +293,22 @@ Personal_Web/
 
 至少支持两种角色：
 
+* Visitor；
 * Owner；
 * Member。
+
+角色命名统一为：
+
+* Visitor：未登录访客，只能访问公开页面，不能访问私人工具；
+* Member：未来由 Owner 创建或批准的授权用户，登录后只能访问被授权的私人工具；
+* Owner：网站所有者，未来拥有完整管理能力。
 
 权限要求：
 
 1. Owner 可以管理用户；
 2. Member 只能访问自己的数据；
 3. 默认所有私人数据都必须按 `user_id` 隔离；
-4. 普通用户不能看到其他用户的数据；
+4. Member 不能看到其他 Member 的数据；
 5. 所有管理页面必须做权限判断；
 6. 后续可以扩展更细权限，但早期不要复杂化；
 7. Owner 是否能查看 Member 的私人内容，需要后续明确设计，不应默认开放；
@@ -343,6 +354,8 @@ user_id
 10. 备忘录等私人内容默认只允许本人访问；
 11. 不要把真实密码、token、cookie 发给 AI；
 12. `.env.example` 只能写变量名和示例格式，不能写真实密钥。
+
+当前静态阶段不实现真实登录、认证、授权、cookie、token、后端 API 或私人数据存储。隐藏入口只是视觉设计元素，不是安全机制。未来安全必须依赖真实认证、授权、服务端检查和路由保护。
 
 ---
 

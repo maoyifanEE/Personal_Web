@@ -1,5 +1,9 @@
 $ErrorActionPreference = "Stop"
 
+# Creates a Windows desktop shortcut that opens the local Personal_Web homepage.
+# Recreate the shortcut if this project folder moves, because .lnk files store paths.
+# Do not commit the generated Personal_Web.lnk file.
+
 Write-Host "[Personal_Web] Starting desktop shortcut creation..."
 
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -7,7 +11,7 @@ $projectRoot = Resolve-Path (Join-Path $scriptDirectory "..")
 $indexPath = Join-Path $projectRoot "index.html"
 
 Write-Host "[Personal_Web] Script directory: $scriptDirectory"
-Write-Host "[Personal_Web] Project root: $projectRoot"
+Write-Host "[Personal_Web] Project root: $($projectRoot.Path)"
 Write-Host "[Personal_Web] Homepage path: $indexPath"
 
 if (-not (Test-Path -LiteralPath $indexPath)) {
@@ -23,6 +27,7 @@ Write-Host "[Personal_Web] Shortcut path: $shortcutPath"
 
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
+
 $shortcut.TargetPath = "explorer.exe"
 $shortcut.Arguments = "`"$indexPath`""
 $shortcut.WorkingDirectory = $projectRoot.Path

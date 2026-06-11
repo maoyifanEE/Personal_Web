@@ -1,5 +1,78 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-11 - Static foundation cleanup
+
+### 本次目标
+
+- 整理静态站基础文件。
+- 修正 README 与真实目录不一致的问题。
+- 修正文档中的角色命名和路由分类不一致问题。
+- 建立公开首页、登录占位页、Hub 占位页。
+
+### 实际完成
+
+- 重写 `index.html` 为完整 HTML5 公开首页。
+- 新增 `login.html` 作为静态登录占位页。
+- 新增 `hub.html` 作为静态 Personal Hub 占位页。
+- 重整 `styles.css`，按基础重置、变量、布局、首页、占位页、响应式等段落组织。
+- 重整 `script.js`，仅保留静态预览日志和页面类型识别。
+- 更新 `assets/icon.svg` 为项目内自包含图标。
+- 重整 `.gitignore`，保证每条规则独立成行。
+- 重整 `scripts/create_desktop_shortcut.ps1`，补充日志和注释。
+- 更新 `README.md`，说明当前静态阶段、限制、打开方式和文件结构。
+- 定向修正 docs 中 Visitor / Member / Owner 角色命名、Public Routes / Auth Route / Private Routes 路由分类和隐藏入口安全说明。
+
+### 修改范围
+
+- index.html
+- login.html
+- hub.html
+- styles.css
+- script.js
+- assets/icon.svg
+- .gitignore
+- scripts/create_desktop_shortcut.ps1
+- README.md
+- docs/*
+
+### 是否涉及数据库
+
+否。
+
+### 是否涉及权限
+
+否。本次只修正文档概念，不实现真实权限系统。
+
+### 是否影响部署
+
+否。仍然是纯静态文件。
+
+### 测试结果
+
+- [ ] 双击 index.html 能打开公开首页。
+- [ ] 首页样式能正常加载。
+- [ ] 浏览器控制台没有明显报错。
+- [ ] 隐藏入口能跳转到 login.html。
+- [ ] login.html 能返回首页。
+- [ ] hub.html 能打开并显示占位说明。
+- [ ] 桌面快捷方式脚本能创建快捷方式。
+- [ ] .gitignore 每条规则独立成行。
+- [ ] README 文件结构与真实项目一致。
+
+### 遗留问题
+
+- 真实登录未实现。
+- 真实权限系统未实现。
+- 数据库未引入。
+- 公开站具体内容仍待确定。
+- 私人工具中心 UI 仍待确定。
+
+### 下一步建议
+
+- 继续完善公开首页视觉风格。
+- 再决定是否进入 Next.js / TypeScript 阶段。
+- 不要直接跳到数据库和真实登录。
+
 ## 2026-06-09 - 初始化 Git 仓库
 
 ### 本次目标

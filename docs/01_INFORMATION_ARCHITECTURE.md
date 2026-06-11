@@ -12,27 +12,34 @@ Domain Root
 │  └─ Hidden Entrance Pattern
 │
 └─ Private Personal Hub
-   ├─ Login Page
-   ├─ Hub Dashboard
+   ├─ Login Page, auth route placeholder
+   ├─ Hub Dashboard, private route placeholder
    ├─ App Modules
-   ├─ User Management, admin only
-   ├─ Permission Management, admin only
-   └─ System Settings, admin only
+   ├─ Member Management, Owner only
+   ├─ Permission Management, Owner only
+   └─ System Settings, Owner only
 ```
 
-## 2. User Flow
+## 2. Access Flow
 
 普通访客：
 
 打开网站 -> 看到公开主页 -> 浏览公开内容。
 
-授权用户：
+Member：
 
 打开网站 -> 点击隐藏入口图案 -> 登录 -> 进入个人工具中心 -> 看到自己有权限的子应用。
 
-管理员：
+Owner：
 
 打开网站 -> 点击隐藏入口图案 -> 登录 -> 进入个人工具中心 -> 管理全部子应用、用户和权限。
+
+当前静态阶段：
+
+- `index.html` 是公开首页。
+- `login.html` 是登录占位页。
+- `hub.html` 是私人工具中心占位页。
+- 以上页面都没有真实认证、授权或数据保护能力。
 
 ## 3. Important Boundary
 
@@ -41,3 +48,5 @@ Domain Root
 它们可以共享整体视觉语言，但在路由、权限、数据访问、代码结构上必须保持边界清晰。
 
 公开访客网站不能直接暴露私人工具中心的数据或功能。私人工具中心不能依赖隐藏入口作为安全保护。
+
+隐藏入口只是视觉设计元素，不是安全机制。未来安全必须依赖真实认证、授权、服务端检查和路由保护。
