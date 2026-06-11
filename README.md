@@ -69,6 +69,8 @@ To create a Windows desktop shortcut, run this from the project root:
 
 The script creates `Personal_Web.lnk` on the desktop and opens `index.html` through the default file association. If the project folder moves, recreate the shortcut.
 
+The desktop shortcut icon uses `assets/shortcut-icon-current.ico`, generated from `assets/icon.jpg`.
+
 Generated `.lnk` files must not be committed.
 
 ## File structure
@@ -81,7 +83,10 @@ Personal_Web/
 ├── styles.css
 ├── script.js
 ├── assets/
-│   └── icon.svg
+│   ├── icon.svg
+│   ├── icon.jpg
+│   ├── shortcut-icon.ico
+│   └── shortcut-icon-current.ico
 ├── scripts/
 │   └── create_desktop_shortcut.ps1
 ├── docs/
@@ -110,6 +115,9 @@ Key paths:
 - `styles.css`
 - `script.js`
 - `assets/icon.svg`
+- `assets/icon.jpg`
+- `assets/shortcut-icon.ico`
+- `assets/shortcut-icon-current.ico`
 - `scripts/create_desktop_shortcut.ps1`
 - `docs/00_PROJECT_OVERVIEW.md`
 - `docs/01_INFORMATION_ARCHITECTURE.md`

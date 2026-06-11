@@ -1,5 +1,45 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-11 - Desktop shortcut icon update
+
+### 本次目标
+
+- 将桌面快捷启动方式的图标改为用户提供的 `assets/icon.jpg`。
+- 从项目架构角度整理图标资源位置。
+- 保持快捷方式图标在 Windows 不同缩放下尽量清晰。
+
+### 实际完成
+
+- 将用户提供的图片保存在 `assets/icon.jpg`。
+- 基于 `assets/icon.jpg` 生成 Windows 快捷方式兼容的多尺寸 `assets/shortcut-icon.ico`。
+- 复制生成 `assets/shortcut-icon-current.ico`，用于避开 Windows 桌面图标缓存。
+- 更新 `scripts/create_desktop_shortcut.ps1`，让生成的 `Personal_Web.lnk` 使用 `assets/shortcut-icon-current.ico`。
+- 更新 README，记录快捷方式图标资源路径。
+
+### 是否涉及数据库
+
+否。
+
+### 是否涉及权限
+
+否。
+
+### 是否影响部署
+
+否。仍然是纯静态文件和本地快捷方式脚本。
+
+### 测试结果
+
+- [x] `assets/icon.jpg` 存在。
+- [x] `assets/shortcut-icon.ico` 存在。
+- [x] `assets/shortcut-icon-current.ico` 存在。
+- [x] PowerShell 脚本语法检查通过。
+- [x] 已重新运行脚本创建桌面快捷方式。
+
+### 遗留问题
+
+- 如果项目目录移动，需要重新运行快捷方式脚本。
+
 ## 2026-06-11 - Private entrance flow refinement
 
 ### 本次目标
