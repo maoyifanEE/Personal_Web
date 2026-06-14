@@ -10,47 +10,179 @@
 
   var ICON_REGISTRY = {
     carrot: { label: "胡萝卜", icon: "🥕" },
-    milk: { label: "牛奶", icon: "🥛" },
-    salmon: { label: "三文鱼", icon: "🍣" },
-    blueberry: { label: "蓝莓", icon: "🫐" },
-    egg: { label: "鸡蛋", icon: "🥚" },
-    nuts: { label: "坚果", icon: "🥜" },
+    tomato: { label: "番茄", icon: "🍅" },
+    broccoli: { label: "西兰花", icon: "🥦" },
+    leafyGreen: { label: "绿叶菜", icon: "🥬" },
+    corn: { label: "玉米", icon: "🌽" },
+    sweetPotato: { label: "红薯", icon: "🍠" },
+    mushroom: { label: "蘑菇", icon: "🍄" },
+    garlic: { label: "大蒜", icon: "🧄" },
+    onion: { label: "洋葱", icon: "🧅" },
+    potato: { label: "土豆", icon: "🥔" },
+    avocado: { label: "牛油果", icon: "🥑" },
     apple: { label: "苹果", icon: "🍎" },
+    pear: { label: "梨", icon: "🍐" },
     banana: { label: "香蕉", icon: "🍌" },
+    orange: { label: "橙子", icon: "🍊" },
+    lemon: { label: "柠檬", icon: "🍋" },
+    watermelon: { label: "西瓜", icon: "🍉" },
+    grape: { label: "葡萄", icon: "🍇" },
+    strawberry: { label: "草莓", icon: "🍓" },
+    blueberry: { label: "蓝莓", icon: "🫐" },
+    cherry: { label: "樱桃", icon: "🍒" },
+    peach: { label: "桃子", icon: "🍑" },
+    mango: { label: "芒果", icon: "🥭" },
+    pineapple: { label: "菠萝", icon: "🍍" },
+    coconut: { label: "椰子", icon: "🥥" },
     kiwi: { label: "猕猴桃", icon: "🥝" },
     fruit: { label: "水果", icon: "🍎" },
+    milk: { label: "牛奶", icon: "🥛" },
+    yogurt: { label: "酸奶", icon: "🥣" },
+    egg: { label: "鸡蛋", icon: "🥚" },
+    cheese: { label: "奶酪", icon: "🧀" },
+    tofu: { label: "豆腐", icon: "⬜" },
+    beans: { label: "豆类", icon: "🫘" },
+    chicken: { label: "鸡肉", icon: "🍗" },
+    fish: { label: "鱼", icon: "🐟" },
+    salmon: { label: "三文鱼", icon: "🍣" },
+    shrimp: { label: "虾", icon: "🍤" },
+    rice: { label: "米饭", icon: "🍚" },
+    oatmeal: { label: "燕麦", icon: "🥣" },
+    bread: { label: "全麦面包", icon: "🍞" },
+    noodles: { label: "面食", icon: "🍜" },
+    nuts: { label: "坚果", icon: "🥜" },
+    water: { label: "喝水", icon: "💧" },
+    tea: { label: "茶", icon: "🍵" },
+    salad: { label: "沙拉", icon: "🥗" },
+    soup: { label: "汤", icon: "🍲" },
+
     walk: { label: "快走", icon: "🚶" },
+    run: { label: "跑步", icon: "🏃" },
     cycling: { label: "骑行", icon: "🚴" },
+    swimming: { label: "游泳", icon: "🏊" },
     jumpRope: { label: "跳绳", icon: "🪢" },
     stretch: { label: "拉伸", icon: "🤸" },
+    yoga: { label: "瑜伽", icon: "🧘" },
     squat: { label: "深蹲", icon: "🏋️" },
     core: { label: "核心训练", icon: "🧘" },
     strength: { label: "力量训练", icon: "💪" },
+    pushup: { label: "俯卧撑", icon: "🤲" },
+    plank: { label: "平板支撑", icon: "🧱" },
+    climb: { label: "爬楼", icon: "🪜" },
+    hike: { label: "徒步", icon: "🥾" },
+    dance: { label: "舞蹈", icon: "💃" },
+    rowing: { label: "划船", icon: "🚣" },
+    ski: { label: "滑雪", icon: "⛷️" },
+    skating: { label: "滑冰", icon: "⛸️" },
+    basketball: { label: "篮球", icon: "🏀" },
+    football: { label: "足球", icon: "⚽" },
+    tennis: { label: "网球", icon: "🎾" },
+    badminton: { label: "羽毛球", icon: "🏸" },
+    tableTennis: { label: "乒乓球", icon: "🏓" },
+    volleyball: { label: "排球", icon: "🏐" },
+    boxing: { label: "拳击", icon: "🥊" },
+
     sleepLate: { label: "熬夜", icon: "🌙" },
     friedFood: { label: "油炸", icon: "🍟" },
     sweetDrink: { label: "甜饮料", icon: "🧋" },
     midnightSnack: { label: "夜宵", icon: "🌭" },
+    alcohol: { label: "酒精", icon: "🍺" },
+    wine: { label: "红酒", icon: "🍷" },
+    cake: { label: "蛋糕", icon: "🍰" },
+    candy: { label: "糖果", icon: "🍬" },
+    chocolate: { label: "巧克力", icon: "🍫" },
+    iceCream: { label: "冰淇淋", icon: "🍦" },
+    chips: { label: "薯片", icon: "🥔" },
+    burger: { label: "汉堡", icon: "🍔" },
+    pizza: { label: "披萨", icon: "🍕" },
+    hotpot: { label: "火锅", icon: "🍲" },
+    barbecue: { label: "烧烤", icon: "🍖" },
+    instantNoodles: { label: "泡面", icon: "🍜" },
+    takeaway: { label: "外卖", icon: "🥡" },
+    coffeeOver: { label: "咖啡过量", icon: "☕" },
+    screenTime: { label: "刷屏", icon: "📱" },
+    sedentary: { label: "久坐", icon: "🪑" },
+
+    heart: { label: "心脏", icon: "❤️" },
+    pulse: { label: "心率", icon: "💓" },
+    scale: { label: "体重", icon: "⚖️" },
+    sleep: { label: "睡眠", icon: "🛌" },
+    sun: { label: "日照", icon: "☀️" },
+    moon: { label: "休息", icon: "🌙" },
+    leaf: { label: "健康", icon: "🍃" },
+    calendar: { label: "周期", icon: "📅" },
+    note: { label: "记录", icon: "📝" },
+    check: { label: "完成", icon: "✅" },
+    warning: { label: "提醒", icon: "⚠️" },
+    star: { label: "重点", icon: "⭐" },
     default: { label: "通用", icon: "✨" }
   };
 
+  var ICON_CATEGORIES = [
+    {
+      label: "健康饮食",
+      keys: [
+        "carrot", "tomato", "broccoli", "leafyGreen", "corn", "sweetPotato", "mushroom", "garlic",
+        "onion", "potato", "avocado", "apple", "pear", "banana", "orange", "lemon", "watermelon",
+        "grape", "strawberry", "blueberry", "cherry", "peach", "mango", "pineapple", "coconut",
+        "kiwi", "fruit", "milk", "yogurt", "egg", "cheese", "tofu", "beans", "chicken", "fish",
+        "salmon", "shrimp", "rice", "oatmeal", "bread", "noodles", "nuts", "water", "tea", "salad", "soup"
+      ]
+    },
+    {
+      label: "运动打卡",
+      keys: [
+        "walk", "run", "cycling", "swimming", "jumpRope", "stretch", "yoga", "squat", "core",
+        "strength", "pushup", "plank", "climb", "hike", "dance", "rowing", "ski", "skating",
+        "basketball", "football", "tennis", "badminton", "tableTennis", "volleyball", "boxing"
+      ]
+    },
+    {
+      label: "放纵警告",
+      keys: [
+        "sleepLate", "friedFood", "sweetDrink", "midnightSnack", "alcohol", "wine", "cake", "candy",
+        "chocolate", "iceCream", "chips", "burger", "pizza", "hotpot", "barbecue", "instantNoodles",
+        "takeaway", "coffeeOver", "screenTime", "sedentary"
+      ]
+    },
+    {
+      label: "通用",
+      keys: [
+        "heart", "pulse", "scale", "sleep", "sun", "moon", "leaf", "calendar", "note", "check",
+        "warning", "star", "default"
+      ]
+    }
+  ];
+
   var titleIconMap = {
     胡萝卜: "carrot",
+    番茄: "tomato",
+    西兰花: "broccoli",
     牛奶: "milk",
+    酸奶: "yogurt",
     三文鱼: "salmon",
     蓝莓: "blueberry",
     鸡蛋: "egg",
     坚果: "nuts",
     水果补充: "fruit",
+    苹果: "apple",
+    香蕉: "banana",
+    猕猴桃: "kiwi",
     快走: "walk",
+    跑步: "run",
     拉伸: "stretch",
     骑行: "cycling",
     深蹲: "squat",
     核心训练: "core",
     上肢训练: "strength",
+    有氧运动: "run",
     熬夜: "sleepLate",
     油炸: "friedFood",
     甜饮料: "sweetDrink",
-    夜宵: "midnightSnack"
+    夜宵: "midnightSnack",
+    酒精: "alcohol",
+    刷屏: "screenTime",
+    久坐: "sedentary"
   };
 
   var positiveFilters = [
@@ -676,9 +808,8 @@
       infoRow("上次完成", formatLastPositive(status.lastCompletedAt, optionText)),
       infoRow("周期", card.recurrenceDays + "天"),
       infoRow("当前节奏", status.timingText),
-      infoRow("重要程度", level.label),
       "</div>",
-      "<span class=\"level-tag level-" + card.importance + "\">重要程度：" + level.label + "</span>",
+      "<span class=\"level-tag level-" + card.importance + "\">" + level.label + "</span>",
       card.note ? "<p class=\"card-note\">" + escapeHtml(card.note) + "</p>" : "",
       "<button class=\"health-action-button" + (disabled ? " is-disabled" : "") +
         "\" type=\"button\" data-checkin=\"" + card.id + "\" data-type=\"" + type + "\"" +
@@ -715,7 +846,7 @@
       infoRow("当前状态", status.timingText),
       infoRow("警告程度", risk.label),
       "</div>",
-      "<span class=\"level-tag level-" + card.riskLevel + "\">警告程度：" + risk.label + "</span>",
+      "<span class=\"level-tag level-" + card.riskLevel + "\">" + risk.label + "</span>",
       card.note ? "<p class=\"card-note\">" + escapeHtml(card.note) + "</p>" : "",
       "<button class=\"health-action-button\" type=\"button\" data-indulgence=\"" + card.id + "\">记录一次</button>",
       "</article>"
@@ -1160,10 +1291,13 @@
   }
 
   function iconOptionsMarkup(selected) {
-    return Object.keys(ICON_REGISTRY).map(function (key) {
-      var icon = ICON_REGISTRY[key];
-      return "<option value=\"" + key + "\"" + (selected === key ? " selected" : "") + ">" +
-        icon.icon + " " + icon.label + "</option>";
+    return ICON_CATEGORIES.map(function (category) {
+      var options = category.keys.map(function (key) {
+        var icon = getIcon(key);
+        return "<option value=\"" + key + "\"" + (selected === key ? " selected" : "") + ">" +
+          icon.icon + " " + icon.label + "</option>";
+      }).join("");
+      return "<optgroup label=\"" + category.label + "\">" + options + "</optgroup>";
     }).join("");
   }
 
@@ -1304,5 +1438,6 @@
     resetForm();
     render();
     console.log("[Personal_Web] 健康管理 V1 已加载，数据版本：", state.version);
+    console.log("[Personal_Web] 健康管理内置图标分类数量：", ICON_CATEGORIES.length);
   });
 })();
