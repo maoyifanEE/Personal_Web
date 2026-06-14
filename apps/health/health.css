@@ -89,10 +89,10 @@ body[data-page="health-v1"] {
 .ghost-button,
 .secondary-small-button {
   min-height: 38px;
-  border: 1px solid var(--health-line);
+  border: 1px solid rgba(31, 44, 43, 0.26);
   border-radius: 999px;
   color: var(--health-ink);
-  background: rgba(255, 255, 255, 0.62);
+  background: #f7f0e6;
   font-weight: 750;
   text-decoration: none;
 }
@@ -238,8 +238,9 @@ body[data-page="health-v1"] {
 
 .filter-chip {
   padding: 8px 12px;
-  color: var(--health-muted);
-  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(31, 44, 43, 0.16);
+  color: var(--health-ink);
+  background: #f4eee3;
 }
 
 .filter-chip.is-active {
@@ -380,12 +381,14 @@ body[data-page="health-v1"] {
   min-height: 44px;
   padding: 10px 14px;
   color: #ffffff;
-  background: var(--card-accent);
+  background: var(--card-accent, var(--diet-accent));
 }
 
 .health-action-button.is-disabled {
   cursor: default;
-  opacity: 0.62;
+  color: rgba(31, 44, 43, 0.72);
+  background: #dfe8df;
+  opacity: 1;
 }
 
 .health-card.is-completed {
@@ -507,16 +510,10 @@ body[data-page="health-v1"] {
   justify-content: flex-end;
 }
 
-.drawer-add-button {
-  min-height: 42px;
-  border-color: rgba(32, 168, 127, 0.24);
-  background: rgba(232, 248, 240, 0.86);
-}
-
 .icon-button {
   width: 42px;
   color: var(--health-ink);
-  background: rgba(255, 255, 255, 0.7);
+  background: #efe6d8;
   font-size: 24px;
 }
 
@@ -580,25 +577,6 @@ body[data-page="health-v1"] {
   border: 1px solid var(--health-line);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.66);
-}
-
-.manager-form-heading {
-  position: sticky;
-  z-index: 2;
-  top: -18px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 0 0 12px;
-  border-bottom: 1px solid rgba(32, 168, 127, 0.12);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-}
-
-.compact-submit-button {
-  min-width: 112px;
-  white-space: nowrap;
 }
 
 .manager-form label {
