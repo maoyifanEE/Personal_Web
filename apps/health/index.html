@@ -21,7 +21,7 @@
           <p class="health-kicker">Personal_Web / 本地原型</p>
           <h1 id="health-title">健康管理</h1>
           <p>
-            把饮食、运动与放纵节奏放在一个页面里统一管理
+            把饮食、运动与放纵节奏放在一个页面里统一管理。
           </p>
           <nav class="health-nav" aria-label="页面导航">
             <a href="../../hub.html">返回私人工具中心</a>
@@ -42,7 +42,7 @@
             <span class="section-icon" aria-hidden="true">🥗</span>
             <div>
               <h2 id="diet-title">健康饮食</h2>
-              <p>均衡营养，规律饮食，吃出健康好状态</p>
+              <p>均衡营养，规律饮食，吃出健康好状态。</p>
             </div>
           </div>
           <div class="section-tools">
@@ -63,7 +63,7 @@
             <span class="section-icon" aria-hidden="true">🏃</span>
             <div>
               <h2 id="exercise-title">运动打卡</h2>
-              <p>坚持运动，强健体魄，收获更好的自己</p>
+              <p>坚持运动，强健体魄，收获更好的自己。</p>
             </div>
           </div>
           <div class="section-tools">
@@ -84,7 +84,7 @@
             <span class="section-icon" aria-hidden="true">⚠️</span>
             <div>
               <h2 id="indulgence-title">放纵警告</h2>
-              <p>允许偶尔放松，但不要让放纵打乱身体节奏</p>
+              <p>允许偶尔放松，但不要让放纵打乱身体节奏。</p>
             </div>
           </div>
           <div class="section-tools">
@@ -101,7 +101,7 @@
           请不要录入真实隐私健康数据。
         </p>
         <button class="ghost-button" type="button" id="reset-data-button">
-          重置为演示数据
+          重置示例数据
         </button>
       </section>
     </main>
@@ -138,7 +138,16 @@
 
           <label>
             图标
-            <input id="card-icon-field" name="icon" type="text" required maxlength="4">
+            <select id="card-icon-field" name="iconKey" required></select>
+          </label>
+          <div class="icon-preview" id="icon-preview" aria-live="polite"></div>
+
+          <label id="mode-field-wrap">
+            类型
+            <select id="mode-field" name="mode">
+              <option value="single">单项</option>
+              <option value="series">同系列</option>
+            </select>
           </label>
 
           <label id="recurrence-field-wrap">
@@ -151,11 +160,6 @@
             <input id="gap-field" name="recommendedGapDays" type="number" min="1" max="365">
           </label>
 
-          <label id="limit-field-wrap" hidden>
-            近30天建议上限
-            <input id="limit-field" name="monthlySoftLimit" type="number" min="1" max="99">
-          </label>
-
           <label id="importance-field-wrap">
             重要程度
             <select id="importance-field" name="importance">
@@ -166,13 +170,22 @@
           </label>
 
           <label id="risk-field-wrap" hidden>
-            风险等级
+            警告程度
             <select id="risk-field" name="riskLevel">
-              <option value="high">高风险</option>
-              <option value="medium">中风险</option>
-              <option value="low">低风险</option>
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
             </select>
           </label>
+
+          <section class="series-editor" id="series-editor" hidden aria-label="同系列选项编辑">
+            <div class="series-editor-header">
+              <h4>同系列选项</h4>
+              <button class="secondary-small-button" type="button" id="add-option-button">新增选项</button>
+            </div>
+            <p>同系列卡片至少保留一个选项，任选其一即可完成当前周期。</p>
+            <div class="series-option-list" id="series-option-list"></div>
+          </section>
 
           <label>
             备注（可选）
@@ -191,5 +204,28 @@
         </form>
       </div>
     </aside>
+
+    <div class="drawer-backdrop" id="series-backdrop" hidden></div>
+    <section class="series-dialog" id="series-dialog" aria-labelledby="series-dialog-title" hidden>
+      <div class="series-dialog-panel">
+        <header class="drawer-header">
+          <div>
+            <p class="drawer-kicker">同系列打卡</p>
+            <h2 id="series-dialog-title">这次完成了什么？</h2>
+          </div>
+          <button class="icon-button" type="button" id="series-close-button" aria-label="关闭同系列打卡">
+            ×
+          </button>
+        </header>
+        <div class="series-dialog-body">
+          <p id="series-dialog-copy">选择一个完成项，它会满足整张卡片的当前周期。</p>
+          <div class="series-choice-grid" id="series-choice-grid"></div>
+          <div class="form-actions">
+            <button class="primary-action-button" type="button" id="series-confirm-button">确认打卡</button>
+            <button class="ghost-button" type="button" id="series-cancel-button">取消</button>
+          </div>
+        </div>
+      </div>
+    </section>
   </body>
 </html>

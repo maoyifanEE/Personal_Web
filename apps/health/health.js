@@ -2,23 +2,71 @@
   "use strict";
 
   var STORAGE_KEY = "personal_web_health_v1";
+  var STORAGE_VERSION = 2;
   var state = null;
   var currentManagerType = null;
+  var pendingSeriesCheckin = null;
+  var selectedSeriesOptionId = null;
+
+  var ICON_REGISTRY = {
+    carrot: { label: "胡萝卜", icon: "🥕" },
+    milk: { label: "牛奶", icon: "🥛" },
+    salmon: { label: "三文鱼", icon: "🍣" },
+    blueberry: { label: "蓝莓", icon: "🫐" },
+    egg: { label: "鸡蛋", icon: "🥚" },
+    nuts: { label: "坚果", icon: "🥜" },
+    apple: { label: "苹果", icon: "🍎" },
+    banana: { label: "香蕉", icon: "🍌" },
+    kiwi: { label: "猕猴桃", icon: "🥝" },
+    fruit: { label: "水果", icon: "🍎" },
+    walk: { label: "快走", icon: "🚶" },
+    cycling: { label: "骑行", icon: "🚴" },
+    jumpRope: { label: "跳绳", icon: "🪢" },
+    stretch: { label: "拉伸", icon: "🤸" },
+    squat: { label: "深蹲", icon: "🏋️" },
+    core: { label: "核心训练", icon: "🧘" },
+    strength: { label: "力量训练", icon: "💪" },
+    sleepLate: { label: "熬夜", icon: "🌙" },
+    friedFood: { label: "油炸", icon: "🍟" },
+    sweetDrink: { label: "甜饮料", icon: "🧋" },
+    midnightSnack: { label: "夜宵", icon: "🌭" },
+    default: { label: "通用", icon: "✨" }
+  };
+
+  var titleIconMap = {
+    胡萝卜: "carrot",
+    牛奶: "milk",
+    三文鱼: "salmon",
+    蓝莓: "blueberry",
+    鸡蛋: "egg",
+    坚果: "nuts",
+    水果补充: "fruit",
+    快走: "walk",
+    拉伸: "stretch",
+    骑行: "cycling",
+    深蹲: "squat",
+    核心训练: "core",
+    上肢训练: "strength",
+    熬夜: "sleepLate",
+    油炸: "friedFood",
+    甜饮料: "sweetDrink",
+    夜宵: "midnightSnack"
+  };
 
   var positiveFilters = [
     { key: "all", label: "全部" },
-    { key: "todayPriority", label: "今日优先" },
-    { key: "dueSoon", label: "即将到期" },
-    { key: "overdue", label: "已逾期" },
-    { key: "completedToday", label: "今日已完成" }
+    { key: "uncompleted", label: "未打卡" },
+    { key: "completed", label: "已打卡" },
+    { key: "overdue", label: "已逾期" }
   ];
 
   var indulgenceFilters = [
     { key: "all", label: "全部" },
-    { key: "cooling", label: "冷却中" },
-    { key: "almostRecovered", label: "接近恢复" },
-    { key: "allowedCautious", label: "可接受" },
-    { key: "monthlyWarning", label: "月度偏多" }
+    { key: "excellent", label: "很好" },
+    { key: "acceptable", label: "可接受" },
+    { key: "slightlyHigh", label: "略多" },
+    { key: "tooMany", label: "偏多" },
+    { key: "cooling", label: "冷却中" }
   ];
 
   var sectionConfig = {
@@ -28,9 +76,7 @@
       filterKey: "dietFilter",
       accent: "#20a87f",
       label: "健康饮食",
-      lastLabel: "上次吃",
-      actionDone: "今日已打卡",
-      actionDefault: "立即打卡"
+      lastLabel: "上次完成"
     },
     exercise: {
       listKey: "exerciseCards",
@@ -38,9 +84,7 @@
       filterKey: "exerciseFilter",
       accent: "#3d78d8",
       label: "运动打卡",
-      lastLabel: "上次打卡",
-      actionDone: "今日已完成",
-      actionDefault: "完成打卡"
+      lastLabel: "上次完成"
     },
     indulgence: {
       listKey: "indulgenceCards",
@@ -62,6 +106,18 @@
     return year + "-" + month + "-" + day;
   }
 
+  function toLocalTimestamp(date) {
+    return [
+      toIsoDate(date),
+      "T",
+      String(date.getHours()).padStart(2, "0"),
+      ":",
+      String(date.getMinutes()).padStart(2, "0"),
+      ":",
+      String(date.getSeconds()).padStart(2, "0")
+    ].join("");
+  }
+
   function daysAgo(days) {
     var date = new Date();
     date.setHours(0, 0, 0, 0);
@@ -69,49 +125,94 @@
     return toIsoDate(date);
   }
 
+  function timestampAgo(days, hour) {
+    var date = new Date();
+    date.setDate(date.getDate() - days);
+    date.setHours(hour || 12, 0, 0, 0);
+    return toLocalTimestamp(date);
+  }
+
   function parseIsoDate(value) {
-    var parts = value.split("-").map(Number);
+    var dateOnly = String(value || "").slice(0, 10);
+    var parts = dateOnly.split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) {
+      return null;
+    }
     return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  function parseTimestamp(value) {
+    if (!value) {
+      return null;
+    }
+    var date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      return date;
+    }
+    return parseIsoDate(value);
   }
 
   function fullDaysBetween(fromIso, toIso) {
     var from = parseIsoDate(fromIso);
     var to = parseIsoDate(toIso);
+    if (!from || !to) {
+      return 0;
+    }
     return Math.floor((to - from) / 86400000);
   }
 
-  function latestDate(history) {
-    if (!history || history.length === 0) {
-      return null;
-    }
+  function getIcon(iconKey) {
+    return ICON_REGISTRY[iconKey] || ICON_REGISTRY.default;
+  }
 
-    return history.slice().sort().pop();
+  function iconKeyForTitle(title, fallback) {
+    return titleIconMap[title] || fallback || "default";
   }
 
   function makeSeedData() {
     return {
-      version: 1,
+      version: STORAGE_VERSION,
       dietCards: [
-        createPositiveSeed("diet-carrot", "diet", "胡萝卜", "🥕", "high", 7, [daysAgo(6)], 1),
-        createPositiveSeed("diet-milk", "diet", "牛奶", "🥛", "medium", 2, [daysAgo(1)], 2),
-        createPositiveSeed("diet-salmon", "diet", "三文鱼", "🍣", "high", 5, [daysAgo(3)], 3),
-        createPositiveSeed("diet-blueberry", "diet", "蓝莓", "🫐", "low", 4, [todayIso()], 4),
-        createPositiveSeed("diet-egg", "diet", "鸡蛋", "🥚", "medium", 3, [daysAgo(2)], 5),
-        createPositiveSeed("diet-nuts", "diet", "坚果", "🥜", "medium", 3, [daysAgo(5)], 6)
+        createPositiveSeed("diet-carrot", "diet", "胡萝卜", "carrot", "high", 7, [completion(daysAgo(6))], 1),
+        createPositiveSeed("diet-milk", "diet", "牛奶", "milk", "medium", 2, [completion(daysAgo(1))], 2),
+        createPositiveSeed("diet-salmon", "diet", "三文鱼", "salmon", "high", 5, [completion(daysAgo(3))], 3),
+        createPositiveSeed("diet-fruit", "diet", "水果补充", "fruit", "medium", 2, [
+          completion(daysAgo(2), "banana")
+        ], 4, {
+          mode: "series",
+          options: [
+            { id: "apple", label: "苹果", iconKey: "apple" },
+            { id: "banana", label: "香蕉", iconKey: "banana" },
+            { id: "kiwi", label: "猕猴桃", iconKey: "kiwi" },
+            { id: "blueberry", label: "蓝莓", iconKey: "blueberry" }
+          ]
+        }),
+        createPositiveSeed("diet-nuts", "diet", "坚果", "nuts", "medium", 3, [completion(daysAgo(5))], 5)
       ],
       exerciseCards: [
-        createPositiveSeed("exercise-walk", "exercise", "快走", "🚶", "medium", 1, [daysAgo(1)], 1),
-        createPositiveSeed("exercise-stretch", "exercise", "拉伸", "🤸", "low", 2, [daysAgo(1)], 2),
-        createPositiveSeed("exercise-bike", "exercise", "骑行", "🚴", "high", 3, [daysAgo(4)], 3),
-        createPositiveSeed("exercise-squat", "exercise", "深蹲", "🏋️", "medium", 3, [daysAgo(2)], 4),
-        createPositiveSeed("exercise-core", "exercise", "核心训练", "🧘", "high", 2, [todayIso()], 5),
-        createPositiveSeed("exercise-upper", "exercise", "上肢训练", "💪", "medium", 4, [daysAgo(5)], 6)
+        createPositiveSeed("exercise-walk", "exercise", "快走", "walk", "medium", 1, [completion(daysAgo(1))], 1),
+        createPositiveSeed("exercise-stretch", "exercise", "拉伸", "stretch", "low", 2, [completion(daysAgo(1))], 2),
+        createPositiveSeed("exercise-bike", "exercise", "骑行", "cycling", "high", 3, [completion(daysAgo(4))], 3),
+        createPositiveSeed("exercise-core", "exercise", "核心训练", "core", "high", 2, [completion(todayIso())], 4),
+        createPositiveSeed("exercise-upper", "exercise", "上肢训练", "strength", "medium", 4, [completion(daysAgo(5))], 5)
       ],
       indulgenceCards: [
-        createIndulgenceSeed("indulgence-late", "熬夜", "🌙", "high", 7, [daysAgo(2)], 4, 1),
-        createIndulgenceSeed("indulgence-fried", "油炸", "🍟", "high", 10, [daysAgo(11)], 3, 2),
-        createIndulgenceSeed("indulgence-drink", "甜饮料", "🧋", "medium", 5, [daysAgo(4)], 5, 3),
-        createIndulgenceSeed("indulgence-night", "夜宵", "🌭", "medium", 7, [todayIso()], 4, 4)
+        createIndulgenceSeed("indulgence-late", "熬夜", "sleepLate", "high", 7, [
+          event(timestampAgo(2, 1)),
+          event(timestampAgo(8, 1))
+        ], 1),
+        createIndulgenceSeed("indulgence-fried", "油炸", "friedFood", "high", 10, [
+          event(timestampAgo(12, 12))
+        ], 2),
+        createIndulgenceSeed("indulgence-drink", "甜饮料", "sweetDrink", "medium", 5, [
+          event(timestampAgo(5, 14)),
+          event(timestampAgo(10, 14))
+        ], 3),
+        createIndulgenceSeed("indulgence-night", "夜宵", "midnightSnack", "medium", 7, [
+          event(timestampAgo(8, 23)),
+          event(timestampAgo(9, 23)),
+          event(timestampAgo(10, 23))
+        ], 4)
       ],
       uiPrefs: {
         dietFilter: "all",
@@ -121,12 +222,27 @@
     };
   }
 
-  function createPositiveSeed(id, type, title, icon, importance, recurrenceDays, history, order) {
+  function completion(date, optionId) {
     return {
+      completedAt: date,
+      optionId: optionId || null
+    };
+  }
+
+  function event(occurredAt) {
+    return {
+      occurredAt: occurredAt
+    };
+  }
+
+  function createPositiveSeed(id, type, title, iconKey, importance, recurrenceDays, history, order, extra) {
+    var card = {
       id: id,
       type: type,
       title: title,
-      icon: icon,
+      iconKey: iconKey,
+      mode: "single",
+      options: [],
       importance: importance,
       recurrenceDays: recurrenceDays,
       checkinHistory: history,
@@ -134,18 +250,18 @@
       sortOrder: order,
       note: ""
     };
+    return Object.assign(card, extra || {});
   }
 
-  function createIndulgenceSeed(id, title, icon, riskLevel, gapDays, history, limit, order) {
+  function createIndulgenceSeed(id, title, iconKey, riskLevel, gapDays, history, order) {
     return {
       id: id,
       type: "indulgence",
       title: title,
-      icon: icon,
+      iconKey: iconKey,
       riskLevel: riskLevel,
       recommendedGapDays: gapDays,
       eventHistory: history,
-      monthlySoftLimit: limit,
       active: true,
       sortOrder: order,
       note: ""
@@ -156,180 +272,296 @@
     var raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
       state = makeSeedData();
-      saveState();
+      saveState("首次加载，写入示例数据");
       return;
     }
 
     try {
-      state = JSON.parse(raw);
+      state = migrateState(JSON.parse(raw));
+      saveState("本地数据加载并迁移完成");
     } catch (error) {
-      console.warn("[Personal_Web] health storage parse failed, resetting.", error);
+      console.warn("[Personal_Web] 健康管理本地数据迁移失败，已重置为示例数据。", error);
       state = makeSeedData();
-      saveState();
+      saveState("迁移失败后重置示例数据");
     }
   }
 
-  function saveState() {
+  function migrateState(input) {
+    var seed = makeSeedData();
+    var migrated = {
+      version: STORAGE_VERSION,
+      dietCards: migratePositiveCards(input.dietCards, "diet", seed.dietCards),
+      exerciseCards: migratePositiveCards(input.exerciseCards, "exercise", seed.exerciseCards),
+      indulgenceCards: migrateIndulgenceCards(input.indulgenceCards, seed.indulgenceCards),
+      uiPrefs: migrateUiPrefs(input.uiPrefs)
+    };
+    console.log("[Personal_Web] 健康管理数据版本", input.version || 1, "->", STORAGE_VERSION);
+    return migrated;
+  }
+
+  function migrateUiPrefs(uiPrefs) {
+    var prefs = uiPrefs || {};
+    return {
+      dietFilter: normalizeFilter(prefs.dietFilter, positiveFilters),
+      exerciseFilter: normalizeFilter(prefs.exerciseFilter, positiveFilters),
+      indulgenceFilter: normalizeFilter(prefs.indulgenceFilter, indulgenceFilters)
+    };
+  }
+
+  function normalizeFilter(value, filters) {
+    if (filters.some(function (filter) { return filter.key === value; })) {
+      return value;
+    }
+    return "all";
+  }
+
+  function migratePositiveCards(cards, type, fallback) {
+    if (!Array.isArray(cards) || cards.length === 0) {
+      return fallback;
+    }
+    return cards.map(function (card, index) {
+      var title = safeText(card.title, fallback[index] && fallback[index].title || "新卡片");
+      var mode = card.mode === "series" ? "series" : "single";
+      var iconKey = card.iconKey || iconKeyForTitle(title, fallback[index] && fallback[index].iconKey);
+      var options = Array.isArray(card.options) ? card.options.map(migrateSeriesOption).filter(Boolean) : [];
+      if (mode === "series" && options.length === 0) {
+        options = [
+          { id: "default-option", label: title, iconKey: iconKey }
+        ];
+      }
+      return {
+        id: safeText(card.id, type + "-" + Date.now() + "-" + index),
+        type: type,
+        title: title,
+        iconKey: iconKey,
+        mode: mode,
+        options: options,
+        importance: normalizeLevel(card.importance, "medium"),
+        recurrenceDays: toPositiveInteger(card.recurrenceDays, 3),
+        checkinHistory: migrateCheckinHistory(card.checkinHistory),
+        active: card.active !== false,
+        sortOrder: toPositiveInteger(card.sortOrder, index + 1),
+        note: safeText(card.note, "")
+      };
+    });
+  }
+
+  function migrateSeriesOption(option, index) {
+    if (!option) {
+      return null;
+    }
+    var label = safeText(option.label, "选项");
+    return {
+      id: safeText(option.id, "option-" + index + "-" + Date.now()),
+      label: label,
+      iconKey: option.iconKey || iconKeyForTitle(label, "default")
+    };
+  }
+
+  function migrateCheckinHistory(history) {
+    if (!Array.isArray(history)) {
+      return [];
+    }
+    return history.map(function (item) {
+      if (typeof item === "string") {
+        return completion(item.slice(0, 10));
+      }
+      if (item && item.completedAt) {
+        return completion(String(item.completedAt).slice(0, 10), item.optionId || null);
+      }
+      return null;
+    }).filter(Boolean);
+  }
+
+  function migrateIndulgenceCards(cards, fallback) {
+    if (!Array.isArray(cards) || cards.length === 0) {
+      return fallback;
+    }
+    return cards.map(function (card, index) {
+      var title = safeText(card.title, fallback[index] && fallback[index].title || "放纵项");
+      return {
+        id: safeText(card.id, "indulgence-" + Date.now() + "-" + index),
+        type: "indulgence",
+        title: title,
+        iconKey: card.iconKey || iconKeyForTitle(title, fallback[index] && fallback[index].iconKey),
+        riskLevel: normalizeLevel(card.riskLevel, "medium"),
+        recommendedGapDays: toPositiveInteger(card.recommendedGapDays, 7),
+        eventHistory: migrateEventHistory(card.eventHistory),
+        active: card.active !== false,
+        sortOrder: toPositiveInteger(card.sortOrder, index + 1),
+        note: safeText(card.note, "")
+      };
+    });
+  }
+
+  function migrateEventHistory(history) {
+    if (!Array.isArray(history)) {
+      return [];
+    }
+    return history.map(function (item) {
+      if (typeof item === "string") {
+        return event(item.length > 10 ? item : item + "T12:00:00");
+      }
+      if (item && item.occurredAt) {
+        return event(String(item.occurredAt));
+      }
+      return null;
+    }).filter(Boolean);
+  }
+
+  function saveState(reason) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (reason) {
+      console.log("[Personal_Web] 健康管理本地数据已保存：", reason);
+    }
   }
 
   function calculatePositiveStatus(card) {
-    var today = todayIso();
-    var lastCompletedAt = latestDate(card.checkinHistory);
-    if (!lastCompletedAt) {
+    var latest = latestCompletion(card.checkinHistory);
+    if (!latest) {
       return {
-        status: "dueToday",
-        label: "今天需要完成",
+        status: "uncompleted",
+        label: "未打卡",
         lastCompletedAt: null,
-        timingText: "今天需要完成"
+        lastCompletedOption: null,
+        daysSinceLast: null,
+        daysUntilDue: 0,
+        overdueDays: 0,
+        timingText: "今天该打卡"
       };
     }
 
-    if (lastCompletedAt === today) {
-      return {
-        status: "completedToday",
-        label: "今日已完成",
-        lastCompletedAt: lastCompletedAt,
-        daysSinceLast: 0,
-        daysUntilDue: card.recurrenceDays,
-        timingText: "今天已完成"
-      };
-    }
-
-    var daysSinceLast = fullDaysBetween(lastCompletedAt, today);
+    var daysSinceLast = fullDaysBetween(latest.completedAt, todayIso());
     var daysUntilDue = card.recurrenceDays - daysSinceLast;
-    var upcomingWindowDays = Math.max(1, Math.ceil(card.recurrenceDays * 0.25));
-
-    if (daysUntilDue < 0) {
+    if (daysSinceLast < card.recurrenceDays) {
       return {
-        status: "overdue",
-        label: "已逾期 " + Math.abs(daysUntilDue) + " 天",
-        lastCompletedAt: lastCompletedAt,
+        status: "completed",
+        label: "已完成",
+        lastCompletedAt: latest.completedAt,
+        lastCompletedOption: latest.optionId || null,
         daysSinceLast: daysSinceLast,
         daysUntilDue: daysUntilDue,
-        timingText: "已逾期 " + Math.abs(daysUntilDue) + " 天"
+        overdueDays: 0,
+        timingText: daysUntilDue > 0 ? "还剩 " + daysUntilDue + " 天" : "已完成"
       };
     }
 
-    if (daysUntilDue === 0) {
+    if (daysSinceLast === card.recurrenceDays) {
       return {
-        status: "dueToday",
-        label: "今天需要完成",
-        lastCompletedAt: lastCompletedAt,
+        status: "uncompleted",
+        label: "未打卡",
+        lastCompletedAt: latest.completedAt,
+        lastCompletedOption: latest.optionId || null,
         daysSinceLast: daysSinceLast,
-        daysUntilDue: daysUntilDue,
-        timingText: "今天需要完成"
-      };
-    }
-
-    if (daysUntilDue >= 1 && daysUntilDue <= upcomingWindowDays) {
-      return {
-        status: "dueSoon",
-        label: "即将到期",
-        lastCompletedAt: lastCompletedAt,
-        daysSinceLast: daysSinceLast,
-        daysUntilDue: daysUntilDue,
-        timingText: "距离下次还剩 " + daysUntilDue + " 天"
+        daysUntilDue: 0,
+        overdueDays: 0,
+        timingText: "今天该打卡"
       };
     }
 
     return {
-      status: "normal",
-      label: "正常",
-      lastCompletedAt: lastCompletedAt,
+      status: "overdue",
+      label: "已逾期 " + (daysSinceLast - card.recurrenceDays) + " 天",
+      lastCompletedAt: latest.completedAt,
+      lastCompletedOption: latest.optionId || null,
       daysSinceLast: daysSinceLast,
       daysUntilDue: daysUntilDue,
-      timingText: "距离下次还剩 " + daysUntilDue + " 天"
+      overdueDays: daysSinceLast - card.recurrenceDays,
+      timingText: "已逾期 " + (daysSinceLast - card.recurrenceDays) + " 天"
     };
+  }
+
+  function latestCompletion(history) {
+    if (!Array.isArray(history) || history.length === 0) {
+      return null;
+    }
+    return history.slice().sort(function (a, b) {
+      return String(a.completedAt).localeCompare(String(b.completedAt));
+    }).pop();
   }
 
   function calculateIndulgenceStatus(card) {
-    var today = todayIso();
-    var lastOccurredAt = latestDate(card.eventHistory);
-    var recent30dCount = countRecentDays(card.eventHistory, 30);
-
-    if (!lastOccurredAt) {
+    var last = latestEvent(card.eventHistory);
+    var recent14dCount = countRecentEvents(card.eventHistory, 14);
+    if (!last) {
       return {
-        status: "allowedCautious",
-        label: "可接受",
+        status: "excellent",
+        label: "很好",
         lastOccurredAt: null,
-        recent30dCount: recent30dCount,
-        timingText: "今天起可接受"
+        daysSinceLast: null,
+        daysUntilAllowed: 0,
+        recent14dCount: 0,
+        timingText: "当前很好",
+        severityClass: "severity-green"
       };
     }
 
-    var daysSinceLast = fullDaysBetween(lastOccurredAt, today);
+    var daysSinceLast = fullDaysBetween(toIsoDate(parseTimestamp(last.occurredAt)), todayIso());
     var daysUntilAllowed = card.recommendedGapDays - daysSinceLast;
 
-    if (lastOccurredAt === today) {
-      return {
-        status: "justOccurred",
-        label: "刚发生",
-        lastOccurredAt: lastOccurredAt,
-        daysSinceLast: 0,
-        daysUntilAllowed: card.recommendedGapDays,
-        recent30dCount: recent30dCount,
-        timingText: "建议继续克制"
-      };
+    if (recent14dCount === 0) {
+      return indulgenceResult("excellent", "很好", last, daysSinceLast, daysUntilAllowed, recent14dCount, "当前很好", "severity-green");
     }
 
-    if (daysUntilAllowed > 2) {
-      return {
-        status: "cooling",
-        label: "冷却中",
-        lastOccurredAt: lastOccurredAt,
-        daysSinceLast: daysSinceLast,
-        daysUntilAllowed: daysUntilAllowed,
-        recent30dCount: recent30dCount,
-        timingText: "还需 " + daysUntilAllowed + " 天"
-      };
+    if (daysUntilAllowed > 0) {
+      var severity = recent14dCount >= 3 ? "severity-red" : recent14dCount === 2 ? "severity-orange" : "severity-yellow";
+      return indulgenceResult("cooling", "冷却中，还需 " + daysUntilAllowed + " 天", last, daysSinceLast, daysUntilAllowed, recent14dCount, "还需 " + daysUntilAllowed + " 天", severity);
     }
 
-    if (daysUntilAllowed >= 1 && daysUntilAllowed <= 2) {
-      return {
-        status: "almostRecovered",
-        label: "接近恢复",
-        lastOccurredAt: lastOccurredAt,
-        daysSinceLast: daysSinceLast,
-        daysUntilAllowed: daysUntilAllowed,
-        recent30dCount: recent30dCount,
-        timingText: "还需 " + daysUntilAllowed + " 天"
-      };
+    if (recent14dCount === 1) {
+      return indulgenceResult("acceptable", "可接受", last, daysSinceLast, daysUntilAllowed, recent14dCount, "可接受", "severity-green");
     }
 
-    if (daysUntilAllowed <= 0 && recent30dCount <= card.monthlySoftLimit) {
-      return {
-        status: "allowedCautious",
-        label: "可接受",
-        lastOccurredAt: lastOccurredAt,
-        daysSinceLast: daysSinceLast,
-        daysUntilAllowed: daysUntilAllowed,
-        recent30dCount: recent30dCount,
-        timingText: "今天起可接受"
-      };
+    if (recent14dCount === 2) {
+      return indulgenceResult("slightlyHigh", "略多", last, daysSinceLast, daysUntilAllowed, recent14dCount, "建议放慢节奏", "severity-orange");
     }
 
+    return indulgenceResult("tooMany", "偏多", last, daysSinceLast, daysUntilAllowed, recent14dCount, "建议继续克制", "severity-red");
+  }
+
+  function indulgenceResult(status, label, last, daysSinceLast, daysUntilAllowed, recent14dCount, timingText, severityClass) {
     return {
-      status: "monthlyWarning",
-      label: "月度偏多",
-      lastOccurredAt: lastOccurredAt,
+      status: status,
+      label: label,
+      lastOccurredAt: last.occurredAt,
       daysSinceLast: daysSinceLast,
       daysUntilAllowed: daysUntilAllowed,
-      recent30dCount: recent30dCount,
-      timingText: "建议继续克制"
+      recent14dCount: recent14dCount,
+      timingText: timingText,
+      severityClass: severityClass
     };
   }
 
-  function countRecentDays(history, days) {
-    var today = todayIso();
-    return (history || []).filter(function (item) {
-      return fullDaysBetween(item, today) <= days;
+  function latestEvent(history) {
+    if (!Array.isArray(history) || history.length === 0) {
+      return null;
+    }
+    return history.slice().sort(function (a, b) {
+      return parseTimestamp(a.occurredAt) - parseTimestamp(b.occurredAt);
+    }).pop();
+  }
+
+  function countRecentEvents(history, days) {
+    if (!Array.isArray(history)) {
+      return 0;
+    }
+    var now = new Date();
+    var windowMs = days * 86400000;
+    return history.filter(function (item) {
+      var occurredAt = parseTimestamp(item.occurredAt);
+      if (!occurredAt) {
+        return false;
+      }
+      var diff = now - occurredAt;
+      return diff >= 0 && diff <= windowMs;
     }).length;
   }
 
   function render() {
-    renderFilters();
     renderSummary();
+    renderFilters("diet", positiveFilters);
+    renderFilters("exercise", positiveFilters);
+    renderFilters("indulgence", indulgenceFilters);
     renderSection("diet");
     renderSection("exercise");
     renderSection("indulgence");
@@ -345,71 +577,56 @@
     var metrics = [
       {
         icon: "📌",
-        title: "今日待完成",
+        title: "待打卡",
         value: positiveStatuses.filter(function (item) {
-          return item.status === "dueToday" || item.status === "overdue";
+          return item.status === "uncompleted" || item.status === "overdue";
         }).length,
-        text: "需要今天处理的饮食或运动卡片"
-      },
-      {
-        icon: "⏳",
-        title: "即将到期",
-        value: positiveStatuses.filter(hasStatus("dueSoon")).length,
-        text: "已经进入提醒窗口的健康习惯"
-      },
-      {
-        icon: "✅",
-        title: "今日已完成",
-        value: positiveStatuses.filter(hasStatus("completedToday")).length,
-        text: "今天已经打卡完成的项目"
+        text: "当前周期需要处理的饮食或运动卡片"
       },
       {
         icon: "🔥",
         title: "已逾期",
-        value: positiveStatuses.filter(hasStatus("overdue")).length,
+        value: positiveStatuses.filter(function (item) { return item.status === "overdue"; }).length,
         text: "超过各自周期的卡片数量"
+      },
+      {
+        icon: "✅",
+        title: "已完成",
+        value: positiveStatuses.filter(function (item) { return item.status === "completed"; }).length,
+        text: "当前周期已经满足的项目"
       },
       {
         icon: "⚠️",
         title: "放纵警告",
         value: indulgenceStatuses.filter(function (item) {
-          return ["justOccurred", "cooling", "monthlyWarning"].includes(item.status);
+          return item.status === "cooling" || item.status === "slightlyHigh" || item.status === "tooMany";
         }).length,
-        text: "需要保持克制或关注节奏的项目"
+        text: "近两周需要关注节奏的项目"
+      },
+      {
+        icon: "💾",
+        title: "本地保存",
+        value: "已保存",
+        text: "数据仅保存在当前浏览器"
       }
     ];
 
-    var summary = document.getElementById("summary-grid");
-    summary.innerHTML = metrics.map(function (metric) {
+    document.getElementById("summary-grid").innerHTML = metrics.map(function (metric) {
       return [
         "<article class=\"summary-card\">",
         "<span class=\"summary-icon\" aria-hidden=\"true\">" + metric.icon + "</span>",
-        "<h2>" + metric.title + "</h2>",
-        "<strong>" + metric.value + "</strong>",
-        "<p>" + metric.text + "</p>",
+        "<div><p>" + metric.title + "</p><strong>" + metric.value + "</strong><span>" + metric.text + "</span></div>",
         "</article>"
       ].join("");
     }).join("");
   }
 
-  function hasStatus(status) {
-    return function (item) {
-      return item.status === status;
-    };
-  }
-
-  function renderFilters() {
-    renderFilterGroup("diet", positiveFilters);
-    renderFilterGroup("exercise", positiveFilters);
-    renderFilterGroup("indulgence", indulgenceFilters);
-  }
-
-  function renderFilterGroup(type, filters) {
+  function renderFilters(type, filters) {
     var config = sectionConfig[type];
-    var wrap = document.querySelector("[data-filter-group=\"" + type + "\"]");
-    var current = state.uiPrefs[config.filterKey] || "all";
-    wrap.innerHTML = filters.map(function (filter) {
-      var active = filter.key === current ? " is-active" : "";
+    var activeFilter = state.uiPrefs[config.filterKey] || "all";
+    var container = document.querySelector("[data-filter-group=\"" + type + "\"]");
+    container.innerHTML = filters.map(function (filter) {
+      var active = filter.key === activeFilter ? " is-active" : "";
       return "<button class=\"filter-chip" + active + "\" type=\"button\" data-filter=\"" +
         filter.key + "\" data-filter-type=\"" + type + "\">" + filter.label + "</button>";
     }).join("");
@@ -418,12 +635,11 @@
   function renderSection(type) {
     var config = sectionConfig[type];
     var container = document.getElementById(config.containerId);
-    var cards = state[config.listKey]
-      .filter(isActive)
-      .sort(bySortOrder)
-      .filter(function (card) {
-        return filterCard(type, card);
-      });
+    var cards = state[config.listKey].filter(isActive).filter(function (card) {
+      return filterCard(type, card);
+    });
+
+    cards.sort(type === "indulgence" ? sortIndulgenceCards : sortPositiveCards);
 
     if (cards.length === 0) {
       container.innerHTML = "<div class=\"empty-state\">当前筛选下暂无卡片</div>";
@@ -438,28 +654,31 @@
   function renderPositiveCard(type, card) {
     var config = sectionConfig[type];
     var status = calculatePositiveStatus(card);
-    var actionText = getPositiveActionText(type, status.status);
-    var disabled = status.status === "completedToday";
+    var icon = getIcon(card.iconKey);
     var level = importanceLabel(card.importance);
-    var levelClass = "level-" + card.importance;
-    var accent = positiveAccent(status.status, config.accent);
+    var disabled = status.status === "completed";
+    var optionText = getLastOptionText(card, status.lastCompletedOption);
+    var actionText = status.status === "overdue" ? "补打卡" : status.status === "completed" ? "已完成" : "打卡";
+    var cardClasses = "health-card is-" + status.status;
 
     return [
-      "<article class=\"health-card is-" + status.status + "\" style=\"--card-accent:" + accent +
+      "<article class=\"" + cardClasses + "\" style=\"--card-accent:" + positiveAccent(status.status, config.accent) +
         ";--level-color:" + level.color + "\">",
       "<div class=\"card-top\">",
-      "<span class=\"card-icon\" aria-hidden=\"true\">" + escapeHtml(card.icon) + "</span>",
+      "<span class=\"card-icon\" aria-hidden=\"true\">" + icon.icon + "</span>",
       "<div class=\"card-title\"><h3>" + escapeHtml(card.title) + "</h3>",
-      "<span class=\"status-pill\">" + status.label + "</span></div>",
+      "<span class=\"status-pill\">" + escapeHtml(status.label) + "</span></div>",
       "<button class=\"card-menu\" type=\"button\" data-open-manager=\"" + type +
         "\" aria-label=\"管理" + escapeHtml(card.title) + "\">⋯</button>",
       "</div>",
+      card.mode === "series" ? renderSeriesOptions(card) : "",
       "<div class=\"card-info\">",
-      infoRow(config.lastLabel, status.lastCompletedAt ? relativeDateText(status.lastCompletedAt, "完成") : "暂无记录"),
-      infoRow("周期", "每 " + card.recurrenceDays + " 天一次"),
+      infoRow("上次完成", formatLastPositive(status.lastCompletedAt, optionText)),
+      infoRow("周期", card.recurrenceDays + "天"),
       infoRow("当前节奏", status.timingText),
+      infoRow("重要程度", level.label),
       "</div>",
-      "<span class=\"level-tag " + levelClass + "\">" + level.label + "</span>",
+      "<span class=\"level-tag level-" + card.importance + "\">重要程度：" + level.label + "</span>",
       card.note ? "<p class=\"card-note\">" + escapeHtml(card.note) + "</p>" : "",
       "<button class=\"health-action-button" + (disabled ? " is-disabled" : "") +
         "\" type=\"button\" data-checkin=\"" + card.id + "\" data-type=\"" + type + "\"" +
@@ -468,29 +687,35 @@
     ].join("");
   }
 
+  function renderSeriesOptions(card) {
+    return "<div class=\"series-option-preview\">" + card.options.map(function (option) {
+      return "<span>" + getIcon(option.iconKey).icon + " " + escapeHtml(option.label) + "</span>";
+    }).join("") + "</div>";
+  }
+
   function renderIndulgenceCard(card) {
     var status = calculateIndulgenceStatus(card);
     var risk = riskLabel(card.riskLevel);
-    var accent = indulgenceAccent(status.status);
+    var icon = getIcon(card.iconKey);
 
     return [
-      "<article class=\"health-card is-" + status.status + "\" style=\"--card-accent:" + accent +
-        ";--level-color:" + risk.color + "\">",
+      "<article class=\"health-card is-" + status.status + " " + status.severityClass +
+        "\" style=\"--card-accent:" + indulgenceAccent(status) + ";--level-color:" + risk.color + "\">",
       "<div class=\"card-top\">",
-      "<span class=\"card-icon\" aria-hidden=\"true\">" + escapeHtml(card.icon) + "</span>",
+      "<span class=\"card-icon\" aria-hidden=\"true\">" + icon.icon + "</span>",
       "<div class=\"card-title\"><h3>" + escapeHtml(card.title) + "</h3>",
-      "<span class=\"status-pill\">" + status.label + "</span></div>",
+      "<span class=\"status-pill\">" + escapeHtml(status.label) + "</span></div>",
       "<button class=\"card-menu\" type=\"button\" data-open-manager=\"indulgence\" aria-label=\"管理" +
         escapeHtml(card.title) + "\">⋯</button>",
       "</div>",
       "<div class=\"card-info\">",
-      infoRow("上次发生", status.lastOccurredAt ? relativeDateText(status.lastOccurredAt, "发生") : "暂无记录"),
-      infoRow("建议节奏", "至少间隔 " + card.recommendedGapDays + " 天"),
-      infoRow("可再次放纵", status.timingText),
-      infoRow("近30天次数", status.recent30dCount + " 次"),
-      infoRow("建议上限", card.monthlySoftLimit + " 次"),
+      infoRow("上次发生", status.lastOccurredAt ? relativeDateText(status.lastOccurredAt) : "暂无记录"),
+      infoRow("建议间隔", card.recommendedGapDays + "天"),
+      infoRow("近两周", status.recent14dCount + " 次"),
+      infoRow("当前状态", status.timingText),
+      infoRow("警告程度", risk.label),
       "</div>",
-      "<span class=\"level-tag level-" + card.riskLevel + "\">" + risk.label + "</span>",
+      "<span class=\"level-tag level-" + card.riskLevel + "\">警告程度：" + risk.label + "</span>",
       card.note ? "<p class=\"card-note\">" + escapeHtml(card.note) + "</p>" : "",
       "<button class=\"health-action-button\" type=\"button\" data-indulgence=\"" + card.id + "\">记录一次</button>",
       "</article>"
@@ -501,32 +726,52 @@
     return "<div class=\"info-row\"><span>" + label + "</span><strong>" + value + "</strong></div>";
   }
 
-  function relativeDateText(iso, suffix) {
-    var days = fullDaysBetween(iso, todayIso());
+  function formatLastPositive(date, optionText) {
+    if (!date) {
+      return "暂无记录";
+    }
+    var base = relativeDateText(date);
+    return optionText ? base + " · " + optionText : base;
+  }
+
+  function getLastOptionText(card, optionId) {
+    if (!optionId || card.mode !== "series") {
+      return "";
+    }
+    var option = card.options.find(function (item) {
+      return item.id === optionId;
+    });
+    return option ? option.label : "";
+  }
+
+  function relativeDateText(value) {
+    var dateOnly = String(value).slice(0, 10);
+    var days = fullDaysBetween(dateOnly, todayIso());
     if (days === 0) {
       return "今天";
     }
-    return days + " 天前" + (suffix ? "" : "");
+    return days + " 天前";
   }
 
   function positiveAccent(status, fallback) {
     return {
-      normal: fallback,
-      dueSoon: "#d98a2f",
-      dueToday: "#e08a22",
-      overdue: "#c8524d",
-      completedToday: "#2f9d70"
+      completed: "#2f9d70",
+      uncompleted: "#d98a2f",
+      overdue: "#c8524d"
     }[status] || fallback;
   }
 
   function indulgenceAccent(status) {
-    return {
-      justOccurred: "#c8524d",
-      cooling: "#df6f3d",
-      almostRecovered: "#d98a2f",
-      allowedCautious: "#68766f",
-      monthlyWarning: "#4f4c48"
-    }[status] || "#df6f3d";
+    if (status.status === "excellent" || status.status === "acceptable") {
+      return "#2f9d70";
+    }
+    if (status.status === "slightlyHigh" || status.severityClass === "severity-orange") {
+      return "#d98a2f";
+    }
+    if (status.severityClass === "severity-red" || status.status === "tooMany") {
+      return "#c8524d";
+    }
+    return "#d5a42f";
   }
 
   function importanceLabel(value) {
@@ -539,20 +784,10 @@
 
   function riskLabel(value) {
     return {
-      high: { label: "高风险", color: "#c8524d" },
-      medium: { label: "中风险", color: "#d98a2f" },
-      low: { label: "低风险", color: "#87925b" }
-    }[value] || { label: "中风险", color: "#d98a2f" };
-  }
-
-  function getPositiveActionText(type, status) {
-    if (status === "completedToday") {
-      return type === "diet" ? "今日已打卡" : "今日已完成";
-    }
-    if (status === "overdue") {
-      return "补打卡";
-    }
-    return sectionConfig[type].actionDefault;
+      high: { label: "高", color: "#c8524d" },
+      medium: { label: "中", color: "#d98a2f" },
+      low: { label: "低", color: "#87925b" }
+    }[value] || { label: "中", color: "#d98a2f" };
   }
 
   function filterCard(type, card) {
@@ -563,13 +798,56 @@
     if (filter === "all") {
       return true;
     }
-    if (filter === "todayPriority") {
-      return status.status === "dueToday" || status.status === "overdue";
-    }
-    if (filter === "cooling") {
-      return status.status === "cooling" || status.status === "justOccurred";
-    }
     return status.status === filter;
+  }
+
+  function sortPositiveCards(a, b) {
+    var statusA = calculatePositiveStatus(a);
+    var statusB = calculatePositiveStatus(b);
+    var rankA = positiveRank(statusA);
+    var rankB = positiveRank(statusB);
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+    if (statusA.status === "overdue" && statusB.status === "overdue") {
+      return statusB.overdueDays - statusA.overdueDays || a.sortOrder - b.sortOrder;
+    }
+    if (statusA.status === "completed" && statusB.status === "completed") {
+      return statusA.daysUntilDue - statusB.daysUntilDue || a.sortOrder - b.sortOrder;
+    }
+    return a.sortOrder - b.sortOrder;
+  }
+
+  function positiveRank(status) {
+    return {
+      overdue: 1,
+      uncompleted: 2,
+      completed: 3
+    }[status.status] || 4;
+  }
+
+  function sortIndulgenceCards(a, b) {
+    var statusA = calculateIndulgenceStatus(a);
+    var statusB = calculateIndulgenceStatus(b);
+    var rankA = indulgenceRank(statusA);
+    var rankB = indulgenceRank(statusB);
+    if (rankA !== rankB) {
+      return rankA - rankB;
+    }
+    if (statusA.status === "cooling" && statusB.status === "cooling") {
+      return statusB.recent14dCount - statusA.recent14dCount || a.sortOrder - b.sortOrder;
+    }
+    return a.sortOrder - b.sortOrder;
+  }
+
+  function indulgenceRank(status) {
+    return {
+      tooMany: 1,
+      cooling: 2,
+      slightlyHigh: 3,
+      acceptable: 4,
+      excellent: 5
+    }[status.status] || 6;
   }
 
   function isActive(card) {
@@ -580,11 +858,8 @@
     return a.sortOrder - b.sortOrder;
   }
 
-  function addToday(history) {
-    var today = todayIso();
-    if (latestDate(history) !== today) {
-      history.push(today);
-    }
+  function addPositiveCheckin(card, optionId) {
+    card.checkinHistory.push(completion(todayIso(), optionId || null));
   }
 
   function handleDocumentClick(event) {
@@ -592,7 +867,7 @@
     if (filterButton) {
       var type = filterButton.dataset.filterType;
       state.uiPrefs[sectionConfig[type].filterKey] = filterButton.dataset.filter;
-      saveState();
+      saveState("筛选条件更新");
       render();
       return;
     }
@@ -620,8 +895,12 @@
     if (!card) {
       return;
     }
-    addToday(card.checkinHistory);
-    saveState();
+    if (card.mode === "series") {
+      openSeriesDialog(type, card);
+      return;
+    }
+    addPositiveCheckin(card);
+    saveState(card.title + " 已打卡");
     render();
   }
 
@@ -630,8 +909,8 @@
     if (!card) {
       return;
     }
-    addToday(card.eventHistory);
-    saveState();
+    card.eventHistory.push(event(toLocalTimestamp(new Date())));
+    saveState(card.title + " 已记录一次");
     render();
   }
 
@@ -641,11 +920,56 @@
     });
   }
 
+  function openSeriesDialog(type, card) {
+    pendingSeriesCheckin = { type: type, id: card.id };
+    selectedSeriesOptionId = card.options[0] && card.options[0].id;
+    document.getElementById("series-dialog-title").textContent = "这次完成了什么？";
+    document.getElementById("series-dialog-copy").textContent = card.title + "：任选一个项目即可完成当前周期。";
+    renderSeriesChoices(card);
+    document.getElementById("series-backdrop").hidden = false;
+    document.getElementById("series-dialog").hidden = false;
+  }
+
+  function renderSeriesChoices(card) {
+    document.getElementById("series-choice-grid").innerHTML = card.options.map(function (option) {
+      var active = option.id === selectedSeriesOptionId ? " is-selected" : "";
+      return [
+        "<button class=\"series-choice" + active + "\" type=\"button\" data-series-option=\"" + option.id + "\">",
+        "<span>" + getIcon(option.iconKey).icon + "</span>",
+        "<strong>" + escapeHtml(option.label) + "</strong>",
+        "</button>"
+      ].join("");
+    }).join("");
+  }
+
+  function closeSeriesDialog() {
+    pendingSeriesCheckin = null;
+    selectedSeriesOptionId = null;
+    document.getElementById("series-backdrop").hidden = true;
+    document.getElementById("series-dialog").hidden = true;
+  }
+
+  function confirmSeriesCheckin() {
+    if (!pendingSeriesCheckin || !selectedSeriesOptionId) {
+      return;
+    }
+    var card = findCard(pendingSeriesCheckin.type, pendingSeriesCheckin.id);
+    if (!card) {
+      closeSeriesDialog();
+      return;
+    }
+    addPositiveCheckin(card, selectedSeriesOptionId);
+    saveState(card.title + " 同系列打卡完成");
+    closeSeriesDialog();
+    render();
+  }
+
   function openManager(type) {
     currentManagerType = type;
     document.getElementById("drawer-backdrop").hidden = false;
     document.getElementById("manager-drawer").hidden = false;
     renderManager();
+    console.log("[Personal_Web] 打开健康管理卡片面板：", sectionConfig[type].label);
   }
 
   function closeManager() {
@@ -665,10 +989,11 @@
     var cards = state[sectionConfig[currentManagerType].listKey].slice().sort(bySortOrder);
     var list = document.getElementById("manager-list");
     list.innerHTML = cards.map(function (card, index) {
+      var status = card.active ? "启用" : "停用";
       return [
         "<article class=\"manager-item\">",
-        "<div class=\"manager-item-title\"><span>" + escapeHtml(card.icon) + " " + escapeHtml(card.title) +
-          "</span><small>" + (card.active ? "启用" : "停用") + "</small></div>",
+        "<div class=\"manager-item-title\"><span>" + getIcon(card.iconKey).icon + " " + escapeHtml(card.title) +
+          "</span><small>" + status + "</small></div>",
         "<div class=\"manager-actions\">",
         managerButton("编辑", "edit", card.id),
         managerButton("上移", "up", card.id, index === 0),
@@ -688,11 +1013,12 @@
 
   function configureFormForType(type) {
     var isIndulgence = type === "indulgence";
+    document.getElementById("mode-field-wrap").hidden = isIndulgence;
     document.getElementById("recurrence-field-wrap").hidden = isIndulgence;
     document.getElementById("importance-field-wrap").hidden = isIndulgence;
     document.getElementById("gap-field-wrap").hidden = !isIndulgence;
-    document.getElementById("limit-field-wrap").hidden = !isIndulgence;
     document.getElementById("risk-field-wrap").hidden = !isIndulgence;
+    toggleSeriesEditor();
   }
 
   function resetForm() {
@@ -700,9 +1026,13 @@
     document.getElementById("card-id-field").value = "";
     document.getElementById("manager-form-title").textContent = "新增卡片";
     document.getElementById("active-field").checked = true;
+    document.getElementById("mode-field").value = "single";
     document.getElementById("recurrence-field").value = 3;
     document.getElementById("gap-field").value = 7;
-    document.getElementById("limit-field").value = 4;
+    document.getElementById("card-icon-field").value = currentManagerType === "indulgence" ? "default" : "fruit";
+    document.getElementById("series-option-list").innerHTML = "";
+    updateIconPreview();
+    toggleSeriesEditor();
   }
 
   function handleManagerAction(event) {
@@ -744,7 +1074,7 @@
     }
 
     normalizeOrder(currentManagerType);
-    saveState();
+    saveState("卡片管理操作：" + action);
     render();
   }
 
@@ -752,17 +1082,20 @@
     document.getElementById("manager-form-title").textContent = "编辑卡片";
     document.getElementById("card-id-field").value = card.id;
     document.getElementById("card-title-field").value = card.title;
-    document.getElementById("card-icon-field").value = card.icon;
+    document.getElementById("card-icon-field").value = card.iconKey || "default";
     document.getElementById("note-field").value = card.note || "";
     document.getElementById("active-field").checked = card.active;
     if (currentManagerType === "indulgence") {
       document.getElementById("gap-field").value = card.recommendedGapDays;
-      document.getElementById("limit-field").value = card.monthlySoftLimit;
       document.getElementById("risk-field").value = card.riskLevel;
     } else {
+      document.getElementById("mode-field").value = card.mode || "single";
       document.getElementById("recurrence-field").value = card.recurrenceDays;
       document.getElementById("importance-field").value = card.importance;
+      renderOptionEditor(card.options || []);
     }
+    updateIconPreview();
+    toggleSeriesEditor();
   }
 
   function handleFormSubmit(event) {
@@ -772,17 +1105,22 @@
     var card = id ? findCard(currentManagerType, id) : createBlankCard(currentManagerType);
 
     card.title = document.getElementById("card-title-field").value.trim();
-    card.icon = document.getElementById("card-icon-field").value.trim();
+    card.iconKey = document.getElementById("card-icon-field").value || "default";
     card.note = document.getElementById("note-field").value.trim();
     card.active = document.getElementById("active-field").checked;
 
     if (currentManagerType === "indulgence") {
       card.recommendedGapDays = toPositiveInteger(document.getElementById("gap-field").value, 7);
-      card.monthlySoftLimit = toPositiveInteger(document.getElementById("limit-field").value, 4);
       card.riskLevel = document.getElementById("risk-field").value;
     } else {
+      card.mode = document.getElementById("mode-field").value;
       card.recurrenceDays = toPositiveInteger(document.getElementById("recurrence-field").value, 3);
       card.importance = document.getElementById("importance-field").value;
+      card.options = card.mode === "series" ? collectSeriesOptions() : [];
+      if (card.mode === "series" && card.options.length === 0) {
+        alert("同系列卡片至少需要一个选项。");
+        return;
+      }
     }
 
     if (!id) {
@@ -790,7 +1128,7 @@
     }
 
     normalizeOrder(currentManagerType);
-    saveState();
+    saveState("卡片表单保存");
     resetForm();
     render();
   }
@@ -798,50 +1136,128 @@
   function createBlankCard(type) {
     var order = state[sectionConfig[type].listKey].length + 1;
     if (type === "indulgence") {
-      return {
-        id: "indulgence-" + Date.now(),
-        type: "indulgence",
-        title: "",
-        icon: "⚠️",
-        riskLevel: "medium",
-        recommendedGapDays: 7,
-        eventHistory: [],
-        monthlySoftLimit: 4,
-        active: true,
-        sortOrder: order,
-        note: ""
-      };
+      return createIndulgenceSeed("indulgence-" + Date.now(), "新放纵项", "default", "medium", 7, [], order);
     }
-
-    return {
-      id: type + "-" + Date.now(),
-      type: type,
-      title: "",
-      icon: type === "diet" ? "🥗" : "🏃",
-      importance: "medium",
-      recurrenceDays: 3,
-      checkinHistory: [],
-      active: true,
-      sortOrder: order,
-      note: ""
-    };
-  }
-
-  function toPositiveInteger(value, fallback) {
-    var number = parseInt(value, 10);
-    return Number.isFinite(number) && number > 0 ? number : fallback;
+    return createPositiveSeed(type + "-" + Date.now(), type, "新卡片", "default", "medium", 3, [], order);
   }
 
   function swapOrder(a, b) {
-    var current = a.sortOrder;
+    var next = a.sortOrder;
     a.sortOrder = b.sortOrder;
-    b.sortOrder = current;
+    b.sortOrder = next;
   }
 
   function normalizeOrder(type) {
     state[sectionConfig[type].listKey].sort(bySortOrder).forEach(function (card, index) {
       card.sortOrder = index + 1;
     });
+  }
+
+  function populateIconSelects() {
+    var select = document.getElementById("card-icon-field");
+    select.innerHTML = iconOptionsMarkup();
+    updateIconPreview();
+  }
+
+  function iconOptionsMarkup(selected) {
+    return Object.keys(ICON_REGISTRY).map(function (key) {
+      var icon = ICON_REGISTRY[key];
+      return "<option value=\"" + key + "\"" + (selected === key ? " selected" : "") + ">" +
+        icon.icon + " " + icon.label + "</option>";
+    }).join("");
+  }
+
+  function updateIconPreview() {
+    var icon = getIcon(document.getElementById("card-icon-field").value);
+    document.getElementById("icon-preview").textContent = "当前图标：" + icon.icon + " " + icon.label;
+  }
+
+  function toggleSeriesEditor() {
+    var isSeries = document.getElementById("mode-field").value === "series" && currentManagerType !== "indulgence";
+    document.getElementById("series-editor").hidden = !isSeries;
+    if (isSeries && document.getElementById("series-option-list").children.length === 0) {
+      renderOptionEditor([
+        { id: "option-" + Date.now(), label: "", iconKey: "default" }
+      ]);
+    }
+  }
+
+  function renderOptionEditor(options) {
+    document.getElementById("series-option-list").innerHTML = options.map(function (option) {
+      return optionEditorRow(option);
+    }).join("");
+  }
+
+  function optionEditorRow(option) {
+    var id = option.id || "option-" + Date.now();
+    return [
+      "<div class=\"series-option-row\" data-option-row=\"" + id + "\">",
+      "<input class=\"series-option-label\" type=\"text\" value=\"" + escapeHtml(option.label || "") +
+        "\" placeholder=\"选项名称\" maxlength=\"16\">",
+      "<select class=\"series-option-icon\">" + iconOptionsMarkup(option.iconKey || "default") + "</select>",
+      "<button class=\"ghost-button\" type=\"button\" data-remove-option=\"" + id + "\">移除</button>",
+      "</div>"
+    ].join("");
+  }
+
+  function collectSeriesOptions() {
+    return Array.from(document.querySelectorAll(".series-option-row")).map(function (row, index) {
+      var label = row.querySelector(".series-option-label").value.trim();
+      if (!label) {
+        return null;
+      }
+      return {
+        id: row.dataset.optionRow || "option-" + index + "-" + Date.now(),
+        label: label,
+        iconKey: row.querySelector(".series-option-icon").value || "default"
+      };
+    }).filter(Boolean);
+  }
+
+  function handleOptionEditorClick(event) {
+    var remove = event.target.closest("[data-remove-option]");
+    if (remove) {
+      var row = remove.closest(".series-option-row");
+      if (row) {
+        row.remove();
+      }
+      return;
+    }
+    if (event.target.id === "add-option-button") {
+      document.getElementById("series-option-list").insertAdjacentHTML("beforeend", optionEditorRow({
+        id: "option-" + Date.now(),
+        label: "",
+        iconKey: "default"
+      }));
+    }
+  }
+
+  function handleSeriesChoice(event) {
+    var button = event.target.closest("[data-series-option]");
+    if (!button || !pendingSeriesCheckin) {
+      return;
+    }
+    selectedSeriesOptionId = button.dataset.seriesOption;
+    var card = findCard(pendingSeriesCheckin.type, pendingSeriesCheckin.id);
+    if (card) {
+      renderSeriesChoices(card);
+    }
+  }
+
+  function safeText(value, fallback) {
+    if (typeof value !== "string" || !value.trim()) {
+      return fallback;
+    }
+    return value.trim();
+  }
+
+  function normalizeLevel(value, fallback) {
+    return value === "high" || value === "medium" || value === "low" ? value : fallback;
+  }
+
+  function toPositiveInteger(value, fallback) {
+    var number = parseInt(value, 10);
+    return number > 0 ? number : fallback;
   }
 
   function escapeHtml(value) {
@@ -861,9 +1277,18 @@
     document.getElementById("manager-form").addEventListener("submit", handleFormSubmit);
     document.getElementById("clear-form-button").addEventListener("click", resetForm);
     document.getElementById("add-card-button").addEventListener("click", resetForm);
+    document.getElementById("card-icon-field").addEventListener("change", updateIconPreview);
+    document.getElementById("mode-field").addEventListener("change", toggleSeriesEditor);
+    document.getElementById("series-option-list").addEventListener("click", handleOptionEditorClick);
+    document.getElementById("add-option-button").addEventListener("click", handleOptionEditorClick);
+    document.getElementById("series-choice-grid").addEventListener("click", handleSeriesChoice);
+    document.getElementById("series-confirm-button").addEventListener("click", confirmSeriesCheckin);
+    document.getElementById("series-cancel-button").addEventListener("click", closeSeriesDialog);
+    document.getElementById("series-close-button").addEventListener("click", closeSeriesDialog);
+    document.getElementById("series-backdrop").addEventListener("click", closeSeriesDialog);
     document.getElementById("reset-data-button").addEventListener("click", function () {
       state = makeSeedData();
-      saveState();
+      saveState("重置示例数据");
       render();
       if (currentManagerType) {
         resetForm();
@@ -872,10 +1297,12 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    console.log("[Personal_Web] 健康管理 V1 初始化开始");
+    populateIconSelects();
     loadState();
     bindEvents();
     resetForm();
     render();
-    console.log("[Personal_Web] health management V1 loaded");
+    console.log("[Personal_Web] 健康管理 V1 已加载，数据版本：", state.version);
   });
 })();
