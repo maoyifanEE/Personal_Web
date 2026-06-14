@@ -1517,6 +1517,9 @@
   }
 
   function handleCalendarTaskClick(event, taskId) {
+    event.preventDefault();
+    event.stopPropagation();
+    closeCalendarCreatePopover();
     if (event.ctrlKey || event.metaKey) {
       toggleCalendarMultiSelect(taskId);
       return;
@@ -1628,7 +1631,7 @@
     target.element.classList.remove("is-drag-over");
     var task = findTask(dragState.taskId);
     if (task) {
-      scheduleTaskOnDrop(task, target);
+      scheduleTaskOnDrop(task, target, dragState.type);
       state.ui.selectedTaskId = task.id;
       state.ui.selectedCalendarTaskIds = [task.id];
       saveState("拖拽排程任务");
@@ -1659,15 +1662,23 @@
     return null;
   }
 
-  function scheduleTaskOnDrop(task, target) {
+  function scheduleTaskOnDrop(task, target, sourceType) {
     var duration = getTaskDurationMinutes(task);
     if (target.allDay) {
       var span = getTaskSpanDays(task);
       task.dueDate = target.date;
-      task.dueTime = null;
-      task.allDay = true;
-      task.startAt = target.date + "T00:00";
-      task.endAt = toIsoDate(addDays(parseIsoDate(target.date), span - 1)) + "T23:59";
+      if (sourceType === "scheduled" && !task.allDay && (task.dueTime || task.startAt)) {
+        var preservedTime = task.dueTime || task.startAt.slice(11, 16);
+        task.dueTime = preservedTime;
+        task.allDay = false;
+        task.startAt = target.date + "T" + preservedTime;
+        task.endAt = addMinutesToLocalDateTime(task.startAt, duration);
+      } else {
+        task.dueTime = null;
+        task.allDay = true;
+        task.startAt = target.date + "T00:00";
+        task.endAt = toIsoDate(addDays(parseIsoDate(target.date), span - 1)) + "T23:59";
+      }
     } else {
       var startTime = minutesToTime(target.hour * 60 + (target.minute || 0));
       task.dueDate = target.date;

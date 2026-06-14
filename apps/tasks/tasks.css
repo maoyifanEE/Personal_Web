@@ -812,6 +812,11 @@ button {
   min-height: calc(100vh - 48px);
 }
 
+.detail-empty[hidden],
+.detail-form[hidden] {
+  display: none !important;
+}
+
 .detail-empty {
   display: grid;
   place-content: center;
