@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Personal_Web 健康管理 V1 本地前端原型。"
+    >
+    <title>健康管理 - Personal_Web</title>
+    <link rel="icon" href="../../assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../../styles.css">
+    <link rel="stylesheet" href="./health.css">
+    <script src="../../script.js" defer></script>
+    <script src="./health.js" defer></script>
+  </head>
+  <body data-page="health-v1">
+    <main class="health-app" aria-labelledby="health-title">
+      <header class="health-hero">
+        <div class="health-title-block">
+          <p class="health-kicker">Personal_Web / 本地原型</p>
+          <h1 id="health-title">健康管理</h1>
+          <p>
+            把饮食、运动与放纵节奏放在一个页面里统一管理。
+          </p>
+          <nav class="health-nav" aria-label="页面导航">
+            <a href="../../hub.html">返回私人工具中心</a>
+            <a href="../../index.html">返回公开首页</a>
+          </nav>
+        </div>
+
+        <section class="summary-grid" aria-label="健康状态概览" id="summary-grid"></section>
+      </header>
+
+      <section
+        class="health-section section-diet"
+        data-section="diet"
+        aria-labelledby="diet-title"
+      >
+        <header class="section-header">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">🥗</span>
+            <div>
+              <h2 id="diet-title">健康饮食</h2>
+              <p>均衡营养，规律饮食，吃出健康好状态。</p>
+            </div>
+          </div>
+          <div class="section-tools">
+            <div class="filter-chips" data-filter-group="diet" aria-label="健康饮食筛选"></div>
+            <button class="manage-button" type="button" data-manage-type="diet">管理卡片</button>
+          </div>
+        </header>
+        <div class="card-grid" id="diet-cards"></div>
+      </section>
+
+      <section
+        class="health-section section-exercise"
+        data-section="exercise"
+        aria-labelledby="exercise-title"
+      >
+        <header class="section-header">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">🏃</span>
+            <div>
+              <h2 id="exercise-title">运动打卡</h2>
+              <p>坚持运动，强健体魄，收获更好的自己。</p>
+            </div>
+          </div>
+          <div class="section-tools">
+            <div class="filter-chips" data-filter-group="exercise" aria-label="运动打卡筛选"></div>
+            <button class="manage-button" type="button" data-manage-type="exercise">管理卡片</button>
+          </div>
+        </header>
+        <div class="card-grid" id="exercise-cards"></div>
+      </section>
+
+      <section
+        class="health-section section-indulgence"
+        data-section="indulgence"
+        aria-labelledby="indulgence-title"
+      >
+        <header class="section-header">
+          <div class="section-heading">
+            <span class="section-icon" aria-hidden="true">⚠️</span>
+            <div>
+              <h2 id="indulgence-title">放纵警告</h2>
+              <p>允许偶尔放松，但不要让放纵打乱身体节奏。</p>
+            </div>
+          </div>
+          <div class="section-tools">
+            <div class="filter-chips" data-filter-group="indulgence" aria-label="放纵警告筛选"></div>
+            <button class="manage-button" type="button" data-manage-type="indulgence">管理卡片</button>
+          </div>
+        </header>
+        <div class="card-grid" id="indulgence-cards"></div>
+      </section>
+
+      <section class="utility-panel" aria-label="本地数据工具">
+        <p>
+          数据仅保存在当前浏览器的 localStorage 中，不会同步到服务器。
+          请不要录入真实隐私健康数据。
+        </p>
+        <button class="ghost-button" type="button" id="reset-data-button">
+          重置示例数据
+        </button>
+      </section>
+    </main>
+
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+    <aside class="manager-drawer" id="manager-drawer" aria-labelledby="drawer-title" hidden>
+      <header class="drawer-header">
+        <div>
+          <p class="drawer-kicker">卡片管理</p>
+          <h2 id="drawer-title">管理卡片</h2>
+        </div>
+        <div class="drawer-header-actions">
+          <button class="icon-button" type="button" id="drawer-close-button" aria-label="关闭管理面板">
+            ×
+          </button>
+        </div>
+      </header>
+
+      <div class="drawer-content">
+        <section class="manager-list-panel" aria-label="当前卡片">
+          <div class="manager-list-header">
+            <h3>当前卡片</h3>
+            <button class="secondary-small-button" type="button" id="add-card-button" data-add-card-button>
+              新增卡片
+            </button>
+          </div>
+          <div class="manager-list" id="manager-list"></div>
+        </section>
+
+        <form class="manager-form" id="manager-form">
+          <h3 id="manager-form-title">新增卡片</h3>
+          <input type="hidden" id="card-id-field">
+
+          <label>
+            名称
+            <input id="card-title-field" name="title" type="text" required maxlength="24">
+          </label>
+
+          <label>
+            图标
+            <select id="card-icon-field" name="iconKey" required></select>
+          </label>
+          <div class="icon-preview" id="icon-preview" aria-live="polite"></div>
+
+          <label id="mode-field-wrap">
+            类型
+            <select id="mode-field" name="mode">
+              <option value="single">单项</option>
+              <option value="series">同系列</option>
+            </select>
+          </label>
+
+          <label id="recurrence-field-wrap">
+            周期天数
+            <input id="recurrence-field" name="recurrenceDays" type="number" min="1" max="365">
+          </label>
+
+          <label id="gap-field-wrap" hidden>
+            建议间隔天数
+            <input id="gap-field" name="recommendedGapDays" type="number" min="1" max="365">
+          </label>
+
+          <label id="importance-field-wrap">
+            重要程度
+            <select id="importance-field" name="importance">
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+
+          <label id="risk-field-wrap" hidden>
+            警告程度
+            <select id="risk-field" name="riskLevel">
+              <option value="high">高</option>
+              <option value="medium">中</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+
+          <section class="series-editor" id="series-editor" hidden aria-label="同系列选项编辑">
+            <div class="series-editor-header">
+              <h4>同系列选项</h4>
+              <button class="secondary-small-button" type="button" id="add-option-button">新增选项</button>
+            </div>
+            <p>同系列卡片至少保留一个选项，任选其一即可完成当前周期。</p>
+            <div class="series-option-list" id="series-option-list"></div>
+          </section>
+
+          <label>
+            备注（可选）
+            <textarea id="note-field" name="note" rows="3" maxlength="120"></textarea>
+          </label>
+
+          <label class="toggle-line">
+            <input id="active-field" name="active" type="checkbox">
+            是否启用
+          </label>
+
+          <div class="form-actions">
+            <button class="primary-action-button" type="submit" id="manager-submit-button">
+              保存卡片
+            </button>
+            <button class="ghost-button" type="button" id="clear-form-button">清空表单</button>
+          </div>
+        </form>
+      </div>
+    </aside>
+
+    <div class="drawer-backdrop" id="series-backdrop" hidden></div>
+    <section class="series-dialog" id="series-dialog" aria-labelledby="series-dialog-title" hidden>
+      <div class="series-dialog-panel">
+        <header class="drawer-header">
+          <div>
+            <p class="drawer-kicker">同系列打卡</p>
+            <h2 id="series-dialog-title">这次完成了什么？</h2>
+          </div>
+          <button class="icon-button" type="button" id="series-close-button" aria-label="关闭同系列打卡">
+            ×
+          </button>
+        </header>
+        <div class="series-dialog-body">
+          <p id="series-dialog-copy">选择一个完成项，它会满足整张卡片的当前周期。</p>
+          <div class="series-choice-grid" id="series-choice-grid"></div>
+          <div class="form-actions">
+            <button class="primary-action-button" type="button" id="series-confirm-button">确认打卡</button>
+            <button class="ghost-button" type="button" id="series-cancel-button">取消</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
