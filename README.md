@@ -19,6 +19,8 @@ Personal_Web 是一个长期个人网站项目。
 - No authentication
 - No authorization
 - No private data storage
+- No cloud sync
+- No real reminders
 - No external CDN
 - No external resources outside this project folder
 - Generated `.lnk` files are ignored and must not be committed
@@ -87,6 +89,15 @@ Personal_Web/
 ├── index.html
 ├── login.html
 ├── hub.html
+├── apps/
+│   ├── tasks/
+│   │   ├── index.html
+│   │   ├── tasks.css
+│   │   └── tasks.js
+│   └── health/
+│       ├── index.html
+│       ├── health.css
+│       └── health.js
 ├── styles.css
 ├── script.js
 ├── assets/
@@ -119,6 +130,12 @@ Key paths:
 - `index.html`
 - `login.html`
 - `hub.html`
+- `apps/tasks/index.html`
+- `apps/tasks/tasks.css`
+- `apps/tasks/tasks.js`
+- `apps/health/index.html`
+- `apps/health/health.css`
+- `apps/health/health.js`
 - `styles.css`
 - `script.js`
 - `assets/icon.svg`
@@ -144,6 +161,12 @@ Key paths:
 - `index.html`: public visitor-facing homepage.
 - `login.html`: static private entrance placeholder. It does not authenticate anyone.
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
+- `apps/tasks/index.html`: 任务清单 V1 local front-end prototype.
+  It provides task list view and an interactive calendar scheduling panel
+  over the same local task data.
+  It does not include backend, database, authentication, authorization, cloud sync,
+  real reminders, Pomodoro, Habit tracker, Eisenhower Matrix, Kanban, Timeline,
+  or Countdown.
 - `apps/health/index.html`: 健康管理 V1 local front-end prototype.
   It stores demo/user interaction data in browser `localStorage` only.
 
@@ -162,3 +185,5 @@ Important principles:
   and verified separately.
 - 健康管理 currently has a usable local prototype, but it still has no backend,
   database, authentication, or authorization.
+- 任务清单 currently has a usable local prototype, but it still has no backend,
+  database, authentication, authorization, cloud sync, or real notifications.
