@@ -57,6 +57,7 @@
     soup: { label: "汤", icon: "🍲" },
 
     walk: { label: "快走", icon: "🚶" },
+    aerobic: { label: "有氧运动", icon: "🏃" },
     run: { label: "跑步", icon: "🏃" },
     cycling: { label: "骑行", icon: "🚴" },
     swimming: { label: "游泳", icon: "🏊" },
@@ -132,7 +133,7 @@
     {
       label: "运动打卡",
       keys: [
-        "walk", "run", "cycling", "swimming", "jumpRope", "stretch", "yoga", "squat", "core",
+        "walk", "aerobic", "run", "cycling", "swimming", "jumpRope", "stretch", "yoga", "squat", "core",
         "strength", "pushup", "plank", "climb", "hike", "dance", "rowing", "ski", "skating",
         "basketball", "football", "tennis", "badminton", "tableTennis", "volleyball", "boxing"
       ]
@@ -176,6 +177,7 @@
     核心训练: "core",
     上肢训练: "strength",
     有氧运动: "run",
+    球类运动: "basketball",
     熬夜: "sleepLate",
     油炸: "friedFood",
     甜饮料: "sweetDrink",
@@ -325,8 +327,18 @@
         createPositiveSeed("exercise-walk", "exercise", "快走", "walk", "medium", 1, [completion(daysAgo(1))], 1),
         createPositiveSeed("exercise-stretch", "exercise", "拉伸", "stretch", "low", 2, [completion(daysAgo(1))], 2),
         createPositiveSeed("exercise-bike", "exercise", "骑行", "cycling", "high", 3, [completion(daysAgo(4))], 3),
-        createPositiveSeed("exercise-core", "exercise", "核心训练", "core", "high", 2, [completion(todayIso())], 4),
-        createPositiveSeed("exercise-upper", "exercise", "上肢训练", "strength", "medium", 4, [completion(daysAgo(5))], 5)
+        createPositiveSeed("exercise-ball", "exercise", "球类运动", "basketball", "medium", 7, [
+          completion(daysAgo(8), "football", "足球")
+        ], 4, {
+          mode: "series",
+          options: [
+            { id: "basketball", label: "篮球", iconKey: "basketball" },
+            { id: "football", label: "足球", iconKey: "football" },
+            { id: "badminton", label: "羽毛球", iconKey: "badminton" }
+          ]
+        }),
+        createPositiveSeed("exercise-core", "exercise", "核心训练", "core", "high", 2, [completion(todayIso())], 5),
+        createPositiveSeed("exercise-upper", "exercise", "上肢训练", "strength", "medium", 4, [completion(daysAgo(5))], 6)
       ],
       indulgenceCards: [
         createIndulgenceSeed("indulgence-late", "熬夜", "sleepLate", "high", 7, [
@@ -354,11 +366,20 @@
     };
   }
 
-  function completion(date, optionId) {
+  function completion(date, optionId, optionLabel) {
     return {
-      completedAt: date,
-      optionId: optionId || null
+      completedAt: normalizeCompletionTimestamp(date),
+      optionId: optionId || null,
+      optionLabel: optionLabel || null
     };
+  }
+
+  function normalizeCompletionTimestamp(value) {
+    var text = String(value || todayIso());
+    if (text.indexOf("T") !== -1) {
+      return text;
+    }
+    return text.slice(0, 10) + "T00:00:00";
   }
 
   function event(occurredAt) {
@@ -496,10 +517,10 @@
     }
     return history.map(function (item) {
       if (typeof item === "string") {
-        return completion(item.slice(0, 10));
+        return completion(item);
       }
       if (item && item.completedAt) {
-        return completion(String(item.completedAt).slice(0, 10), item.optionId || null);
+        return completion(item.completedAt, item.optionId || null, item.optionLabel || null);
       }
       return null;
     }).filter(Boolean);
@@ -571,6 +592,7 @@
         label: "已完成",
         lastCompletedAt: latest.completedAt,
         lastCompletedOption: latest.optionId || null,
+        lastCompletedOptionLabel: latest.optionLabel || null,
         daysSinceLast: daysSinceLast,
         daysUntilDue: daysUntilDue,
         overdueDays: 0,
@@ -584,6 +606,7 @@
         label: "未打卡",
         lastCompletedAt: latest.completedAt,
         lastCompletedOption: latest.optionId || null,
+        lastCompletedOptionLabel: latest.optionLabel || null,
         daysSinceLast: daysSinceLast,
         daysUntilDue: 0,
         overdueDays: 0,
@@ -596,6 +619,7 @@
       label: "已逾期 " + (daysSinceLast - card.recurrenceDays) + " 天",
       lastCompletedAt: latest.completedAt,
       lastCompletedOption: latest.optionId || null,
+      lastCompletedOptionLabel: latest.optionLabel || null,
       daysSinceLast: daysSinceLast,
       daysUntilDue: daysUntilDue,
       overdueDays: daysSinceLast - card.recurrenceDays,
@@ -789,7 +813,7 @@
     var icon = getIcon(card.iconKey);
     var level = importanceLabel(card.importance);
     var disabled = status.status === "completed";
-    var optionText = getLastOptionText(card, status.lastCompletedOption);
+    var optionText = getLastOptionText(card, status.lastCompletedOption, status.lastCompletedOptionLabel);
     var actionText = status.status === "overdue" ? "补打卡" : status.status === "completed" ? "已完成" : "打卡";
     var cardClasses = "health-card is-" + status.status;
 
@@ -865,14 +889,27 @@
     return optionText ? base + " · " + optionText : base;
   }
 
-  function getLastOptionText(card, optionId) {
+  function getLastOptionText(card, optionId, optionLabel) {
+    if (optionLabel) {
+      return optionLabel;
+    }
     if (!optionId || card.mode !== "series") {
       return "";
     }
+    return getSeriesOptionLabel(card, optionId);
+  }
+
+  function getSeriesOptionLabel(card, optionId) {
     var option = card.options.find(function (item) {
       return item.id === optionId;
     });
     return option ? option.label : "";
+  }
+
+  function findSeriesOption(card, optionId) {
+    return (card.options || []).find(function (item) {
+      return item.id === optionId;
+    });
   }
 
   function relativeDateText(value) {
@@ -990,7 +1027,8 @@
   }
 
   function addPositiveCheckin(card, optionId) {
-    card.checkinHistory.push(completion(todayIso(), optionId || null));
+    var option = optionId ? findSeriesOption(card, optionId) : null;
+    card.checkinHistory.push(completion(toLocalTimestamp(new Date()), optionId || null, option ? option.label : null));
   }
 
   function handleDocumentClick(event) {
@@ -1055,13 +1093,22 @@
     pendingSeriesCheckin = { type: type, id: card.id };
     selectedSeriesOptionId = card.options[0] && card.options[0].id;
     document.getElementById("series-dialog-title").textContent = "这次完成了什么？";
-    document.getElementById("series-dialog-copy").textContent = card.title + "：任选一个项目即可完成当前周期。";
+    document.getElementById("series-dialog-copy").textContent = card.title + "：选择其中一项，本周期即视为完成。";
     renderSeriesChoices(card);
     document.getElementById("series-backdrop").hidden = false;
     document.getElementById("series-dialog").hidden = false;
   }
 
   function renderSeriesChoices(card) {
+    var confirmButton = document.getElementById("series-confirm-button");
+    if (!Array.isArray(card.options) || card.options.length === 0) {
+      selectedSeriesOptionId = null;
+      confirmButton.disabled = true;
+      document.getElementById("series-choice-grid").innerHTML =
+        "<div class=\"empty-state\">这个同系列卡片还没有可选项</div>";
+      return;
+    }
+    confirmButton.disabled = false;
     document.getElementById("series-choice-grid").innerHTML = card.options.map(function (option) {
       var active = option.id === selectedSeriesOptionId ? " is-selected" : "";
       return [
@@ -1249,7 +1296,7 @@
       card.importance = document.getElementById("importance-field").value;
       card.options = card.mode === "series" ? collectSeriesOptions() : [];
       if (card.mode === "series" && card.options.length === 0) {
-        alert("同系列卡片至少需要一个选项。");
+        alert("同系列卡片至少需要一个可选项。");
         return;
       }
     }
