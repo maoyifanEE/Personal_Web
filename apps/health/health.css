@@ -271,7 +271,7 @@ body[data-page="health-v1"] {
 }
 
 .health-card.is-overdue,
-.health-card.is-monthlyWarning {
+.health-card.is-tooMany {
   background: #f7f4f1;
 }
 
