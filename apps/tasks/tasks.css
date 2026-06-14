@@ -1,16 +1,17 @@
 :root {
-  --task-bg: #f5f3ee;
-  --task-panel: #fffdf8;
-  --task-panel-soft: #fbf7ef;
-  --task-ink: #232a2a;
-  --task-muted: #697271;
-  --task-line: rgba(35, 42, 42, 0.12);
-  --task-primary: #2f8b68;
-  --task-primary-dark: #236d52;
-  --task-danger: #c84f45;
-  --task-warning: #d48930;
-  --task-blue: #4b78d8;
-  --task-shadow: 0 22px 64px rgba(35, 42, 42, 0.12);
+  --task-bg: #f7f8fa;
+  --task-panel: #ffffff;
+  --task-panel-soft: #f9fafb;
+  --task-ink: #1f2937;
+  --task-muted: #6b7280;
+  --task-line: #e5e7eb;
+  --task-primary: #2563eb;
+  --task-primary-dark: #1d4ed8;
+  --task-danger: #dc2626;
+  --task-warning: #d97706;
+  --task-blue: #2563eb;
+  --task-shadow: 0 12px 36px rgba(15, 23, 42, 0.12);
+  --task-soft-shadow: 0 4px 16px rgba(15, 23, 42, 0.07);
 }
 
 * {
@@ -25,10 +26,7 @@ body {
 
 body {
   color: var(--task-ink);
-  background:
-    radial-gradient(circle at 12% 8%, rgba(47, 139, 104, 0.12), transparent 30rem),
-    radial-gradient(circle at 84% 4%, rgba(75, 120, 216, 0.1), transparent 32rem),
-    linear-gradient(180deg, #fffdf8 0%, var(--task-bg) 100%);
+  background: var(--task-bg);
   font-family:
     -apple-system,
     BlinkMacSystemFont,
@@ -49,8 +47,20 @@ button {
 
 .task-app-shell {
   display: grid;
+  height: 100vh;
   min-height: 100vh;
-  grid-template-columns: 66px 280px minmax(520px, 1fr) minmax(320px, 380px);
+  grid-template-columns: 48px 248px minmax(520px, 1fr) minmax(300px, 360px);
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.task-app-shell[data-view="calendar"] {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+
+.task-app-shell[data-view="calendar"] .task-sidebar,
+.task-app-shell[data-view="calendar"] .task-detail-panel {
+  display: none;
 }
 
 .task-icon-rail {
@@ -61,33 +71,33 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  padding: 18px 10px;
+  padding: 12px 6px;
   border-right: 1px solid var(--task-line);
-  background: #efe8dc;
+  background: #ffffff;
 }
 
 .rail-avatar,
 .rail-button {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   border: 0;
-  border-radius: 16px;
+  border-radius: 9px;
   color: var(--task-ink);
-  background: #fff7ea;
+  background: transparent;
   font-weight: 900;
   text-decoration: none;
 }
 
 .rail-button.is-active {
-  color: #ffffff;
-  background: var(--task-primary);
+  color: var(--task-primary);
+  background: #eff6ff;
 }
 
 .rail-button.muted {
   color: var(--task-muted);
-  background: #e6dccf;
+  background: transparent;
 }
 
 .rail-bottom {
@@ -98,12 +108,11 @@ button {
   display: flex;
   height: 100vh;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   overflow: auto;
-  padding: 22px 16px;
+  padding: 18px 12px;
   border-right: 1px solid var(--task-line);
-  background: rgba(255, 253, 248, 0.82);
-  backdrop-filter: blur(18px);
+  background: #fbfbfc;
 }
 
 .sidebar-header p,
@@ -118,8 +127,8 @@ button {
 
 .sidebar-header h1 {
   margin: 6px 0 0;
-  font-size: 28px;
-  letter-spacing: -0.02em;
+  font-size: 22px;
+  letter-spacing: 0;
 }
 
 .sidebar-section,
@@ -138,12 +147,12 @@ button {
 .sidebar-row,
 .list-row {
   display: grid;
-  min-height: 38px;
+  min-height: 34px;
   grid-template-columns: 28px 1fr auto;
   gap: 8px;
   align-items: center;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 8px;
   color: var(--task-ink);
   background: transparent;
   text-align: left;
@@ -155,8 +164,8 @@ button {
 
 .sidebar-row.is-active,
 .list-row.is-active {
-  border-color: rgba(47, 139, 104, 0.18);
-  background: #e6f3ed;
+  border-color: transparent;
+  background: #eef2f7;
 }
 
 .row-icon,
@@ -165,8 +174,8 @@ button {
   width: 24px;
   height: 24px;
   place-items: center;
-  border-radius: 9px;
-  background: #f0eadf;
+  border-radius: 7px;
+  background: #f1f5f9;
   color: var(--task-muted);
   font-size: 0.75rem;
   font-weight: 900;
@@ -192,8 +201,8 @@ button {
 .sidebar-note {
   padding: 12px;
   border: 1px solid var(--task-line);
-  border-radius: 16px;
-  background: #f8f1e8;
+  border-radius: 10px;
+  background: #ffffff;
 }
 
 .sidebar-note p {
@@ -216,11 +225,11 @@ button {
 .calendar-batch-toolbar button,
 .unscheduled-tray button {
   min-height: 38px;
-  border: 1px solid rgba(35, 42, 42, 0.18);
-  border-radius: 999px;
+  border: 1px solid var(--task-line);
+  border-radius: 8px;
   color: var(--task-ink);
-  background: #f3eadc;
-  font-weight: 800;
+  background: #ffffff;
+  font-weight: 700;
 }
 
 .reset-button {
@@ -230,12 +239,13 @@ button {
 .task-main {
   height: 100vh;
   overflow: auto;
-  padding: 24px;
+  padding: 0;
+  background: #ffffff;
 }
 
 .task-view,
 .calendar-view {
-  min-height: calc(100vh - 48px);
+  min-height: 100vh;
 }
 
 .main-header,
@@ -244,18 +254,21 @@ button {
   justify-content: space-between;
   gap: 16px;
   align-items: center;
-  margin-bottom: 18px;
+  margin-bottom: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--task-line);
+  background: #ffffff;
 }
 
 .main-header h2,
 .calendar-topbar h2 {
   margin: 4px 0 0;
-  font-size: clamp(30px, 4vw, 48px);
-  letter-spacing: -0.04em;
+  font-size: 24px;
+  letter-spacing: 0;
 }
 
 .quick-add-form {
-  margin-bottom: 18px;
+  margin: 16px 20px;
 }
 
 .quick-add-form input,
@@ -272,15 +285,16 @@ button {
 }
 
 .quick-add-form input {
-  min-height: 54px;
-  padding: 0 18px;
-  box-shadow: var(--task-shadow);
+  min-height: 40px;
+  padding: 0 12px;
+  box-shadow: none;
   font-size: 1rem;
 }
 
 .task-group-stack {
   display: grid;
-  gap: 18px;
+  gap: 14px;
+  padding: 0 20px 24px;
 }
 
 .task-group {
@@ -299,15 +313,15 @@ button {
   grid-template-columns: auto 1fr auto;
   gap: 12px;
   align-items: start;
-  padding: 14px;
+  padding: 10px 12px;
   border: 1px solid var(--task-line);
-  border-radius: 18px;
-  background: rgba(255, 253, 248, 0.86);
+  border-radius: 10px;
+  background: #ffffff;
 }
 
 .task-row.is-selected {
-  border-color: rgba(47, 139, 104, 0.38);
-  box-shadow: 0 0 0 3px rgba(47, 139, 104, 0.1);
+  border-color: #bfdbfe;
+  box-shadow: 0 0 0 2px #dbeafe;
 }
 
 .task-row.is-completed .task-title {
@@ -352,7 +366,7 @@ button {
   min-height: 24px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #f0eadf;
+  background: #f3f4f6;
   color: var(--task-muted);
   font-size: 0.78rem;
   font-weight: 800;
@@ -380,29 +394,29 @@ button {
 .calendar-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   justify-content: flex-end;
 }
 
 .calendar-mode-switch {
   display: inline-flex;
   gap: 4px;
-  padding: 4px;
+  padding: 2px;
   border: 1px solid var(--task-line);
-  border-radius: 999px;
-  background: #f3eadc;
+  border-radius: 8px;
+  background: #f9fafb;
 }
 
 .mode-button {
-  min-height: 30px;
-  padding: 4px 10px;
+  min-height: 28px;
+  padding: 4px 9px;
   border-color: transparent;
   background: transparent;
 }
 
 .mode-button.is-active {
-  color: #ffffff;
-  background: var(--task-primary);
+  color: var(--task-primary);
+  background: #eff6ff;
 }
 
 .calendar-batch-toolbar {
@@ -410,23 +424,26 @@ button {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border: 1px solid rgba(47, 139, 104, 0.22);
-  border-radius: 18px;
-  background: #e7f3ed;
-  font-weight: 850;
+  margin: 8px 16px;
+  padding: 8px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  font-weight: 700;
 }
 
 .calendar-filter-panel {
   display: grid;
   gap: 12px;
-  margin-bottom: 14px;
+  position: fixed;
+  top: 58px;
+  right: 16px;
+  z-index: 35;
   padding: 14px;
   border: 1px solid var(--task-line);
-  border-radius: 18px;
+  border-radius: 10px;
   background: var(--task-panel);
-  box-shadow: var(--task-shadow);
+  box-shadow: var(--task-soft-shadow);
 }
 
 .calendar-filter-panel h3,
@@ -462,11 +479,11 @@ button {
 }
 
 .unscheduled-tray {
-  margin-bottom: 14px;
-  padding: 12px;
+  margin: 8px 16px;
+  padding: 8px 10px;
   border: 1px dashed rgba(35, 42, 42, 0.2);
-  border-radius: 18px;
-  background: #fbf7ef;
+  border-radius: 10px;
+  background: #fbfdff;
 }
 
 .unscheduled-tray.is-collapsed #unscheduled-list {
@@ -501,7 +518,7 @@ button {
   padding: 6px 10px;
   border: 1px solid var(--task-line);
   border-left: 4px solid var(--task-primary);
-  border-radius: 999px;
+  border-radius: 8px;
   background: #ffffff;
   font-weight: 800;
 }
@@ -514,6 +531,10 @@ button {
 
 .calendar-workspace {
   position: relative;
+  height: calc(100vh - 138px);
+  min-height: 520px;
+  overflow: auto;
+  background: #ffffff;
 }
 
 .calendar-weekdays,
@@ -530,14 +551,18 @@ button {
 
 .calendar-weekdays span {
   padding: 8px 10px;
+  border-right: 1px solid var(--task-line);
+  border-bottom: 1px solid var(--task-line);
+  background: #ffffff;
 }
 
 .calendar-grid {
   overflow: hidden;
   border: 1px solid var(--task-line);
-  border-radius: 22px;
-  background: rgba(255, 253, 248, 0.86);
-  box-shadow: var(--task-shadow);
+  border-top: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .calendar-grid.is-week,
@@ -546,11 +571,11 @@ button {
 }
 
 .calendar-day {
-  min-height: 132px;
-  padding: 10px;
+  min-height: 118px;
+  padding: 7px;
   border-right: 1px solid var(--task-line);
   border-bottom: 1px solid var(--task-line);
-  background: rgba(255, 253, 248, 0.78);
+  background: #ffffff;
 }
 
 .calendar-day:nth-child(7n) {
@@ -558,26 +583,26 @@ button {
 }
 
 .calendar-day.is-muted {
-  background: rgba(245, 239, 229, 0.58);
+  background: #fafafa;
 }
 
 .calendar-day.is-today {
-  box-shadow: inset 0 0 0 2px rgba(47, 139, 104, 0.34);
+  box-shadow: inset 0 0 0 2px #bfdbfe;
 }
 
 .calendar-day.is-selected {
-  background: #e7f3ed;
+  background: #eff6ff;
 }
 
 .calendar-day.is-drag-over,
 .week-day-column.is-drag-over,
 .week-all-day-cell.is-drag-over {
   background: #dff0e8;
-  box-shadow: inset 0 0 0 2px rgba(47, 139, 104, 0.32);
+  box-shadow: inset 0 0 0 2px #93c5fd;
 }
 
 .calendar-day.is-range-selecting {
-  background: #e0edf8;
+  background: #dbeafe;
 }
 
 .calendar-date-line {
@@ -589,25 +614,42 @@ button {
 }
 
 .calendar-task {
-  display: block;
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
   width: 100%;
-  margin-top: 7px;
+  height: 21px;
+  margin-top: 4px;
   overflow: hidden;
   border: 0;
-  border-left: 4px solid var(--task-primary);
-  border-radius: 8px;
+  border-left: 3px solid var(--task-primary);
+  border-radius: 4px;
   color: var(--task-ink);
-  background: #f4eee3;
-  padding: 5px 7px;
+  background: #f8fafc;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 17px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.calendar-task-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-task-time {
+  flex: 0 0 auto;
+  color: var(--task-muted);
+  font-size: 11px;
+}
+
 .calendar-task.is-selected,
 .week-task-block.is-selected,
 .agenda-row.is-selected {
-  box-shadow: 0 0 0 3px rgba(47, 139, 104, 0.18);
+  box-shadow: 0 0 0 2px #bfdbfe;
 }
 
 .calendar-task.is-multi-selected,
@@ -626,9 +668,9 @@ button {
   display: grid;
   overflow: hidden;
   border: 1px solid var(--task-line);
-  border-radius: 22px;
-  background: rgba(255, 253, 248, 0.86);
-  box-shadow: var(--task-shadow);
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .week-header-row,
@@ -689,13 +731,13 @@ button {
   overflow: hidden;
   border: 1px solid rgba(35, 42, 42, 0.12);
   border-left: 4px solid var(--task-primary);
-  border-radius: 10px;
-  background: #f4eee3;
+  border-radius: 6px;
+  background: #f8fafc;
   padding: 6px 8px 12px;
   color: var(--task-ink);
   font-size: 0.82rem;
   text-align: left;
-  box-shadow: 0 10px 24px rgba(35, 42, 42, 0.1);
+  box-shadow: var(--task-soft-shadow);
 }
 
 .week-task-title {
@@ -746,26 +788,28 @@ button {
   padding: 12px;
   border: 1px solid var(--task-line);
   border-left: 4px solid var(--task-primary);
-  border-radius: 16px;
-  background: rgba(255, 253, 248, 0.9);
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .calendar-popover {
   position: fixed;
   z-index: 40;
-  right: 410px;
-  bottom: 26px;
+  right: 24px;
+  bottom: 24px;
   display: grid;
   width: min(420px, calc(100vw - 32px));
   gap: 12px;
   padding: 16px;
   border: 1px solid var(--task-line);
-  border-radius: 22px;
+  border-radius: 10px;
   background: var(--task-panel);
   box-shadow: var(--task-shadow);
 }
 
 .calendar-popover[hidden],
+.calendar-task-popover[hidden],
+.calendar-datetime-popover[hidden],
 .calendar-filter-panel[hidden],
 .calendar-batch-toolbar[hidden] {
   display: none !important;
@@ -793,6 +837,149 @@ button {
   padding: 8px 10px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.calendar-task-popover,
+.calendar-datetime-popover {
+  position: fixed;
+  z-index: 50;
+  display: grid;
+  gap: 12px;
+  width: min(420px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--task-line);
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.16);
+}
+
+.calendar-datetime-popover {
+  z-index: 70;
+  width: min(320px, calc(100vw - 32px));
+}
+
+.calendar-task-popover__header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.calendar-task-popover__date-line {
+  min-height: 30px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--task-primary);
+  background: #eff6ff;
+  font-weight: 800;
+  text-align: left;
+}
+
+.calendar-task-popover__title input {
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-bottom: 1px solid var(--task-line);
+  color: var(--task-ink);
+  background: transparent;
+  font-size: 1.2rem;
+  font-weight: 850;
+}
+
+.calendar-task-popover label,
+.calendar-datetime-popover label {
+  display: grid;
+  gap: 6px;
+  color: var(--task-muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.calendar-task-popover input,
+.calendar-task-popover select,
+.calendar-task-popover textarea,
+.calendar-datetime-popover input,
+.calendar-datetime-popover select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--task-line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #ffffff;
+}
+
+.datetime-tabs,
+.datetime-quick-row,
+.datetime-mini-calendar header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.datetime-tabs button,
+.datetime-quick-row button,
+.datetime-mini-calendar header button {
+  min-height: 28px;
+  border: 1px solid var(--task-line);
+  border-radius: 7px;
+  background: #ffffff;
+  color: var(--task-ink);
+}
+
+.datetime-tabs button.is-active,
+.datetime-quick-row button:hover,
+.datetime-mini-calendar header button:hover {
+  color: var(--task-primary);
+  background: #eff6ff;
+}
+
+.datetime-mini-calendar header {
+  justify-content: space-between;
+  margin: 4px 0 8px;
+}
+
+.datetime-weekdays,
+.datetime-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.datetime-weekdays span {
+  color: var(--task-muted);
+  font-size: 0.74rem;
+  text-align: center;
+}
+
+.datetime-date-grid button {
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.datetime-date-grid button.is-muted {
+  color: #a1a1aa;
+}
+
+.datetime-date-grid button.is-today {
+  border-color: #bfdbfe;
+}
+
+.datetime-date-grid button.is-selected {
+  color: #ffffff;
+  background: var(--task-primary);
+}
+
 .inline-error {
   color: var(--task-danger);
   font-weight: 850;
@@ -801,10 +988,9 @@ button {
 .task-detail-panel {
   height: 100vh;
   overflow: auto;
-  padding: 24px;
+  padding: 18px;
   border-left: 1px solid var(--task-line);
-  background: rgba(255, 253, 248, 0.9);
-  backdrop-filter: blur(18px);
+  background: #ffffff;
 }
 
 .detail-empty,
@@ -838,12 +1024,12 @@ button {
   width: 90px;
   height: 90px;
   margin: 0 auto;
-  border: 1px solid rgba(47, 139, 104, 0.2);
-  border-radius: 28px;
+  border: 1px solid var(--task-line);
+  border-radius: 18px;
   background:
-    linear-gradient(90deg, rgba(47, 139, 104, 0.2) 8px, transparent 8px) 18px 24px / 52px 10px no-repeat,
-    linear-gradient(90deg, rgba(47, 139, 104, 0.2) 8px, transparent 8px) 18px 42px / 44px 10px no-repeat,
-    #eef6f0;
+    linear-gradient(90deg, #dbeafe 8px, transparent 8px) 18px 24px / 52px 10px no-repeat,
+    linear-gradient(90deg, #dbeafe 8px, transparent 8px) 18px 42px / 44px 10px no-repeat,
+    #f8fafc;
 }
 
 .detail-form {
@@ -895,7 +1081,7 @@ button {
 .subtask-panel {
   padding: 14px;
   border: 1px solid var(--task-line);
-  border-radius: 18px;
+  border-radius: 10px;
   background: var(--task-panel-soft);
 }
 
@@ -922,7 +1108,7 @@ button {
 .danger-button {
   min-height: 40px;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   color: #ffffff;
   padding: 9px 14px;
   font-weight: 900;

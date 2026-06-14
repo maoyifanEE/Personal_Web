@@ -6,6 +6,10 @@
   var state = loadState();
 
   var elements = {};
+  var calendarTaskDraft = null;
+  var dateTimeDraft = null;
+  var dateTimePickerMonth = null;
+  var calendarDragJustEnded = false;
 
   document.addEventListener("DOMContentLoaded", function () {
     cacheElements();
@@ -52,6 +56,10 @@
     elements.unscheduledList = document.getElementById("unscheduled-list");
     elements.batchToolbar = document.getElementById("calendar-batch-toolbar");
     elements.batchCountLabel = document.getElementById("batch-count-label");
+    elements.calendarTaskPopover = document.getElementById("calendar-task-popover");
+    elements.dateTimePopover = document.getElementById("calendar-datetime-popover");
+    elements.dateTimeDateGrid = document.getElementById("datetime-date-grid");
+    elements.dateTimeMonthTitle = document.getElementById("datetime-month-title");
   }
 
   function bindEvents() {
@@ -100,7 +108,7 @@
 
       var taskButton = event.target.closest("[data-calendar-task]");
       if (taskButton) {
-        handleCalendarTaskClick(event, taskButton.dataset.calendarTask);
+        handleCalendarTaskClick(event, taskButton.dataset.calendarTask, taskButton);
         return;
       }
 
@@ -239,6 +247,56 @@
     elements.calendarPopover.addEventListener("submit", handleCalendarCreateSubmit);
     document.getElementById("calendar-create-cancel").addEventListener("click", closeCalendarCreatePopover);
     document.getElementById("calendar-create-all-day").addEventListener("change", toggleCalendarCreateTimeFields);
+    elements.calendarTaskPopover.addEventListener("submit", saveCalendarTaskPopover);
+    elements.calendarTaskPopover.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    document.getElementById("calendar-detail-close").addEventListener("click", closeCalendarTaskPopover);
+    document.getElementById("calendar-detail-close-bottom").addEventListener("click", closeCalendarTaskPopover);
+    document.getElementById("calendar-detail-trash").addEventListener("click", trashCalendarTaskDraft);
+    document.getElementById("calendar-detail-date-line").addEventListener("click", function (event) {
+      openDateTimePicker(event.currentTarget);
+    });
+    document.getElementById("calendar-detail-completed").addEventListener("change", function () {
+      if (!calendarTaskDraft) {
+        return;
+      }
+      var task = findTask(calendarTaskDraft.id);
+      if (!task) {
+        return;
+      }
+      setTaskCompleted(task, document.getElementById("calendar-detail-completed").checked);
+      calendarTaskDraft.completed = task.completed;
+      calendarTaskDraft.completedAt = task.completedAt;
+      saveState("日历浮窗完成状态更新");
+      render();
+      renderCalendarTaskPopover();
+    });
+    elements.dateTimePopover.addEventListener("click", function (event) {
+      event.stopPropagation();
+    });
+    elements.dateTimeDateGrid.addEventListener("click", function (event) {
+      var button = event.target.closest("[data-picker-date]");
+      if (button) {
+        dateTimeDraft.dueDate = button.dataset.pickerDate;
+        renderDateTimePicker();
+      }
+    });
+    document.getElementById("datetime-prev-month").addEventListener("click", function () {
+      dateTimePickerMonth = addMonths(dateTimePickerMonth || new Date(), -1);
+      renderDateTimePicker();
+    });
+    document.getElementById("datetime-next-month").addEventListener("click", function () {
+      dateTimePickerMonth = addMonths(dateTimePickerMonth || new Date(), 1);
+      renderDateTimePicker();
+    });
+    document.querySelectorAll("[data-date-quick]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        applyDateQuick(button.dataset.dateQuick);
+      });
+    });
+    document.getElementById("datetime-apply").addEventListener("click", applyDateTimePicker);
+    document.getElementById("datetime-clear").addEventListener("click", clearDateTimePicker);
     elements.calendarFilterButton.addEventListener("click", function () {
       elements.calendarFilterPanel.hidden = !elements.calendarFilterPanel.hidden;
     });
@@ -268,6 +326,7 @@
       this.textContent = elements.unscheduledTray.classList.contains("is-collapsed") ? "展开" : "收起";
     });
     elements.batchToolbar.addEventListener("click", handleBatchAction);
+    document.addEventListener("keydown", handleGlobalKeydown);
     document.addEventListener("mousemove", handleResizeMove);
     document.addEventListener("mouseup", handleResizeEnd);
   }
@@ -927,6 +986,10 @@
 
   function setActiveView(view) {
     state.ui.activeView = view;
+    if (view !== "calendar") {
+      closeCalendarTaskPopover();
+      closeCalendarCreatePopover();
+    }
     saveState("切换视图");
     render();
   }
@@ -1279,8 +1342,11 @@
     return "<button class=\"calendar-task" + (task.completed ? " is-completed" : "") +
       (selected ? " is-selected" : "") + (multi ? " is-multi-selected" : "") +
       "\" type=\"button\" data-calendar-task=\"" + escapeHtml(task.id) +
-      "\" draggable=\"true\" style=\"border-left-color:" + escapeHtml(color) + "\">" +
-      escapeHtml((task.dueTime ? task.dueTime + " " : "") + task.title) + "</button>";
+      "\" draggable=\"true\" title=\"" + escapeHtml(task.title) +
+      "\" style=\"border-left-color:" + escapeHtml(color) + "\">" +
+      "<span class=\"calendar-task-title\">" + escapeHtml(task.title) + "</span>" +
+      (task.dueTime ? "<span class=\"calendar-task-time\">" + escapeHtml(task.dueTime) + "</span>" : "") +
+      "</button>";
   }
 
   function getTasksForCalendarDate(iso) {
@@ -1516,18 +1582,298 @@
     };
   }
 
-  function handleCalendarTaskClick(event, taskId) {
+  function handleCalendarTaskClick(event, taskId, anchorElement) {
     event.preventDefault();
     event.stopPropagation();
+    if (calendarDragJustEnded) {
+      return;
+    }
     closeCalendarCreatePopover();
     if (event.ctrlKey || event.metaKey) {
       toggleCalendarMultiSelect(taskId);
       return;
     }
+    openCalendarTaskPopover(taskId, anchorElement);
+  }
+
+  function openCalendarTaskPopover(taskId, anchorElement) {
+    var task = findTask(taskId);
+    if (!task) {
+      console.warn("[Personal_Web] 日历浮窗打开失败，任务不存在：", taskId);
+      return;
+    }
+    var rect = anchorElement ? anchorElement.getBoundingClientRect() : null;
     state.ui.selectedTaskId = taskId;
     state.ui.selectedCalendarTaskIds = [taskId];
-    saveState("选择日历任务");
+    calendarTaskDraft = cloneTaskForDraft(task);
+    closeDateTimePicker();
+    saveState("打开日历任务浮窗");
     render();
+    renderCalendarTaskPopover();
+    positionPopover(elements.calendarTaskPopover, rect, 420);
+    console.log("[Personal_Web] 已打开日历任务浮窗：", {
+      taskId: taskId,
+      title: task.title
+    });
+  }
+
+  function cloneTaskForDraft(task) {
+    return JSON.parse(JSON.stringify(task));
+  }
+
+  function renderCalendarTaskPopover() {
+    if (!calendarTaskDraft) {
+      elements.calendarTaskPopover.hidden = true;
+      return;
+    }
+    document.getElementById("calendar-detail-completed").checked = calendarTaskDraft.completed;
+    document.getElementById("calendar-detail-date-line").textContent = formatDateTimeLine(calendarTaskDraft);
+    document.getElementById("calendar-detail-title").value = calendarTaskDraft.title || "";
+    document.getElementById("calendar-detail-note").value = calendarTaskDraft.note || "";
+    document.getElementById("calendar-detail-list").innerHTML = state.lists
+      .filter(function (list) { return !list.archived; })
+      .sort(byOrder)
+      .map(function (list) {
+        return "<option value=\"" + escapeHtml(list.id) + "\"" +
+          (calendarTaskDraft.listId === list.id ? " selected" : "") + ">" +
+          escapeHtml(list.name) + "</option>";
+      }).join("");
+    document.getElementById("calendar-detail-priority").value = calendarTaskDraft.priority || "none";
+    document.getElementById("calendar-detail-tags").value = (calendarTaskDraft.tagIds || []).map(function (tagId) {
+      var tag = findTag(tagId);
+      return tag ? tag.name : "";
+    }).filter(Boolean).join(" ");
+    document.getElementById("calendar-detail-reminder").value = calendarTaskDraft.reminder && calendarTaskDraft.reminder.enabled ?
+      String(calendarTaskDraft.reminder.minutesBefore || 0) : "none";
+    document.getElementById("calendar-detail-repeat").value = calendarTaskDraft.repeat && calendarTaskDraft.repeat.type ?
+      calendarTaskDraft.repeat.type : "none";
+    elements.calendarTaskPopover.hidden = false;
+  }
+
+  function readCalendarTaskDraftFromForm() {
+    if (!calendarTaskDraft) {
+      return;
+    }
+    calendarTaskDraft.title = document.getElementById("calendar-detail-title").value.trim() || "未命名任务";
+    calendarTaskDraft.note = document.getElementById("calendar-detail-note").value.trim();
+    calendarTaskDraft.listId = document.getElementById("calendar-detail-list").value;
+    calendarTaskDraft.priority = document.getElementById("calendar-detail-priority").value;
+    calendarTaskDraft.tagIds = parseTagInput(document.getElementById("calendar-detail-tags").value);
+    calendarTaskDraft.reminder = parseReminderInput(document.getElementById("calendar-detail-reminder").value);
+    calendarTaskDraft.repeat = {
+      type: document.getElementById("calendar-detail-repeat").value,
+      interval: 1
+    };
+  }
+
+  function saveCalendarTaskPopover(event) {
+    event.preventDefault();
+    if (!calendarTaskDraft) {
+      return;
+    }
+    var task = findTask(calendarTaskDraft.id);
+    if (!task) {
+      console.warn("[Personal_Web] 日历浮窗保存失败，任务不存在：", calendarTaskDraft.id);
+      closeCalendarTaskPopover();
+      return;
+    }
+    readCalendarTaskDraftFromForm();
+    Object.assign(task, normalizeTaskSchedule(calendarTaskDraft), {
+      updatedAt: new Date().toISOString()
+    });
+    saveState("保存日历浮窗任务");
+    calendarTaskDraft = cloneTaskForDraft(task);
+    render();
+    renderCalendarTaskPopover();
+    console.log("[Personal_Web] 日历浮窗任务已保存：", {
+      taskId: task.id,
+      dueDate: task.dueDate,
+      dueTime: task.dueTime
+    });
+  }
+
+  function closeCalendarTaskPopover() {
+    calendarTaskDraft = null;
+    closeDateTimePicker();
+    elements.calendarTaskPopover.hidden = true;
+  }
+
+  function trashCalendarTaskDraft() {
+    if (!calendarTaskDraft) {
+      return;
+    }
+    if (!window.confirm("确认将这个任务移入垃圾桶？")) {
+      return;
+    }
+    var task = findTask(calendarTaskDraft.id);
+    if (!task) {
+      closeCalendarTaskPopover();
+      return;
+    }
+    task.trashed = true;
+    task.trashedAt = new Date().toISOString();
+    task.updatedAt = task.trashedAt;
+    saveState("日历浮窗移入垃圾桶");
+    closeCalendarTaskPopover();
+    render();
+  }
+
+  function positionPopover(popover, rect, preferredWidth) {
+    popover.hidden = false;
+    var margin = 12;
+    var width = Math.min(preferredWidth || 420, window.innerWidth - margin * 2);
+    var measuredHeight = Math.min(popover.offsetHeight || 420, window.innerHeight - margin * 2);
+    var left = rect ? rect.right + 10 : (window.innerWidth - width) / 2;
+    var top = rect ? rect.top + 6 : (window.innerHeight - measuredHeight) / 2;
+    if (left + width > window.innerWidth - margin && rect) {
+      left = rect.left - width - 10;
+    }
+    if (left < margin) {
+      left = margin;
+    }
+    if (top + measuredHeight > window.innerHeight - margin) {
+      top = window.innerHeight - measuredHeight - margin;
+    }
+    if (top < margin) {
+      top = margin;
+    }
+    popover.style.left = Math.round(left) + "px";
+    popover.style.top = Math.round(top) + "px";
+    popover.style.right = "auto";
+    popover.style.bottom = "auto";
+  }
+
+  function openDateTimePicker(anchorElement) {
+    if (!calendarTaskDraft) {
+      return;
+    }
+    readCalendarTaskDraftFromForm();
+    dateTimeDraft = {
+      dueDate: calendarTaskDraft.dueDate,
+      dueTime: calendarTaskDraft.dueTime,
+      reminder: calendarTaskDraft.reminder || { enabled: false, minutesBefore: null },
+      repeat: calendarTaskDraft.repeat || { type: "none", interval: 1 }
+    };
+    dateTimePickerMonth = dateTimeDraft.dueDate ? parseIsoDate(dateTimeDraft.dueDate) : new Date();
+    renderDateTimePicker();
+    positionPopover(elements.dateTimePopover, anchorElement.getBoundingClientRect(), 320);
+  }
+
+  function renderDateTimePicker() {
+    if (!dateTimeDraft) {
+      elements.dateTimePopover.hidden = true;
+      return;
+    }
+    var monthDate = dateTimePickerMonth || new Date();
+    elements.dateTimeMonthTitle.textContent = monthDate.getFullYear() + "年" + pad(monthDate.getMonth() + 1) + "月";
+    elements.dateTimeDateGrid.innerHTML = getCalendarCells(monthDate.getFullYear(), monthDate.getMonth()).map(function (date) {
+      var iso = toIsoDate(date);
+      return "<button type=\"button\" data-picker-date=\"" + iso + "\" class=\"" +
+        (date.getMonth() !== monthDate.getMonth() ? "is-muted " : "") +
+        (iso === toIsoDate(new Date()) ? "is-today " : "") +
+        (iso === dateTimeDraft.dueDate ? "is-selected" : "") + "\">" +
+        date.getDate() + "</button>";
+    }).join("");
+    document.getElementById("datetime-time-input").value = dateTimeDraft.dueTime || "";
+    document.getElementById("datetime-reminder-input").value = dateTimeDraft.reminder && dateTimeDraft.reminder.enabled ?
+      String(dateTimeDraft.reminder.minutesBefore || 0) : "none";
+    document.getElementById("datetime-repeat-input").value = dateTimeDraft.repeat && dateTimeDraft.repeat.type ?
+      dateTimeDraft.repeat.type : "none";
+    elements.dateTimePopover.hidden = false;
+  }
+
+  function applyDateQuick(key) {
+    if (!dateTimeDraft) {
+      return;
+    }
+    var today = new Date();
+    if (key === "today") {
+      dateTimeDraft.dueDate = toIsoDate(today);
+    } else if (key === "tomorrow") {
+      dateTimeDraft.dueDate = toIsoDate(addDays(today, 1));
+    } else if (key === "next-week") {
+      dateTimeDraft.dueDate = toIsoDate(addDays(today, 7));
+    } else if (key === "none") {
+      dateTimeDraft.dueDate = null;
+      dateTimeDraft.dueTime = null;
+    }
+    dateTimePickerMonth = dateTimeDraft.dueDate ? parseIsoDate(dateTimeDraft.dueDate) : today;
+    renderDateTimePicker();
+  }
+
+  function applyDateTimePicker() {
+    if (!calendarTaskDraft || !dateTimeDraft) {
+      return;
+    }
+    var time = document.getElementById("datetime-time-input").value || null;
+    var date = dateTimeDraft.dueDate;
+    calendarTaskDraft.dueDate = date;
+    calendarTaskDraft.dueTime = date ? time : null;
+    calendarTaskDraft.allDay = !date || !time;
+    if (date && time) {
+      var duration = getTaskDurationMinutes(calendarTaskDraft);
+      calendarTaskDraft.startAt = date + "T" + time;
+      calendarTaskDraft.endAt = addMinutesToLocalDateTime(calendarTaskDraft.startAt, duration || 60);
+    } else if (date) {
+      calendarTaskDraft.startAt = date + "T00:00";
+      calendarTaskDraft.endAt = date + "T23:59";
+    } else {
+      calendarTaskDraft.startAt = null;
+      calendarTaskDraft.endAt = null;
+    }
+    calendarTaskDraft.reminder = parseReminderInput(document.getElementById("datetime-reminder-input").value);
+    calendarTaskDraft.repeat = {
+      type: document.getElementById("datetime-repeat-input").value,
+      interval: 1
+    };
+    closeDateTimePicker();
+    renderCalendarTaskPopover();
+  }
+
+  function clearDateTimePicker() {
+    if (!calendarTaskDraft) {
+      return;
+    }
+    calendarTaskDraft.dueDate = null;
+    calendarTaskDraft.dueTime = null;
+    calendarTaskDraft.startAt = null;
+    calendarTaskDraft.endAt = null;
+    calendarTaskDraft.allDay = true;
+    closeDateTimePicker();
+    renderCalendarTaskPopover();
+  }
+
+  function closeDateTimePicker() {
+    dateTimeDraft = null;
+    elements.dateTimePopover.hidden = true;
+  }
+
+  function handleGlobalKeydown(event) {
+    if (event.key !== "Escape") {
+      return;
+    }
+    if (!elements.dateTimePopover.hidden) {
+      closeDateTimePicker();
+      return;
+    }
+    if (!elements.calendarTaskPopover.hidden) {
+      closeCalendarTaskPopover();
+      return;
+    }
+    if (!elements.calendarPopover.hidden) {
+      closeCalendarCreatePopover();
+    }
+  }
+
+  function formatDateTimeLine(task) {
+    if (!task.dueDate) {
+      return "无日期";
+    }
+    var line = formatDateLabel(task.dueDate);
+    if (task.dueTime) {
+      line += ", " + task.dueTime;
+    }
+    return line;
   }
 
   function toggleCalendarMultiSelect(taskId) {
@@ -1694,6 +2040,12 @@
     document.querySelectorAll(".is-dragging,.is-drag-over").forEach(function (node) {
       node.classList.remove("is-dragging", "is-drag-over");
     });
+    if (dragState) {
+      calendarDragJustEnded = true;
+      window.setTimeout(function () {
+        calendarDragJustEnded = false;
+      }, 80);
+    }
     dragState = null;
   }
 
@@ -1954,6 +2306,10 @@
 
   function addDays(date, days) {
     return new Date(startOfDay(date).getTime() + days * DAY_MS);
+  }
+
+  function addMonths(date, months) {
+    return new Date(date.getFullYear(), date.getMonth() + months, 1);
   }
 
   function toIsoDate(date) {

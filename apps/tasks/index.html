@@ -232,6 +232,145 @@
               <button class="secondary-task-button" type="button" id="calendar-create-cancel">取消</button>
             </div>
           </form>
+
+          <form class="calendar-task-popover" id="calendar-task-popover" hidden>
+            <div class="calendar-task-popover__header">
+              <label class="task-complete-line">
+                <input id="calendar-detail-completed" type="checkbox">
+                <span>完成</span>
+              </label>
+              <button
+                class="calendar-task-popover__date-line"
+                id="calendar-detail-date-line"
+                type="button"
+                aria-label="编辑日期和时间"
+              >
+                无日期
+              </button>
+              <button class="small-icon-button" type="button" id="calendar-detail-close" aria-label="关闭">×</button>
+            </div>
+
+            <label class="calendar-task-popover__title">
+              <span class="sr-only">任务标题</span>
+              <input id="calendar-detail-title" type="text" maxlength="80" placeholder="任务标题" required>
+            </label>
+
+            <div class="field-grid">
+              <label>
+                清单
+                <select id="calendar-detail-list"></select>
+              </label>
+              <label>
+                优先级
+                <select id="calendar-detail-priority">
+                  <option value="none">无</option>
+                  <option value="low">低</option>
+                  <option value="medium">中</option>
+                  <option value="high">高</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              备注
+              <textarea id="calendar-detail-note" rows="4" maxlength="800" placeholder="添加备注"></textarea>
+            </label>
+
+            <label>
+              标签
+              <input id="calendar-detail-tags" type="text" placeholder="用空格分隔，例如：工作 健康">
+            </label>
+
+            <div class="field-grid">
+              <label>
+                提醒
+                <select id="calendar-detail-reminder">
+                  <option value="none">不提醒</option>
+                  <option value="0">准时</option>
+                  <option value="10">提前10分钟</option>
+                  <option value="60">提前1小时</option>
+                  <option value="1440">提前1天</option>
+                </select>
+              </label>
+              <label>
+                重复
+                <select id="calendar-detail-repeat">
+                  <option value="none">不重复</option>
+                  <option value="daily">每天</option>
+                  <option value="weekly">每周</option>
+                  <option value="monthly">每月</option>
+                  <option value="yearly">每年</option>
+                </select>
+              </label>
+            </div>
+
+            <p class="metadata-note">当前仅保存提醒和重复设置，不触发真实提醒，也不自动生成未来重复任务。</p>
+
+            <div class="detail-actions">
+              <button class="primary-task-button" type="submit">保存</button>
+              <button class="danger-button" type="button" id="calendar-detail-trash">移入垃圾桶</button>
+              <button class="secondary-task-button" type="button" id="calendar-detail-close-bottom">关闭</button>
+            </div>
+          </form>
+
+          <section class="calendar-datetime-popover" id="calendar-datetime-popover" hidden>
+            <div class="datetime-tabs" aria-label="日期时间设置">
+              <button class="is-active" type="button">日期</button>
+              <button type="button" disabled>时间段</button>
+            </div>
+            <div class="datetime-quick-row">
+              <button type="button" data-date-quick="today">今天</button>
+              <button type="button" data-date-quick="tomorrow">明天</button>
+              <button type="button" data-date-quick="next-week">下周</button>
+              <button type="button" data-date-quick="none">无日期</button>
+            </div>
+            <div class="datetime-mini-calendar">
+              <header>
+                <button type="button" id="datetime-prev-month" aria-label="上个月">‹</button>
+                <strong id="datetime-month-title">2026年06月</strong>
+                <button type="button" id="datetime-next-month" aria-label="下个月">›</button>
+              </header>
+              <div class="datetime-weekdays" aria-hidden="true">
+                <span>日</span>
+                <span>一</span>
+                <span>二</span>
+                <span>三</span>
+                <span>四</span>
+                <span>五</span>
+                <span>六</span>
+              </div>
+              <div class="datetime-date-grid" id="datetime-date-grid"></div>
+            </div>
+            <label>
+              时间
+              <input id="datetime-time-input" type="time">
+            </label>
+            <label>
+              提醒
+              <select id="datetime-reminder-input">
+                <option value="none">不提醒</option>
+                <option value="0">准时</option>
+                <option value="10">提前10分钟</option>
+                <option value="60">提前1小时</option>
+                <option value="1440">提前1天</option>
+              </select>
+            </label>
+            <label>
+              重复
+              <select id="datetime-repeat-input">
+                <option value="none">不重复</option>
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
+                <option value="yearly">每年</option>
+              </select>
+            </label>
+            <p class="metadata-note">结束：永不结束</p>
+            <div class="detail-actions">
+              <button class="primary-task-button" type="button" id="datetime-apply">确定</button>
+              <button class="secondary-task-button" type="button" id="datetime-clear">清除</button>
+            </div>
+          </section>
         </section>
       </main>
 
