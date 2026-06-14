@@ -22,12 +22,34 @@
 | App Name | Purpose | Status | Permission Required | Notes |
 | --- | --- | --- | --- | --- |
 | Memo | 备忘录/待办事项 | Planned | Yes | 具体功能后续确定 |
-| Diet Tracker | 饮食打卡 | Planned | Yes | 具体功能后续确定 |
+| Health Management | 健康饮食、运动打卡、放纵警告 | Local front-end prototype | Future Yes | 当前使用 localStorage 保存单设备数据 |
 | Exercise Tracker | 运动打卡 | Planned | Yes | 具体功能后续确定 |
 | Korean Learning | 韩语学习 | Planned | Yes | 具体功能后续确定 |
 | Project Manager | 项目管理 | Planned | Yes | 具体功能后续确定 |
 
-## 3. Future Module Rule
+## 3. Health Management V1
+
+当前健康管理页面位于：
+
+```text
+apps/health/index.html
+```
+
+当前状态：
+
+- 已从静态占位升级为本机前端原型。
+- 包含健康饮食、运动打卡、放纵警告三个模块。
+- 使用 `localStorage` 保存单设备本地数据。
+- 不包含后端、数据库、真实登录或权限系统。
+- 不应该录入真实敏感健康数据。
+
+相关文件：
+
+- `apps/health/index.html`
+- `apps/health/health.css`
+- `apps/health/health.js`
+
+## 4. Future Module Rule
 
 以后新增子应用时，必须先更新本文件，再写代码。
 

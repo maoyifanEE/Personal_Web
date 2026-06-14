@@ -144,6 +144,8 @@ Key paths:
 - `index.html`: public visitor-facing homepage.
 - `login.html`: static private entrance placeholder. It does not authenticate anyone.
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
+- `apps/health/index.html`: 健康管理 V1 local front-end prototype.
+  It stores demo/user interaction data in browser `localStorage` only.
 
 ## Project docs
 
@@ -158,3 +160,5 @@ Important principles:
   server-side checks, and route protection.
 - Any future backend, database, or authentication work must be designed
   and verified separately.
+- 健康管理 currently has a usable local prototype, but it still has no backend,
+  database, authentication, or authorization.
