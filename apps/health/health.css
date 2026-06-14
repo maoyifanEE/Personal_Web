@@ -314,6 +314,29 @@ body[data-page="health-v1"] {
   background: var(--card-accent);
 }
 
+.series-mode-badge {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 24px;
+  align-items: center;
+  margin-left: 6px;
+  padding: 4px 8px;
+  border: 1px solid rgba(32, 168, 127, 0.2);
+  border-radius: 999px;
+  color: #21755f;
+  background: rgba(231, 248, 239, 0.86);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.series-helper {
+  margin: 0;
+  color: var(--health-muted);
+  font-size: 0.9rem;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
 .level-tag {
   color: var(--level-color);
   background: color-mix(in srgb, var(--level-color) 13%, white);
