@@ -135,7 +135,12 @@
         </section>
 
         <form class="manager-form" id="manager-form">
-          <h3 id="manager-form-title">新增卡片</h3>
+          <div class="manager-form-heading">
+            <h3 id="manager-form-title">新增卡片</h3>
+            <button class="primary-action-button compact-submit-button" type="submit" id="manager-submit-button-top">
+              新增卡片
+            </button>
+          </div>
           <input type="hidden" id="card-id-field">
 
           <label>
@@ -205,7 +210,9 @@
           </label>
 
           <div class="form-actions">
-            <button class="primary-action-button" type="submit">保存卡片</button>
+            <button class="primary-action-button" type="submit" id="manager-submit-button">
+              新增卡片
+            </button>
             <button class="ghost-button" type="button" id="clear-form-button">清空表单</button>
           </div>
         </form>

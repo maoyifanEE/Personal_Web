@@ -1224,6 +1224,8 @@
     document.getElementById("manager-form").reset();
     document.getElementById("card-id-field").value = "";
     document.getElementById("manager-form-title").textContent = "新增卡片";
+    document.getElementById("manager-submit-button").textContent = "新增卡片";
+    document.getElementById("manager-submit-button-top").textContent = "新增卡片";
     document.getElementById("active-field").checked = true;
     document.getElementById("mode-field").value = "single";
     document.getElementById("recurrence-field").value = 3;
@@ -1279,6 +1281,8 @@
 
   function fillForm(card) {
     document.getElementById("manager-form-title").textContent = "编辑卡片";
+    document.getElementById("manager-submit-button").textContent = "保存卡片";
+    document.getElementById("manager-submit-button-top").textContent = "保存卡片";
     document.getElementById("card-id-field").value = card.id;
     document.getElementById("card-title-field").value = card.title;
     document.getElementById("card-icon-field").value = card.iconKey || "default";
@@ -1327,6 +1331,11 @@
     }
 
     normalizeOrder(currentManagerType);
+    console.log("[Personal_Web] " + (id ? "保存" : "新增") + "健康管理卡片：", {
+      section: sectionConfig[currentManagerType].label,
+      mode: currentManagerType === "indulgence" ? "indulgence" : card.mode,
+      active: card.active
+    });
     saveState("卡片表单保存");
     resetForm();
     render();
