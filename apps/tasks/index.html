@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Personal_Web 任务清单 V1 本地前端原型，任务视图和日历视图共用同一批本地任务数据。"
+    >
+    <title>任务清单 - Personal_Web</title>
+    <link rel="icon" href="../../assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./tasks.css">
+    <script src="./tasks.js" defer></script>
+  </head>
+  <body>
+    <div class="task-app-shell" data-view="tasks">
+      <nav class="task-icon-rail" aria-label="任务清单模块">
+        <a class="rail-avatar" href="../../hub.html" aria-label="返回私人工具中心">P</a>
+        <button class="rail-button is-active" type="button" data-view-button="tasks" aria-label="任务模块">
+          <span aria-hidden="true">✓</span>
+        </button>
+        <button class="rail-button" type="button" data-view-button="calendar" aria-label="日历模块">
+          <span aria-hidden="true">□</span>
+        </button>
+        <button class="rail-button muted" type="button" title="后续开放" aria-label="后续开放">
+          <span aria-hidden="true">⌕</span>
+        </button>
+        <button class="rail-button muted rail-bottom" type="button" title="后续开放" aria-label="后续开放">
+          <span aria-hidden="true">?</span>
+        </button>
+      </nav>
+
+      <aside class="task-sidebar" aria-label="任务清单侧栏">
+        <header class="sidebar-header">
+          <p>Personal_Web / 本地原型</p>
+          <h1>任务清单</h1>
+        </header>
+
+        <section class="sidebar-section">
+          <h2>智能清单</h2>
+          <button class="sidebar-row" type="button" data-smart-list="today">
+            <span class="row-icon">今</span>
+            <span>今天</span>
+            <strong data-count="today">0</strong>
+          </button>
+          <button class="sidebar-row" type="button" data-smart-list="next7">
+            <span class="row-icon">7</span>
+            <span>最近7天</span>
+            <strong data-count="next7">0</strong>
+          </button>
+          <button class="sidebar-row" type="button" data-smart-list="inbox">
+            <span class="row-icon">收</span>
+            <span>收集箱</span>
+            <strong data-count="inbox">0</strong>
+          </button>
+        </section>
+
+        <section class="sidebar-section">
+          <div class="section-title-line">
+            <h2>清单</h2>
+          </div>
+          <div class="user-list-stack" id="user-list-stack"></div>
+        </section>
+
+        <section class="sidebar-note">
+          <h2>标签</h2>
+          <p>以标签的维度展示不同清单的任务。在添加任务时输入 # 可快速选择标签。</p>
+        </section>
+
+        <section class="sidebar-note">
+          <h2>过滤器</h2>
+          <p>根据清单、时间、优先级、标签等过滤出特定的任务。</p>
+        </section>
+
+        <section class="sidebar-section sidebar-bottom">
+          <button class="sidebar-row" type="button" data-smart-list="completed">
+            <span class="row-icon">完</span>
+            <span>已完成</span>
+            <strong data-count="completed">0</strong>
+          </button>
+          <button class="sidebar-row" type="button" data-smart-list="trash">
+            <span class="row-icon">删</span>
+            <span>垃圾桶</span>
+            <strong data-count="trash">0</strong>
+          </button>
+          <button class="reset-button" type="button" id="reset-demo-button">重置示例数据</button>
+        </section>
+      </aside>
+
+      <main class="task-main">
+        <section class="task-view" id="task-view" aria-labelledby="task-view-title">
+          <header class="main-header">
+            <div>
+              <p class="main-kicker">任务模块</p>
+              <h2 id="task-view-title">收集箱</h2>
+            </div>
+            <button class="small-icon-button" type="button" title="后续开放" aria-label="后续开放">
+              ···
+            </button>
+          </header>
+
+          <form class="quick-add-form" id="quick-add-form">
+            <input
+              id="quick-add-input"
+              type="text"
+              autocomplete="off"
+              placeholder="添加任务，回车即可创建"
+              aria-label="添加任务，回车即可创建"
+            >
+          </form>
+
+          <div class="task-group-stack" id="task-group-stack"></div>
+        </section>
+
+        <section class="calendar-view" id="calendar-view" aria-labelledby="calendar-title" hidden>
+          <header class="calendar-topbar">
+            <div>
+              <p class="main-kicker">日历模块</p>
+              <h2 id="calendar-title">2026年06月</h2>
+            </div>
+            <div class="calendar-controls">
+              <button class="today-button" type="button" id="calendar-add-button">新建任务</button>
+              <button class="month-mode-button" type="button" disabled>月</button>
+              <button class="small-icon-button" type="button" id="prev-month-button" aria-label="上个月">‹</button>
+              <button class="today-button" type="button" id="calendar-today-button">今天</button>
+              <button class="small-icon-button" type="button" id="next-month-button" aria-label="下个月">›</button>
+              <button class="small-icon-button" type="button" title="后续开放" aria-label="后续开放">···</button>
+            </div>
+          </header>
+
+          <div class="calendar-weekdays" aria-hidden="true">
+            <span>周日</span>
+            <span>周一</span>
+            <span>周二</span>
+            <span>周三</span>
+            <span>周四</span>
+            <span>周五</span>
+            <span>周六</span>
+          </div>
+          <div class="calendar-grid" id="calendar-grid"></div>
+        </section>
+      </main>
+
+      <aside class="task-detail-panel" aria-label="任务详情">
+        <section class="detail-empty" id="detail-empty">
+          <div class="empty-illustration" aria-hidden="true"></div>
+          <h2>选择一个任务查看详情</h2>
+          <p>当前为本地静态原型，数据仅保存在当前浏览器 localStorage 中，请不要填写敏感隐私内容。</p>
+        </section>
+
+        <form class="detail-form" id="detail-form" hidden>
+          <div class="detail-form-header">
+            <label class="task-complete-line">
+              <input id="detail-completed" type="checkbox">
+              <span>完成</span>
+            </label>
+            <button class="small-icon-button" type="button" id="close-detail-button" aria-label="关闭详情">×</button>
+          </div>
+
+          <label>
+            任务标题
+            <input id="detail-title" type="text" maxlength="80" required>
+          </label>
+
+          <label>
+            备注
+            <textarea id="detail-note" rows="5" maxlength="800"></textarea>
+          </label>
+
+          <div class="field-grid">
+            <label>
+              清单
+              <select id="detail-list"></select>
+            </label>
+            <label>
+              优先级
+              <select id="detail-priority">
+                <option value="none">无</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="field-grid">
+            <label>
+              日期
+              <input id="detail-due-date" type="date">
+            </label>
+            <label>
+              时间
+              <input id="detail-due-time" type="time">
+            </label>
+          </div>
+
+          <label>
+            标签
+            <input id="detail-tags" type="text" placeholder="用空格分隔，例如：工作 健康">
+          </label>
+
+          <section class="subtask-panel">
+            <h3>子任务</h3>
+            <div id="subtask-list"></div>
+            <input id="subtask-input" type="text" placeholder="添加子任务">
+          </section>
+
+          <div class="field-grid">
+            <label>
+              提醒
+              <select id="detail-reminder">
+                <option value="none">不提醒</option>
+                <option value="0">准时</option>
+                <option value="10">提前10分钟</option>
+                <option value="60">提前1小时</option>
+                <option value="1440">提前1天</option>
+              </select>
+            </label>
+            <label>
+              重复
+              <select id="detail-repeat">
+                <option value="none">不重复</option>
+                <option value="daily">每天</option>
+                <option value="weekly">每周</option>
+                <option value="monthly">每月</option>
+                <option value="yearly">每年</option>
+              </select>
+            </label>
+          </div>
+
+          <p class="metadata-note">当前仅保存提醒和重复设置，不触发真实提醒，也不自动生成未来重复任务。</p>
+
+          <div class="detail-actions">
+            <button class="primary-task-button" type="submit">保存</button>
+            <button class="danger-button" type="button" id="trash-task-button">移入垃圾桶</button>
+            <button class="secondary-task-button" type="button" id="restore-task-button" hidden>恢复任务</button>
+            <button class="danger-button" type="button" id="delete-task-button" hidden>永久删除</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+  </body>
+</html>

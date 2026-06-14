@@ -13,21 +13,63 @@
 - 测试
 - 文档说明
 
-当前静态阶段不实现任何子应用。
-`hub.html` 只作为 Personal Hub 占位页，
-不包含 todo、memo、admin panel、database UI、settings UI 或 dashboard 逻辑。
+当前静态阶段允许建立静态页面或本地前端原型。
+`hub.html` 作为 Personal Hub 入口页，
+不得暗示已经具备真实登录、权限保护、数据库或后端能力。
 
 ## 2. Initial App Ideas
 
 | App Name | Purpose | Status | Permission Required | Notes |
 | --- | --- | --- | --- | --- |
-| Memo | 备忘录/待办事项 | Planned | Yes | 具体功能后续确定 |
+| 任务清单 | 待办事项、日期任务、清单、标签、优先级和基础月历视图 | V1 local front-end prototype | Future Yes | 当前使用 localStorage 保存单设备数据 |
 | Health Management | 健康饮食、运动打卡、放纵警告 | Local front-end prototype | Future Yes | 当前使用 localStorage 保存单设备数据 |
 | Exercise Tracker | 运动打卡 | Planned | Yes | 具体功能后续确定 |
 | Korean Learning | 韩语学习 | Planned | Yes | 具体功能后续确定 |
 | Project Manager | 项目管理 | Planned | Yes | 具体功能后续确定 |
 
-## 3. Health Management V1
+## 3. 任务清单 V1
+
+当前任务清单页面位于：
+
+```text
+apps/tasks/index.html
+```
+
+当前状态：
+
+- 已从空白占位升级为本机前端原型。
+- 包含任务视图和日历月视图。
+- 任务视图和日历视图共用同一批 `tasks[]` 数据。
+- 支持智能清单：今天、最近7天、收集箱。
+- 支持用户清单、标签、优先级、到期日期、到期时间。
+- 支持基础子任务、已完成任务、垃圾桶。
+- 使用 `localStorage` 保存单设备本地数据。
+- 提醒和重复只保存元数据，不触发真实提醒，也不生成未来重复任务。
+
+明确不包含：
+
+- 后端
+- 数据库
+- 账号登录
+- 云同步
+- 协作
+- 真实通知
+- 外部日历订阅
+- 番茄钟
+- 习惯打卡
+- 四象限
+- 看板
+- 时间线
+- 倒数日
+- 高级重复任务引擎
+
+相关文件：
+
+- `apps/tasks/index.html`
+- `apps/tasks/tasks.css`
+- `apps/tasks/tasks.js`
+
+## 4. Health Management V1
 
 当前健康管理页面位于：
 
@@ -54,7 +96,7 @@ apps/health/index.html
 - `apps/health/health.css`
 - `apps/health/health.js`
 
-## 4. Future Module Rule
+## 5. Future Module Rule
 
 以后新增子应用时，必须先更新本文件，再写代码。
 
