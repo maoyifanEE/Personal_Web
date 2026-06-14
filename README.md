@@ -162,7 +162,8 @@ Key paths:
 - `login.html`: static private entrance placeholder. It does not authenticate anyone.
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
 - `apps/tasks/index.html`: 任务清单 V1 local front-end prototype.
-  It provides task list view and calendar month view over the same local task data.
+  It provides task list view and an interactive calendar scheduling panel
+  over the same local task data.
   It does not include backend, database, authentication, authorization, cloud sync,
   real reminders, Pomodoro, Habit tracker, Eisenhower Matrix, Kanban, Timeline,
   or Countdown.

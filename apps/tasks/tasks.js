@@ -33,6 +33,7 @@
     elements.taskGroupStack = document.getElementById("task-group-stack");
     elements.calendarTitle = document.getElementById("calendar-title");
     elements.calendarGrid = document.getElementById("calendar-grid");
+    elements.calendarWeekdays = document.getElementById("calendar-weekdays");
     elements.detailEmpty = document.getElementById("detail-empty");
     elements.detailForm = document.getElementById("detail-form");
     elements.resetButton = document.getElementById("reset-demo-button");
@@ -40,6 +41,17 @@
     elements.nextMonth = document.getElementById("next-month-button");
     elements.todayButton = document.getElementById("calendar-today-button");
     elements.calendarAddButton = document.getElementById("calendar-add-button");
+    elements.calendarModeButtons = document.querySelectorAll("[data-calendar-mode]");
+    elements.calendarPopover = document.getElementById("calendar-popover");
+    elements.calendarFilterButton = document.getElementById("calendar-filter-button");
+    elements.calendarFilterPanel = document.getElementById("calendar-filter-panel");
+    elements.filterShowCompleted = document.getElementById("filter-show-completed");
+    elements.filterListOptions = document.getElementById("filter-list-options");
+    elements.filterColorBy = document.getElementById("filter-color-by");
+    elements.unscheduledTray = document.getElementById("unscheduled-tray");
+    elements.unscheduledList = document.getElementById("unscheduled-list");
+    elements.batchToolbar = document.getElementById("calendar-batch-toolbar");
+    elements.batchCountLabel = document.getElementById("batch-count-label");
   }
 
   function bindEvents() {
@@ -81,9 +93,35 @@
     });
 
     elements.calendarGrid.addEventListener("click", function (event) {
+      var resize = event.target.closest("[data-resize-task]");
+      if (resize) {
+        return;
+      }
+
       var taskButton = event.target.closest("[data-calendar-task]");
       if (taskButton) {
-        selectTask(taskButton.dataset.calendarTask);
+        handleCalendarTaskClick(event, taskButton.dataset.calendarTask);
+        return;
+      }
+
+      var allDayCell = event.target.closest("[data-week-all-day]");
+      if (allDayCell) {
+        state.ui.selectedCalendarDate = allDayCell.dataset.weekAllDay;
+        openCalendarCreatePopover({ date: allDayCell.dataset.weekAllDay, allDay: true });
+        return;
+      }
+
+      var weekSlot = event.target.closest("[data-week-slot]") || event.target.closest("[data-week-date]");
+      if (weekSlot) {
+        var hour = Number(weekSlot.dataset.weekHour);
+        var minute = Number(weekSlot.dataset.weekMinute || 0);
+        state.ui.selectedCalendarDate = weekSlot.dataset.weekDate;
+        openCalendarCreatePopover({
+          date: weekSlot.dataset.weekDate,
+          allDay: false,
+          time: minutesToTime(hour * 60 + minute),
+          endTime: minutesToTime(hour * 60 + minute + 60)
+        });
         return;
       }
 
@@ -92,8 +130,17 @@
         state.ui.selectedCalendarDate = dayCell.dataset.calendarDate;
         saveState("选择日历日期");
         render();
+        if (state.ui.calendarViewMode === "month" && !event.target.closest("[data-calendar-task]")) {
+          openCalendarCreatePopover({ date: dayCell.dataset.calendarDate, allDay: true });
+        }
       }
     });
+
+    elements.calendarGrid.addEventListener("dragstart", handleCalendarDragStart);
+    elements.calendarGrid.addEventListener("dragover", handleCalendarDragOver);
+    elements.calendarGrid.addEventListener("dragleave", handleCalendarDragLeave);
+    elements.calendarGrid.addEventListener("drop", handleCalendarDrop);
+    elements.calendarGrid.addEventListener("mousedown", handleCalendarMouseDown);
 
     elements.calendarGrid.addEventListener("dblclick", function (event) {
       var dayCell = event.target.closest("[data-calendar-date]");
@@ -115,6 +162,9 @@
       setTaskCompleted(task, document.getElementById("detail-completed").checked);
       saveState("详情完成状态更新");
       render();
+    });
+    document.getElementById("detail-all-day").addEventListener("change", function () {
+      toggleDetailTimeFields();
     });
 
     document.getElementById("trash-task-button").addEventListener("click", trashSelectedTask);
@@ -172,8 +222,54 @@
     });
 
     elements.calendarAddButton.addEventListener("click", function () {
-      createCalendarTask(state.ui.selectedCalendarDate || toIsoDate(new Date()));
+      openCalendarCreatePopover({
+        date: state.ui.selectedCalendarDate || toIsoDate(new Date()),
+        allDay: true
+      });
     });
+
+    elements.calendarModeButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        state.ui.calendarViewMode = button.dataset.calendarMode;
+        saveState("切换日历视图");
+        render();
+      });
+    });
+
+    elements.calendarPopover.addEventListener("submit", handleCalendarCreateSubmit);
+    document.getElementById("calendar-create-cancel").addEventListener("click", closeCalendarCreatePopover);
+    document.getElementById("calendar-create-all-day").addEventListener("change", toggleCalendarCreateTimeFields);
+    elements.calendarFilterButton.addEventListener("click", function () {
+      elements.calendarFilterPanel.hidden = !elements.calendarFilterPanel.hidden;
+    });
+    elements.filterShowCompleted.addEventListener("change", function () {
+      state.ui.calendarFilters.showCompleted = elements.filterShowCompleted.checked;
+      saveState("切换日历已完成显示");
+      render();
+    });
+    elements.filterColorBy.addEventListener("change", function () {
+      state.ui.calendarFilters.colorBy = elements.filterColorBy.value;
+      saveState("切换日历颜色依据");
+      render();
+    });
+    elements.filterListOptions.addEventListener("change", function () {
+      state.ui.calendarFilters.visibleListIds = Array.from(
+        elements.filterListOptions.querySelectorAll("input:checked")
+      ).map(function (input) {
+        return input.value;
+      });
+      saveState("切换日历清单筛选");
+      render();
+    });
+    elements.unscheduledList.addEventListener("dragstart", handleCalendarDragStart);
+    elements.unscheduledList.addEventListener("dragend", clearDragState);
+    document.getElementById("toggle-unscheduled-button").addEventListener("click", function () {
+      elements.unscheduledTray.classList.toggle("is-collapsed");
+      this.textContent = elements.unscheduledTray.classList.contains("is-collapsed") ? "展开" : "收起";
+    });
+    elements.batchToolbar.addEventListener("click", handleBatchAction);
+    document.addEventListener("mousemove", handleResizeMove);
+    document.addEventListener("mouseup", handleResizeEnd);
   }
 
   function loadState() {
@@ -223,6 +319,21 @@
       tags: Array.isArray(input.tags) ? input.tags.map(migrateTag).filter(Boolean) : fallback.tags,
       ui: Object.assign({}, fallback.ui, input.ui || {})
     };
+    next.ui.calendarViewMode = ["month", "week", "agenda"].includes(next.ui.calendarViewMode) ?
+      next.ui.calendarViewMode : "month";
+    next.ui.selectedCalendarTaskIds = Array.isArray(next.ui.selectedCalendarTaskIds) ?
+      next.ui.selectedCalendarTaskIds : [];
+    next.ui.calendarFilters = Object.assign({
+      showCompleted: true,
+      visibleListIds: next.lists.map(function (list) { return list.id; }),
+      colorBy: "list"
+    }, next.ui.calendarFilters || {});
+    if (!Array.isArray(next.ui.calendarFilters.visibleListIds) || !next.ui.calendarFilters.visibleListIds.length) {
+      next.ui.calendarFilters.visibleListIds = next.lists.map(function (list) { return list.id; });
+    }
+    if (!["list", "priority"].includes(next.ui.calendarFilters.colorBy)) {
+      next.ui.calendarFilters.colorBy = "list";
+    }
 
     if (!next.lists.some(function (list) { return list.id === "inbox"; })) {
       next.lists.unshift(createList("inbox", "收集箱", "#7c8b87", 0));
@@ -243,7 +354,7 @@
       return null;
     }
     var now = new Date().toISOString();
-    return {
+    return normalizeTaskSchedule({
       id: task.id || createId("task"),
       title: String(task.title || "未命名任务"),
       note: String(task.note || ""),
@@ -255,6 +366,9 @@
       tagIds: Array.isArray(task.tagIds) ? task.tagIds : [],
       dueDate: normalizeDateString(task.dueDate),
       dueTime: task.dueTime || null,
+      startAt: task.startAt || null,
+      endAt: task.endAt || null,
+      allDay: typeof task.allDay === "boolean" ? task.allDay : !task.dueTime,
       priority: ["none", "low", "medium", "high"].includes(task.priority) ? task.priority : "none",
       subtasks: Array.isArray(task.subtasks) ? task.subtasks.map(migrateSubtask) : [],
       reminder: migrateReminder(task.reminder),
@@ -262,7 +376,35 @@
       createdAt: task.createdAt || now,
       updatedAt: task.updatedAt || now,
       order: Number.isFinite(task.order) ? task.order : 0
-    };
+    });
+  }
+
+  function normalizeTaskSchedule(task) {
+    if (!task.dueDate) {
+      task.dueTime = null;
+      task.startAt = null;
+      task.endAt = null;
+      task.allDay = false;
+      return task;
+    }
+
+    if (task.startAt && task.endAt) {
+      task.dueDate = task.startAt.slice(0, 10);
+      task.dueTime = task.allDay ? null : task.startAt.slice(11, 16);
+      return task;
+    }
+
+    if (task.dueTime) {
+      task.allDay = false;
+      task.startAt = task.dueDate + "T" + task.dueTime;
+      task.endAt = addMinutesToLocalDateTime(task.startAt, 60);
+      return task;
+    }
+
+    task.allDay = true;
+    task.startAt = task.dueDate + "T00:00";
+    task.endAt = task.dueDate + "T23:59";
+    return task;
   }
 
   function migrateSubtask(subtask) {
@@ -377,7 +519,14 @@
         selectedTaskId: null,
         calendarYear: today.getFullYear(),
         calendarMonth: today.getMonth(),
-        selectedCalendarDate: toIsoDate(today)
+        selectedCalendarDate: toIsoDate(today),
+        calendarViewMode: "month",
+        calendarFilters: {
+          showCompleted: true,
+          visibleListIds: lists.map(function (list) { return list.id; }),
+          colorBy: "list"
+        },
+        selectedCalendarTaskIds: []
       }
     };
   }
@@ -402,7 +551,7 @@
 
   function createTask(overrides) {
     var now = new Date().toISOString();
-    return Object.assign({
+    return normalizeTaskSchedule(Object.assign({
       id: createId("task"),
       title: "新任务",
       note: "",
@@ -414,6 +563,9 @@
       tagIds: [],
       dueDate: null,
       dueTime: null,
+      startAt: null,
+      endAt: null,
+      allDay: false,
       priority: "none",
       subtasks: [],
       reminder: { enabled: false, minutesBefore: null },
@@ -421,7 +573,7 @@
       createdAt: now,
       updatedAt: now,
       order: state && state.tasks ? state.tasks.length + 1 : 1
-    }, overrides || {});
+    }, overrides || {}));
   }
 
   function render() {
@@ -442,6 +594,22 @@
   function normalizeUi() {
     if (!state.ui.activeView) {
       state.ui.activeView = "tasks";
+    }
+    if (!["month", "week", "agenda"].includes(state.ui.calendarViewMode)) {
+      state.ui.calendarViewMode = "month";
+    }
+    if (!Array.isArray(state.ui.selectedCalendarTaskIds)) {
+      state.ui.selectedCalendarTaskIds = [];
+    }
+    if (!state.ui.calendarFilters) {
+      state.ui.calendarFilters = {
+        showCompleted: true,
+        visibleListIds: state.lists.map(function (list) { return list.id; }),
+        colorBy: "list"
+      };
+    }
+    if (!Array.isArray(state.ui.calendarFilters.visibleListIds) || !state.ui.calendarFilters.visibleListIds.length) {
+      state.ui.calendarFilters.visibleListIds = state.lists.map(function (list) { return list.id; });
     }
     if (!state.ui.selectedSmartList && !state.ui.selectedListId) {
       state.ui.selectedSmartList = "inbox";
@@ -807,6 +975,9 @@
     document.getElementById("detail-priority").value = task.priority;
     document.getElementById("detail-due-date").value = task.dueDate || "";
     document.getElementById("detail-due-time").value = task.dueTime || "";
+    document.getElementById("detail-all-day").checked = task.allDay;
+    document.getElementById("detail-start-time").value = task.startAt ? task.startAt.slice(11, 16) : "";
+    document.getElementById("detail-end-time").value = task.endAt ? task.endAt.slice(11, 16) : "";
     document.getElementById("detail-tags").value = task.tagIds.map(function (tagId) {
       var tag = findTag(tagId);
       return tag ? tag.name : "";
@@ -815,6 +986,7 @@
     document.getElementById("detail-repeat").value = task.repeat.type || "none";
 
     renderSubtasks(task);
+    toggleDetailTimeFields();
     document.getElementById("trash-task-button").hidden = task.trashed;
     document.getElementById("restore-task-button").hidden = !task.trashed;
     document.getElementById("delete-task-button").hidden = !task.trashed;
@@ -830,7 +1002,20 @@
     task.listId = document.getElementById("detail-list").value;
     task.priority = document.getElementById("detail-priority").value;
     task.dueDate = normalizeDateString(document.getElementById("detail-due-date").value);
-    task.dueTime = document.getElementById("detail-due-time").value || null;
+    task.allDay = document.getElementById("detail-all-day").checked;
+    task.dueTime = task.allDay ? null : (document.getElementById("detail-start-time").value ||
+      document.getElementById("detail-due-time").value || null);
+    if (task.dueDate && task.allDay) {
+      task.startAt = task.dueDate + "T00:00";
+      task.endAt = task.dueDate + "T23:59";
+    } else if (task.dueDate && task.dueTime) {
+      task.startAt = task.dueDate + "T" + task.dueTime;
+      task.endAt = task.dueDate + "T" + (document.getElementById("detail-end-time").value ||
+        minutesToTime(timeToMinutes(task.dueTime) + 60));
+    } else {
+      task.startAt = null;
+      task.endAt = null;
+    }
     task.tagIds = parseTagInput(document.getElementById("detail-tags").value);
     task.reminder = parseReminderInput(document.getElementById("detail-reminder").value);
     task.repeat = {
@@ -958,9 +1143,105 @@
   function renderCalendar() {
     var year = state.ui.calendarYear;
     var month = state.ui.calendarMonth;
-    elements.calendarTitle.textContent = year + "年" + pad(month + 1) + "月";
-    var cells = getCalendarCells(year, month);
+    var mode = state.ui.calendarViewMode || "month";
+    elements.calendarTitle.textContent = mode === "week" ? formatWeekTitle(getSelectedWeekStart()) :
+      (mode === "agenda" ? "日历列表" : year + "年" + pad(month + 1) + "月");
+    elements.calendarGrid.className = "calendar-grid is-" + mode;
+    elements.calendarWeekdays.hidden = mode !== "month";
+    elements.calendarModeButtons.forEach(function (button) {
+      button.classList.toggle("is-active", button.dataset.calendarMode === mode);
+    });
+    renderCalendarFilters();
+    renderUnscheduledTray();
+    renderBatchToolbar();
+    if (mode === "week") {
+      renderWeekCalendar();
+    } else if (mode === "agenda") {
+      renderAgendaCalendar();
+    } else {
+      renderMonthCalendar();
+    }
+  }
+
+  function renderMonthCalendar() {
+    var cells = getCalendarCells(state.ui.calendarYear, state.ui.calendarMonth);
     elements.calendarGrid.innerHTML = cells.map(renderCalendarDay).join("");
+  }
+
+  function renderWeekCalendar() {
+    var weekStart = getSelectedWeekStart();
+    var days = [];
+    for (var index = 0; index < 7; index += 1) {
+      days.push(addDays(weekStart, index));
+    }
+    var hours = [];
+    for (var hour = 6; hour <= 23; hour += 1) {
+      hours.push(hour);
+    }
+
+    elements.calendarGrid.innerHTML = [
+      "<div class=\"calendar-week-layout\">",
+      "<div class=\"week-header-row\"><div></div>",
+      days.map(function (day) {
+        return "<div class=\"week-header-cell\">" + weekdayLabel(day) + "<br>" +
+          (day.getMonth() + 1) + "/" + day.getDate() + "</div>";
+      }).join(""),
+      "</div>",
+      "<div class=\"week-all-day-row\"><div class=\"week-ruler-cell\">全天</div>",
+      days.map(function (day) {
+        var iso = toIsoDate(day);
+        return "<div class=\"week-all-day-cell\" data-week-all-day=\"" + iso +
+          "\" data-calendar-date=\"" + iso + "\">" +
+          getAllDayCalendarTasks(iso).map(renderCalendarTask).join("") + "</div>";
+      }).join(""),
+      "</div>",
+      hours.map(function (hour) {
+        return "<div class=\"week-time-row\"><div class=\"week-ruler-cell\">" + pad(hour) + ":00</div>" +
+          days.map(function (day) {
+            var iso = toIsoDate(day);
+            return "<div class=\"week-day-column\" data-week-date=\"" + iso + "\" data-week-hour=\"" + hour +
+              "\"><div class=\"week-slot\" data-week-slot=\"true\" data-week-date=\"" + iso +
+              "\" data-week-hour=\"" + hour + "\" data-week-minute=\"0\"></div>" +
+              "<div class=\"week-slot\" data-week-slot=\"true\" data-week-date=\"" + iso +
+              "\" data-week-hour=\"" + hour + "\" data-week-minute=\"30\"></div>" +
+              renderWeekBlocksForHour(iso, hour) + "</div>";
+          }).join("") + "</div>";
+      }).join(""),
+      "</div>"
+    ].join("");
+  }
+
+  function renderAgendaCalendar() {
+    var tasks = getVisibleCalendarTasks().sort(sortCalendarTasks);
+    var today = toIsoDate(new Date());
+    var tomorrow = toIsoDate(addDays(new Date(), 1));
+    var next7 = toIsoDate(addDays(new Date(), 7));
+    var groups = [
+      { title: "今天", tasks: [] },
+      { title: "明天", tasks: [] },
+      { title: "本周", tasks: [] },
+      { title: "更远", tasks: [] },
+      { title: "无日期", tasks: [] }
+    ];
+    tasks.forEach(function (task) {
+      if (!task.dueDate) {
+        groups[4].tasks.push(task);
+      } else if (task.dueDate === today) {
+        groups[0].tasks.push(task);
+      } else if (task.dueDate === tomorrow) {
+        groups[1].tasks.push(task);
+      } else if (task.dueDate <= next7) {
+        groups[2].tasks.push(task);
+      } else {
+        groups[3].tasks.push(task);
+      }
+    });
+    elements.calendarGrid.innerHTML = "<div class=\"agenda-stack\">" + groups
+      .filter(function (group) { return group.tasks.length; })
+      .map(function (group) {
+        return "<section class=\"agenda-group\"><h3>" + group.title + "</h3>" +
+          group.tasks.map(renderAgendaRow).join("") + "</section>";
+      }).join("") + "</div>";
   }
 
   function getCalendarCells(year, month) {
@@ -977,13 +1258,13 @@
     var iso = toIsoDate(date);
     var month = state.ui.calendarMonth;
     var tasks = getTasksForCalendarDate(iso);
-    var visible = tasks.slice(0, 3);
+    var visible = tasks.slice(0, 4);
     var more = tasks.length - visible.length;
     return [
       "<section class=\"calendar-day" + (date.getMonth() !== month ? " is-muted" : "") +
         (iso === toIsoDate(new Date()) ? " is-today" : "") +
         (iso === state.ui.selectedCalendarDate ? " is-selected" : "") +
-        "\" data-calendar-date=\"" + iso + "\">",
+        "\" data-calendar-date=\"" + iso + "\" data-month-day=\"" + iso + "\">",
       "<div class=\"calendar-date-line\"><span>" + date.getDate() + "</span></div>",
       visible.map(renderCalendarTask).join(""),
       more > 0 ? "<p class=\"calendar-more\">+" + more + "</p>" : "",
@@ -992,43 +1273,587 @@
   }
 
   function renderCalendarTask(task) {
-    var list = findList(task.listId);
+    var color = getCalendarTaskColor(task);
+    var selected = state.ui.selectedTaskId === task.id;
+    var multi = state.ui.selectedCalendarTaskIds.includes(task.id);
     return "<button class=\"calendar-task" + (task.completed ? " is-completed" : "") +
+      (selected ? " is-selected" : "") + (multi ? " is-multi-selected" : "") +
       "\" type=\"button\" data-calendar-task=\"" + escapeHtml(task.id) +
-      "\" style=\"border-left-color:" + escapeHtml(list ? list.color : "#2f8b68") + "\">" +
+      "\" draggable=\"true\" style=\"border-left-color:" + escapeHtml(color) + "\">" +
       escapeHtml((task.dueTime ? task.dueTime + " " : "") + task.title) + "</button>";
   }
 
   function getTasksForCalendarDate(iso) {
-    return state.tasks.filter(function (task) {
-      return !task.trashed && task.dueDate === iso;
-    }).sort(function (a, b) {
-      if (a.dueTime !== b.dueTime) {
-        return String(a.dueTime || "99:99").localeCompare(String(b.dueTime || "99:99"));
-      }
-      return priorityWeight(b.priority) - priorityWeight(a.priority);
+    return getVisibleCalendarTasks().filter(function (task) {
+      return taskCoversDate(task, iso);
+    }).sort(sortCalendarTasks);
+  }
+
+  function getAllDayCalendarTasks(iso) {
+    return getTasksForCalendarDate(iso).filter(function (task) {
+      return task.allDay || !task.dueTime;
     });
   }
 
-  function createCalendarTask(date) {
-    var task = createTask({
-      title: "新任务",
-      dueDate: date || state.ui.selectedCalendarDate || toIsoDate(new Date()),
-      listId: "inbox"
-    });
+  function renderWeekBlocksForHour(iso, hour) {
+    return getTasksForCalendarDate(iso).filter(function (task) {
+      if (task.allDay || !task.startAt) {
+        return false;
+      }
+      return Number(task.startAt.slice(11, 13)) === hour;
+    }).map(function (task) {
+      var start = timeToMinutes(task.startAt.slice(11, 16));
+      var end = timeToMinutes(task.endAt ? task.endAt.slice(11, 16) : minutesToTime(start + 60));
+      var top = (start % 60) / 60 * 68;
+      var height = Math.max(34, (end - start) / 60 * 68);
+      var selected = state.ui.selectedTaskId === task.id;
+      var multi = state.ui.selectedCalendarTaskIds.includes(task.id);
+      return "<button class=\"week-task-block" + (selected ? " is-selected" : "") +
+        (multi ? " is-multi-selected" : "") + "\" type=\"button\" draggable=\"true\" data-calendar-task=\"" +
+        escapeHtml(task.id) + "\" style=\"top:" + top + "px;height:" + height +
+        "px;border-left-color:" + escapeHtml(getCalendarTaskColor(task)) + "\">" +
+        "<span class=\"week-task-title\">" + escapeHtml(task.title) + "</span>" +
+        "<span class=\"week-task-time\">" + escapeHtml(formatTaskTimeRange(task)) + "</span>" +
+        "<span class=\"resize-handle\" data-resize-task=\"" + escapeHtml(task.id) + "\"></span></button>";
+    }).join("");
+  }
+
+  function renderAgendaRow(task) {
+    var selected = state.ui.selectedTaskId === task.id;
+    var multi = state.ui.selectedCalendarTaskIds.includes(task.id);
+    return "<button class=\"agenda-row" + (selected ? " is-selected" : "") +
+      (multi ? " is-multi-selected" : "") + "\" type=\"button\" draggable=\"true\" data-calendar-task=\"" +
+      escapeHtml(task.id) + "\" style=\"border-left-color:" + escapeHtml(getCalendarTaskColor(task)) + "\">" +
+      "<span class=\"task-checkbox" + (task.completed ? " is-checked" : "") + "\">" +
+      (task.completed ? "✓" : "") + "</span><span>" + escapeHtml(task.title) + "</span><span>" +
+      escapeHtml(formatDateLabel(task.dueDate) + (task.dueTime ? " " + task.dueTime : "")) + "</span></button>";
+  }
+
+  function createCalendarTaskFromDraft(draft) {
+    var task = createTask(calendarDraftToTaskFields(draft));
     state.tasks.push(task);
     state.ui.selectedTaskId = task.id;
+    state.ui.selectedCalendarTaskIds = [task.id];
     state.ui.activeView = "calendar";
-    saveState("日历新增任务");
+    saveState("日历创建任务");
     render();
   }
 
   function shiftMonth(delta) {
+    if (state.ui.calendarViewMode === "week") {
+      var selected = state.ui.selectedCalendarDate ? parseIsoDate(state.ui.selectedCalendarDate) : new Date();
+      state.ui.selectedCalendarDate = toIsoDate(addDays(selected, delta * 7));
+      var nextWeekDate = parseIsoDate(state.ui.selectedCalendarDate);
+      state.ui.calendarYear = nextWeekDate.getFullYear();
+      state.ui.calendarMonth = nextWeekDate.getMonth();
+      saveState("切换日历周");
+      render();
+      return;
+    }
     var next = new Date(state.ui.calendarYear, state.ui.calendarMonth + delta, 1);
     state.ui.calendarYear = next.getFullYear();
     state.ui.calendarMonth = next.getMonth();
     saveState("切换日历月份");
     render();
+  }
+
+  function renderUnscheduledTray() {
+    var tasks = state.tasks.filter(function (task) {
+      return !task.completed && !task.trashed && !task.dueDate;
+    }).sort(sortTaskList);
+    elements.unscheduledList.className = "unscheduled-list";
+    elements.unscheduledList.innerHTML = tasks.length ? tasks.map(function (task) {
+      return "<button class=\"unscheduled-item\" type=\"button\" draggable=\"true\" data-unscheduled-task=\"" +
+        escapeHtml(task.id) + "\" style=\"border-left-color:" + escapeHtml(getCalendarTaskColor(task)) + "\">" +
+        escapeHtml(task.title) + "</button>";
+    }).join("") : "<p class=\"empty-state\">暂无未安排任务。</p>";
+  }
+
+  function renderCalendarFilters() {
+    elements.filterShowCompleted.checked = state.ui.calendarFilters.showCompleted;
+    elements.filterColorBy.value = state.ui.calendarFilters.colorBy;
+    elements.filterListOptions.className = "filter-list-options";
+    elements.filterListOptions.innerHTML = state.lists
+      .filter(function (list) { return !list.archived; })
+      .sort(byOrder)
+      .map(function (list) {
+        var checked = state.ui.calendarFilters.visibleListIds.includes(list.id);
+        return "<label><input type=\"checkbox\" value=\"" + escapeHtml(list.id) + "\"" +
+          (checked ? " checked" : "") + "> " + escapeHtml(list.name) + "</label>";
+      }).join("");
+  }
+
+  function renderBatchToolbar() {
+    var count = state.ui.selectedCalendarTaskIds.length;
+    elements.batchToolbar.hidden = count < 2;
+    elements.batchCountLabel.textContent = "已选择 " + count + " 项";
+  }
+
+  function getVisibleCalendarTasks() {
+    return state.tasks.filter(function (task) {
+      if (task.trashed) {
+        return false;
+      }
+      if (!state.ui.calendarFilters.showCompleted && task.completed) {
+        return false;
+      }
+      if (!state.ui.calendarFilters.visibleListIds.includes(task.listId)) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  function taskCoversDate(task, iso) {
+    if (!task.dueDate) {
+      return false;
+    }
+    if (task.allDay && task.startAt && task.endAt) {
+      return iso >= task.startAt.slice(0, 10) && iso <= task.endAt.slice(0, 10);
+    }
+    return task.dueDate === iso;
+  }
+
+  function sortCalendarTasks(a, b) {
+    if (a.dueTime !== b.dueTime) {
+      return String(a.dueTime || "99:99").localeCompare(String(b.dueTime || "99:99"));
+    }
+    return priorityWeight(b.priority) - priorityWeight(a.priority);
+  }
+
+  function getCalendarTaskColor(task) {
+    if (state.ui.calendarFilters.colorBy === "priority") {
+      return {
+        high: "#c84f45",
+        medium: "#d48930",
+        low: "#2f8b68",
+        none: "#7c8b87"
+      }[task.priority] || "#7c8b87";
+    }
+    var list = findList(task.listId);
+    return list ? list.color : "#2f8b68";
+  }
+
+  function openCalendarCreatePopover(options) {
+    var date = options.date || toIsoDate(new Date());
+    var endDate = options.endDate || date;
+    document.getElementById("calendar-create-title").value = "";
+    document.getElementById("calendar-create-date").value = date;
+    document.getElementById("calendar-create-end-date").value = endDate;
+    document.getElementById("calendar-create-all-day").checked = options.allDay !== false;
+    document.getElementById("calendar-create-time").value = options.time || "09:00";
+    document.getElementById("calendar-create-end-time").value = options.endTime || minutesToTime(timeToMinutes(options.time || "09:00") + 60);
+    document.getElementById("calendar-create-priority").value = "none";
+    document.getElementById("calendar-create-list").innerHTML = state.lists
+      .filter(function (list) { return !list.archived; })
+      .sort(byOrder)
+      .map(function (list) {
+        return "<option value=\"" + escapeHtml(list.id) + "\"" + (list.id === getCreationListId() ? " selected" : "") +
+          ">" + escapeHtml(list.name) + "</option>";
+      }).join("");
+    document.getElementById("calendar-popover-range").textContent = date === endDate ? "日期：" + date :
+      "日期范围：" + date + " 至 " + endDate;
+    document.getElementById("calendar-create-error").hidden = true;
+    elements.calendarPopover.hidden = false;
+    toggleCalendarCreateTimeFields();
+  }
+
+  function closeCalendarCreatePopover() {
+    elements.calendarPopover.hidden = true;
+  }
+
+  function toggleCalendarCreateTimeFields() {
+    document.getElementById("calendar-create-time-wrap").hidden =
+      document.getElementById("calendar-create-all-day").checked;
+  }
+
+  function handleCalendarCreateSubmit(event) {
+    event.preventDefault();
+    var title = document.getElementById("calendar-create-title").value.trim();
+    if (!title) {
+      document.getElementById("calendar-create-error").hidden = false;
+      return;
+    }
+    createCalendarTaskFromDraft({
+      title: title,
+      date: document.getElementById("calendar-create-date").value,
+      endDate: document.getElementById("calendar-create-end-date").value,
+      allDay: document.getElementById("calendar-create-all-day").checked,
+      time: document.getElementById("calendar-create-time").value,
+      endTime: document.getElementById("calendar-create-end-time").value,
+      listId: document.getElementById("calendar-create-list").value,
+      priority: document.getElementById("calendar-create-priority").value
+    });
+    closeCalendarCreatePopover();
+  }
+
+  function calendarDraftToTaskFields(draft) {
+    var date = draft.date || toIsoDate(new Date());
+    var endDate = draft.endDate || date;
+    if (draft.allDay) {
+      return {
+        title: draft.title,
+        listId: draft.listId || "inbox",
+        priority: draft.priority || "none",
+        dueDate: date,
+        dueTime: null,
+        allDay: true,
+        startAt: date + "T00:00",
+        endAt: endDate + "T23:59"
+      };
+    }
+    var time = draft.time || "09:00";
+    var endTime = draft.endTime || minutesToTime(timeToMinutes(time) + 60);
+    return {
+      title: draft.title,
+      listId: draft.listId || "inbox",
+      priority: draft.priority || "none",
+      dueDate: date,
+      dueTime: time,
+      allDay: false,
+      startAt: date + "T" + time,
+      endAt: date + "T" + endTime
+    };
+  }
+
+  function handleCalendarTaskClick(event, taskId) {
+    if (event.ctrlKey || event.metaKey) {
+      toggleCalendarMultiSelect(taskId);
+      return;
+    }
+    state.ui.selectedTaskId = taskId;
+    state.ui.selectedCalendarTaskIds = [taskId];
+    saveState("选择日历任务");
+    render();
+  }
+
+  function toggleCalendarMultiSelect(taskId) {
+    var ids = state.ui.selectedCalendarTaskIds;
+    state.ui.selectedCalendarTaskIds = ids.includes(taskId) ?
+      ids.filter(function (id) { return id !== taskId; }) : ids.concat(taskId);
+    state.ui.selectedTaskId = taskId;
+    saveState("切换日历多选");
+    render();
+  }
+
+  function handleBatchAction(event) {
+    var button = event.target.closest("[data-batch-action]");
+    if (!button) {
+      return;
+    }
+    var ids = state.ui.selectedCalendarTaskIds.slice();
+    ids.forEach(function (id) {
+      var task = findTask(id);
+      if (!task) {
+        return;
+      }
+      if (button.dataset.batchAction === "complete") {
+        setTaskCompleted(task, true);
+      } else if (button.dataset.batchAction === "trash") {
+        task.trashed = true;
+        task.trashedAt = new Date().toISOString();
+      } else if (button.dataset.batchAction === "postpone") {
+        postponeTaskOneHour(task);
+      }
+      task.updatedAt = new Date().toISOString();
+    });
+    if (button.dataset.batchAction === "clear") {
+      state.ui.selectedCalendarTaskIds = [];
+    }
+    saveState("日历批量操作");
+    render();
+  }
+
+  function postponeTaskOneHour(task) {
+    if (task.startAt && task.endAt && !task.allDay) {
+      task.startAt = addMinutesToLocalDateTime(task.startAt, 60);
+      task.endAt = addMinutesToLocalDateTime(task.endAt, 60);
+      task.dueDate = task.startAt.slice(0, 10);
+      task.dueTime = task.startAt.slice(11, 16);
+    } else if (task.dueTime) {
+      task.dueTime = minutesToTime(timeToMinutes(task.dueTime) + 60);
+      task.startAt = task.dueDate + "T" + task.dueTime;
+      task.endAt = addMinutesToLocalDateTime(task.startAt, 60);
+    }
+  }
+
+  var dragState = null;
+  var resizeState = null;
+  var rangeState = null;
+
+  function handleCalendarDragStart(event) {
+    var calendarTask = event.target.closest("[data-calendar-task]");
+    var unscheduled = event.target.closest("[data-unscheduled-task]");
+    if (calendarTask) {
+      dragState = { type: "scheduled", taskId: calendarTask.dataset.calendarTask };
+      calendarTask.classList.add("is-dragging");
+    } else if (unscheduled) {
+      dragState = { type: "unscheduled", taskId: unscheduled.dataset.unscheduledTask };
+      unscheduled.classList.add("is-dragging");
+    }
+    if (dragState && event.dataTransfer) {
+      event.dataTransfer.setData("text/plain", dragState.taskId);
+      event.dataTransfer.effectAllowed = "move";
+    }
+  }
+
+  function handleCalendarDragOver(event) {
+    if (!dragState) {
+      return;
+    }
+    var target = getDropTarget(event.target);
+    if (target) {
+      event.preventDefault();
+      target.element.classList.add("is-drag-over");
+    }
+  }
+
+  function handleCalendarDragLeave(event) {
+    var target = getDropTarget(event.target);
+    if (target) {
+      target.element.classList.remove("is-drag-over");
+    }
+  }
+
+  function handleCalendarDrop(event) {
+    if (!dragState) {
+      return;
+    }
+    var target = getDropTarget(event.target);
+    if (!target) {
+      clearDragState();
+      return;
+    }
+    event.preventDefault();
+    target.element.classList.remove("is-drag-over");
+    var task = findTask(dragState.taskId);
+    if (task) {
+      scheduleTaskOnDrop(task, target);
+      state.ui.selectedTaskId = task.id;
+      state.ui.selectedCalendarTaskIds = [task.id];
+      saveState("拖拽排程任务");
+    }
+    clearDragState();
+    render();
+  }
+
+  function getDropTarget(node) {
+    var monthDay = node.closest && node.closest("[data-month-day]");
+    if (monthDay) {
+      return { element: monthDay, date: monthDay.dataset.monthDay, allDay: true };
+    }
+    var allDay = node.closest && node.closest("[data-week-all-day]");
+    if (allDay) {
+      return { element: allDay, date: allDay.dataset.weekAllDay, allDay: true };
+    }
+    var weekSlot = node.closest && (node.closest("[data-week-slot]") || node.closest("[data-week-date]"));
+    if (weekSlot) {
+      return {
+        element: weekSlot,
+        date: weekSlot.dataset.weekDate,
+        hour: Number(weekSlot.dataset.weekHour),
+        minute: Number(weekSlot.dataset.weekMinute || 0),
+        allDay: false
+      };
+    }
+    return null;
+  }
+
+  function scheduleTaskOnDrop(task, target) {
+    var duration = getTaskDurationMinutes(task);
+    if (target.allDay) {
+      var span = getTaskSpanDays(task);
+      task.dueDate = target.date;
+      task.dueTime = null;
+      task.allDay = true;
+      task.startAt = target.date + "T00:00";
+      task.endAt = toIsoDate(addDays(parseIsoDate(target.date), span - 1)) + "T23:59";
+    } else {
+      var startTime = minutesToTime(target.hour * 60 + (target.minute || 0));
+      task.dueDate = target.date;
+      task.dueTime = startTime;
+      task.allDay = false;
+      task.startAt = target.date + "T" + startTime;
+      task.endAt = addMinutesToLocalDateTime(task.startAt, duration);
+    }
+    task.updatedAt = new Date().toISOString();
+  }
+
+  function clearDragState() {
+    document.querySelectorAll(".is-dragging,.is-drag-over").forEach(function (node) {
+      node.classList.remove("is-dragging", "is-drag-over");
+    });
+    dragState = null;
+  }
+
+  function handleCalendarMouseDown(event) {
+    var resize = event.target.closest("[data-resize-task]");
+    if (resize) {
+      startResize(event, resize.dataset.resizeTask);
+      return;
+    }
+    if (state.ui.calendarViewMode !== "month") {
+      return;
+    }
+    if (event.target.closest("[data-calendar-task]")) {
+      return;
+    }
+    var day = event.target.closest("[data-month-day]");
+    if (!day) {
+      return;
+    }
+    rangeState = { start: day.dataset.monthDay, end: day.dataset.monthDay };
+    day.classList.add("is-range-selecting");
+    document.addEventListener("mouseover", handleRangeMouseOver);
+    document.addEventListener("mouseup", handleRangeMouseUp, { once: true });
+  }
+
+  function handleRangeMouseOver(event) {
+    if (!rangeState) {
+      return;
+    }
+    var day = event.target.closest("[data-month-day]");
+    if (day) {
+      rangeState.end = day.dataset.monthDay;
+      highlightRange(rangeState.start, rangeState.end);
+    }
+  }
+
+  function handleRangeMouseUp() {
+    if (!rangeState) {
+      return;
+    }
+    document.removeEventListener("mouseover", handleRangeMouseOver);
+    var start = rangeState.start < rangeState.end ? rangeState.start : rangeState.end;
+    var end = rangeState.start < rangeState.end ? rangeState.end : rangeState.start;
+    document.querySelectorAll(".is-range-selecting").forEach(function (node) {
+      node.classList.remove("is-range-selecting");
+    });
+    openCalendarCreatePopover({ date: start, endDate: end, allDay: true });
+    rangeState = null;
+  }
+
+  function highlightRange(start, end) {
+    var min = start < end ? start : end;
+    var max = start < end ? end : start;
+    document.querySelectorAll("[data-month-day]").forEach(function (day) {
+      day.classList.toggle("is-range-selecting", day.dataset.monthDay >= min && day.dataset.monthDay <= max);
+    });
+  }
+
+  function startResize(event, taskId) {
+    event.preventDefault();
+    event.stopPropagation();
+    var task = findTask(taskId);
+    if (!task || task.allDay || !task.startAt) {
+      return;
+    }
+    resizeState = {
+      taskId: taskId,
+      startY: event.clientY,
+      originalEnd: task.endAt,
+      startAt: task.startAt
+    };
+  }
+
+  function handleResizeMove(event) {
+    if (!resizeState) {
+      return;
+    }
+    event.preventDefault();
+  }
+
+  function handleResizeEnd(event) {
+    if (!resizeState) {
+      return;
+    }
+    var task = findTask(resizeState.taskId);
+    if (task) {
+      var deltaSlots = Math.round((event.clientY - resizeState.startY) / 34);
+      var baseDuration = getTaskDurationMinutes({
+        startAt: resizeState.startAt,
+        endAt: resizeState.originalEnd
+      });
+      var nextDuration = Math.max(30, baseDuration + deltaSlots * 30);
+      nextDuration = Math.min(nextDuration, 24 * 60 - timeToMinutes(task.startAt.slice(11, 16)));
+      task.endAt = addMinutesToLocalDateTime(task.startAt, nextDuration);
+      task.updatedAt = new Date().toISOString();
+      saveState("调整任务时长");
+      render();
+    }
+    resizeState = null;
+  }
+
+  function toggleDetailTimeFields() {
+    var allDay = document.getElementById("detail-all-day").checked;
+    document.getElementById("detail-due-time").disabled = allDay;
+    document.getElementById("detail-start-time").disabled = allDay;
+    document.getElementById("detail-end-time").disabled = allDay;
+  }
+
+  function getSelectedWeekStart() {
+    var selected = state.ui.selectedCalendarDate ? parseIsoDate(state.ui.selectedCalendarDate) :
+      new Date(state.ui.calendarYear, state.ui.calendarMonth, 1);
+    return addDays(selected, -selected.getDay());
+  }
+
+  function formatWeekTitle(weekStart) {
+    var weekEnd = addDays(weekStart, 6);
+    return weekStart.getFullYear() + "年" + pad(weekStart.getMonth() + 1) + "月" +
+      pad(weekStart.getDate()) + "日 - " + pad(weekEnd.getMonth() + 1) + "月" +
+      pad(weekEnd.getDate()) + "日";
+  }
+
+  function weekdayLabel(date) {
+    return ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][date.getDay()];
+  }
+
+  function formatTaskTimeRange(task) {
+    if (task.allDay || !task.startAt) {
+      return "全天";
+    }
+    return task.startAt.slice(11, 16) + " - " + (task.endAt ? task.endAt.slice(11, 16) : "");
+  }
+
+  function getTaskDurationMinutes(task) {
+    if (!task.startAt || !task.endAt) {
+      return 60;
+    }
+    var start = localDateTimeToDate(task.startAt);
+    var end = localDateTimeToDate(task.endAt);
+    return Math.max(30, Math.round((end.getTime() - start.getTime()) / 60000));
+  }
+
+  function getTaskSpanDays(task) {
+    if (!task.startAt || !task.endAt || !task.allDay) {
+      return 1;
+    }
+    var start = parseIsoDate(task.startAt.slice(0, 10));
+    var end = parseIsoDate(task.endAt.slice(0, 10));
+    return Math.max(1, Math.round((end.getTime() - start.getTime()) / DAY_MS) + 1);
+  }
+
+  function localDateTimeToDate(value) {
+    var datePart = value.slice(0, 10);
+    var timePart = value.slice(11, 16);
+    var date = parseIsoDate(datePart);
+    var minutes = timeToMinutes(timePart);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate(), Math.floor(minutes / 60), minutes % 60);
+  }
+
+  function addMinutesToLocalDateTime(value, minutes) {
+    var next = new Date(localDateTimeToDate(value).getTime() + minutes * 60000);
+    return toIsoDate(next) + "T" + minutesToTime(next.getHours() * 60 + next.getMinutes());
+  }
+
+  function timeToMinutes(value) {
+    var parts = String(value || "00:00").split(":").map(Number);
+    return (parts[0] || 0) * 60 + (parts[1] || 0);
+  }
+
+  function minutesToTime(total) {
+    var normalized = ((total % (24 * 60)) + (24 * 60)) % (24 * 60);
+    return pad(Math.floor(normalized / 60)) + ":" + pad(normalized % 60);
   }
 
   function findTask(id) {

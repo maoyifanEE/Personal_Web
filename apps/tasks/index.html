@@ -120,24 +120,118 @@
             </div>
             <div class="calendar-controls">
               <button class="today-button" type="button" id="calendar-add-button">新建任务</button>
-              <button class="month-mode-button" type="button" disabled>月</button>
+              <div class="calendar-mode-switch" aria-label="日历视图">
+                <button class="mode-button is-active" type="button" data-calendar-mode="month">月</button>
+                <button class="mode-button" type="button" data-calendar-mode="week">周</button>
+                <button class="mode-button" type="button" data-calendar-mode="agenda">列表</button>
+              </div>
               <button class="small-icon-button" type="button" id="prev-month-button" aria-label="上个月">‹</button>
               <button class="today-button" type="button" id="calendar-today-button">今天</button>
               <button class="small-icon-button" type="button" id="next-month-button" aria-label="下个月">›</button>
-              <button class="small-icon-button" type="button" title="后续开放" aria-label="后续开放">···</button>
+              <button class="small-icon-button" type="button" id="calendar-filter-button" aria-label="日历显示设置">筛</button>
             </div>
           </header>
 
-          <div class="calendar-weekdays" aria-hidden="true">
-            <span>周日</span>
-            <span>周一</span>
-            <span>周二</span>
-            <span>周三</span>
-            <span>周四</span>
-            <span>周五</span>
-            <span>周六</span>
+          <div class="calendar-batch-toolbar" id="calendar-batch-toolbar" hidden>
+            <span id="batch-count-label">已选择 0 项</span>
+            <button type="button" data-batch-action="complete">完成</button>
+            <button type="button" data-batch-action="trash">移入垃圾桶</button>
+            <button type="button" data-batch-action="postpone">推迟1小时</button>
+            <button type="button" data-batch-action="clear">清除选择</button>
           </div>
-          <div class="calendar-grid" id="calendar-grid"></div>
+
+          <div class="calendar-filter-panel" id="calendar-filter-panel" hidden>
+            <h3>日历显示设置</h3>
+            <label class="toggle-line">
+              <input id="filter-show-completed" type="checkbox">
+              显示已完成
+            </label>
+            <fieldset>
+              <legend>清单显示范围</legend>
+              <div id="filter-list-options"></div>
+            </fieldset>
+            <label>
+              颜色依据
+              <select id="filter-color-by">
+                <option value="list">清单</option>
+                <option value="priority">优先级</option>
+              </select>
+            </label>
+          </div>
+
+          <section class="unscheduled-tray" id="unscheduled-tray">
+            <header>
+              <h3>未安排任务</h3>
+              <button type="button" id="toggle-unscheduled-button">收起</button>
+            </header>
+            <div id="unscheduled-list"></div>
+          </section>
+
+          <div class="calendar-workspace">
+            <div class="calendar-weekdays" id="calendar-weekdays" aria-hidden="true">
+              <span>周日</span>
+              <span>周一</span>
+              <span>周二</span>
+              <span>周三</span>
+              <span>周四</span>
+              <span>周五</span>
+              <span>周六</span>
+            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
+          </div>
+
+          <form class="calendar-popover" id="calendar-popover" hidden>
+            <h3>新建日历任务</h3>
+            <p id="calendar-popover-range"></p>
+            <label>
+              任务名称
+              <input id="calendar-create-title" type="text" maxlength="80">
+            </label>
+            <div class="field-grid">
+              <label>
+                日期
+                <input id="calendar-create-date" type="date">
+              </label>
+              <label>
+                结束日期
+                <input id="calendar-create-end-date" type="date">
+              </label>
+            </div>
+            <label class="toggle-line">
+              <input id="calendar-create-all-day" type="checkbox">
+              全天
+            </label>
+            <div class="field-grid" id="calendar-create-time-wrap">
+              <label>
+                时间
+                <input id="calendar-create-time" type="time">
+              </label>
+              <label>
+                结束时间
+                <input id="calendar-create-end-time" type="time">
+              </label>
+            </div>
+            <div class="field-grid">
+              <label>
+                清单
+                <select id="calendar-create-list"></select>
+              </label>
+              <label>
+                优先级
+                <select id="calendar-create-priority">
+                  <option value="none">无</option>
+                  <option value="low">低</option>
+                  <option value="medium">中</option>
+                  <option value="high">高</option>
+                </select>
+              </label>
+            </div>
+            <p class="inline-error" id="calendar-create-error" hidden>请输入任务名称。</p>
+            <div class="detail-actions">
+              <button class="primary-task-button" type="submit">创建</button>
+              <button class="secondary-task-button" type="button" id="calendar-create-cancel">取消</button>
+            </div>
+          </form>
         </section>
       </main>
 
@@ -193,6 +287,24 @@
               <input id="detail-due-time" type="time">
             </label>
           </div>
+
+          <label class="toggle-line">
+            <input id="detail-all-day" type="checkbox">
+            全天任务
+          </label>
+
+          <div class="field-grid">
+            <label>
+              开始时间
+              <input id="detail-start-time" type="time">
+            </label>
+            <label>
+              结束时间
+              <input id="detail-end-time" type="time">
+            </label>
+          </div>
+
+          <p class="metadata-note">修改日期或时间后，任务会移动到对应日历位置。</p>
 
           <label>
             标签
