@@ -500,6 +500,19 @@ body[data-page="health-v1"] {
   margin: 0;
 }
 
+.drawer-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.drawer-add-button {
+  min-height: 42px;
+  border-color: rgba(32, 168, 127, 0.24);
+  background: rgba(232, 248, 240, 0.86);
+}
+
 .icon-button {
   width: 42px;
   color: var(--health-ink);

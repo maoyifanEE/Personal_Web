@@ -448,8 +448,27 @@
       indulgenceCards: migrateIndulgenceCards(input.indulgenceCards, seed.indulgenceCards),
       uiPrefs: migrateUiPrefs(input.uiPrefs)
     };
+    ensureRequiredDemoCards(migrated, seed);
     console.log("[Personal_Web] 健康管理数据版本", input.version || 1, "->", STORAGE_VERSION);
     return migrated;
+  }
+
+  function ensureRequiredDemoCards(target, seed) {
+    var hasBallSeries = target.exerciseCards.some(function (card) {
+      return card.id === "exercise-ball" || card.title === "球类运动";
+    });
+    if (!hasBallSeries) {
+      var ballCard = cloneCard(seed.exerciseCards.find(function (card) {
+        return card.id === "exercise-ball";
+      }));
+      ballCard.sortOrder = target.exerciseCards.length + 1;
+      target.exerciseCards.push(ballCard);
+      console.log("[Personal_Web] 已补充 OR 关系测试卡片：球类运动");
+    }
+  }
+
+  function cloneCard(card) {
+    return JSON.parse(JSON.stringify(card));
   }
 
   function migrateUiPrefs(uiPrefs) {
@@ -871,7 +890,6 @@
       infoRow("建议间隔", card.recommendedGapDays + "天"),
       infoRow("近两周", status.recent14dCount + " 次"),
       infoRow("当前状态", status.timingText),
-      infoRow("警告程度", risk.label),
       "</div>",
       "<span class=\"level-tag level-" + card.riskLevel + "\">" + risk.label + "</span>",
       card.note ? "<p class=\"card-note\">" + escapeHtml(card.note) + "</p>" : "",
@@ -1460,7 +1478,9 @@
     document.getElementById("manager-list").addEventListener("click", handleManagerAction);
     document.getElementById("manager-form").addEventListener("submit", handleFormSubmit);
     document.getElementById("clear-form-button").addEventListener("click", resetForm);
-    document.getElementById("add-card-button").addEventListener("click", resetForm);
+    document.querySelectorAll("[data-add-card-button]").forEach(function (button) {
+      button.addEventListener("click", resetForm);
+    });
     document.getElementById("card-icon-field").addEventListener("change", updateIconPreview);
     document.getElementById("mode-field").addEventListener("change", toggleSeriesEditor);
     document.getElementById("series-option-list").addEventListener("click", handleOptionEditorClick);

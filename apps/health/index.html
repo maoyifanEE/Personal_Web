@@ -113,16 +113,23 @@
           <p class="drawer-kicker">卡片管理</p>
           <h2 id="drawer-title">管理卡片</h2>
         </div>
-        <button class="icon-button" type="button" id="drawer-close-button" aria-label="关闭管理面板">
-          ×
-        </button>
+        <div class="drawer-header-actions">
+          <button class="secondary-small-button drawer-add-button" type="button" data-add-card-button>
+            新增卡片
+          </button>
+          <button class="icon-button" type="button" id="drawer-close-button" aria-label="关闭管理面板">
+            ×
+          </button>
+        </div>
       </header>
 
       <div class="drawer-content">
         <section class="manager-list-panel" aria-label="当前卡片">
           <div class="manager-list-header">
             <h3>当前卡片</h3>
-            <button class="secondary-small-button" type="button" id="add-card-button">新增卡片</button>
+            <button class="secondary-small-button" type="button" id="add-card-button" data-add-card-button>
+              新增卡片
+            </button>
           </div>
           <div class="manager-list" id="manager-list"></div>
         </section>
