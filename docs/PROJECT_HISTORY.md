@@ -1,5 +1,79 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-14 - Build curved path timeline homepage framework
+
+### 本次目标
+
+* 从 main 新建 Feature/homepage-curved-path-timeline 分支。
+* 将公开首页改造成 Curved Path Timeline Homepage 的结构原型。
+* 使用测试区域 Area 01 至 Area 04。
+* 使用测试节点 Major Event / Minor Event。
+* 实现 Overview / Details 切换。
+* 实现连续曲线路径穿过多个区域。
+* 实现大事件和小事件节点。
+* 实现节点点击详情小窗。
+* 为后续编辑曲线走势、节点位置、区域顺序和内容预留数据结构。
+* 不使用真实个人信息、真实城市、真实照片或 AI 生成图片。
+
+### 实际完成
+
+* 将 `index.html` 改为 Curved Path Timeline Homepage 的语义化结构。
+* 在 `script.js` 中新增集中式 `HOMEPAGE_TIMELINE_DATA`，包含 areas、events 和 path。
+* 使用测试区域 Area 01 至 Area 04 渲染四个柔和视觉区域。
+* 使用测试节点 Major Event 01 至 04 与 Minor Event 01 至 06 渲染时间线节点。
+* 使用 SVG path 渲染一条连续曲线路径，并提供 desktop / mobile 两套路径常量。
+* 实现 Overview / Details 切换，默认 Overview 仅显示 major nodes。
+* 实现节点点击详情小窗，支持关闭按钮、遮罩点击和 Esc 关闭。
+* 使用 CSS 自定义属性从 JS 注入节点位置，便于未来编辑节点坐标与偏移。
+* 保留隐藏入口，继续指向 `./login.html`。
+* 更新 README 和视觉规范，记录占位内容、非游戏化边界和未来可编辑结构。
+* 新增初始化、渲染、切换、弹窗和异常分支日志。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未使用外部图片。
+* 未使用 AI 生成图片。
+* 未使用真实个人经历。
+* 未实现复杂后台编辑器。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 首页可以打开。
+* [x] Hero 显示 Hello, World!。
+* [x] Hero 显示 A simple curved path timeline prototype.。
+* [x] 页面使用 Area 01 至 Area 04 测试区域。
+* [x] 页面使用 Major Event / Minor Event 测试节点。
+* [x] Overview 默认只显示 major nodes。
+* [x] Details 显示 major + minor nodes。
+* [x] 曲线路径连续贯穿所有区域。
+* [x] 曲线不是直线。
+* [x] 页面没有多邻游游戏化元素。
+* [x] 页面没有金币、经验、锁定关卡、排行榜。
+* [x] 页面没有真实个人信息。
+* [x] 页面没有真实城市信息。
+* [x] 页面没有真实图片。
+* [x] 点击节点可以打开详情小窗。
+* [x] 手机端路径变为纵向可读布局。
+* [x] 隐藏入口仍然可以进入 login.html。
+* [x] 任务清单页面未受影响。
+* [x] 健康管理页面未受影响。
+
 ## 2026-06-14 - Restyle task calendar with floating edit popovers
 
 ### 本次目标

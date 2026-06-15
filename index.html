@@ -3,21 +3,52 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MAO Yifan - Personal_Web</title>
+    <title>Curved Path Timeline Prototype - Personal_Web</title>
     <meta
       name="description"
-      content="Hello, World! Welcome to MAO Yifan’s corner of the web. More is on the way."
+      content="A static Curved Path Timeline Homepage prototype using placeholder areas and events only."
     >
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
     <script src="./script.js" defer></script>
   </head>
-  <body>
-    <main class="hero" aria-labelledby="page-title">
-      <section class="hero-copy" aria-label="Homepage introduction">
-        <h1 id="page-title">Hello, <span>World!</span></h1>
-        <p>Welcome to MAO Yifan’s corner of the web.</p>
-        <p>More is on the way.</p>
+  <body data-page="home">
+    <main class="timeline-home" data-view="overview" aria-labelledby="page-title">
+      <section class="timeline-hero" aria-label="Homepage introduction">
+        <div class="timeline-hero__copy">
+          <p class="timeline-eyebrow">Hello, World!</p>
+          <h1 id="page-title">A simple curved path timeline prototype.</h1>
+        </div>
+
+        <div
+          class="timeline-view-switch"
+          role="group"
+          aria-label="Timeline view switch"
+        >
+          <button type="button" data-view-button="overview" aria-pressed="true">
+            Overview
+          </button>
+          <button type="button" data-view-button="details" aria-pressed="false">
+            Details
+          </button>
+        </div>
+      </section>
+
+      <section class="journey-map" aria-label="Curved path timeline prototype">
+        <div class="journey-areas" id="journey-areas"></div>
+
+        <svg
+          class="journey-path"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path class="journey-path__shadow" data-path-shadow></path>
+          <path class="journey-path__main" data-path-main></path>
+        </svg>
+
+        <div class="journey-events" id="journey-events"></div>
       </section>
 
       <a
@@ -26,5 +57,14 @@
         aria-label="Open private entrance placeholder"
       ></a>
     </main>
+
+    <div
+      class="timeline-event-popover"
+      id="timeline-event-popover"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="timeline-popover-title"
+      hidden
+    ></div>
   </body>
 </html>
