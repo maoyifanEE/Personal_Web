@@ -57,6 +57,25 @@ Visual direction:
 - Major nodes are stronger and more readable
 - Minor nodes are quieter and visible only in Details mode
 
+## Homepage Editor Prototype
+
+The homepage curve, areas, and nodes are data-driven in `script.js`.
+
+Editor prototype rules:
+
+- Each area owns its own background, path, path style, node style, and nodes.
+- Editor mode allows changing curve points, area styles, and node content.
+- Curve editing uses SVG anchor points and cubic Bezier control handles.
+- Node editing supports major/minor type, title, date, description, position,
+  offsets, color, and card style.
+- Data is saved to browser `localStorage` only.
+- JSON export/import exists for future migration to a real admin tool.
+- No real personal data should be entered in V1.
+- No external images are allowed.
+- No AI-generated images are used.
+- The future production version should separate admin editing from public
+  visitor mode with real authentication and authorization.
+
 ## 3. Personal Hub Style
 
 The Personal Hub should feel more like a restrained tool center. It should not

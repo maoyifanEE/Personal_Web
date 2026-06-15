@@ -13,42 +13,40 @@
     <script src="./script.js" defer></script>
   </head>
   <body data-page="home">
-    <main class="timeline-home" data-view="overview" aria-labelledby="page-title">
+    <main
+      class="timeline-home"
+      data-view="overview"
+      data-editor-mode="preview"
+      aria-labelledby="page-title"
+    >
       <section class="timeline-hero" aria-label="Homepage introduction">
         <div class="timeline-hero__copy">
           <p class="timeline-eyebrow">Hello, World!</p>
           <h1 id="page-title">A simple curved path timeline prototype.</h1>
         </div>
 
-        <div
-          class="timeline-view-switch"
-          role="group"
-          aria-label="Timeline view switch"
-        >
-          <button type="button" data-view-button="overview" aria-pressed="true">
-            Overview
-          </button>
-          <button type="button" data-view-button="details" aria-pressed="false">
-            Details
+        <div class="timeline-hero__actions">
+          <div
+            class="timeline-view-switch"
+            role="group"
+            aria-label="Timeline view switch"
+          >
+            <button type="button" data-view-button="overview" aria-pressed="true">
+              Overview
+            </button>
+            <button type="button" data-view-button="details" aria-pressed="false">
+              Details
+            </button>
+          </div>
+
+          <button type="button" class="editor-toggle" data-editor-toggle>
+            编辑主页
           </button>
         </div>
       </section>
 
       <section class="journey-map" aria-label="Curved path timeline prototype">
         <div class="journey-areas" id="journey-areas"></div>
-
-        <svg
-          class="journey-path"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path class="journey-path__shadow" data-path-shadow></path>
-          <path class="journey-path__main" data-path-main></path>
-        </svg>
-
-        <div class="journey-events" id="journey-events"></div>
       </section>
 
       <a
@@ -66,5 +64,12 @@
       aria-labelledby="timeline-popover-title"
       hidden
     ></div>
+
+    <aside
+      class="homepage-editor"
+      id="homepage-editor"
+      aria-label="Homepage editor"
+      hidden
+    ></aside>
   </body>
 </html>

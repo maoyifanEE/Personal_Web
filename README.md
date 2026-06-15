@@ -7,7 +7,7 @@ Current stage: static front-end preview.
 ## Current Public Homepage
 
 The public homepage, `index.html`, is now a **Curved Path Timeline Homepage**
-prototype.
+prototype with a visible local admin/editor mode.
 
 It uses placeholder content only:
 
@@ -20,10 +20,22 @@ No real personal data is included. The homepage does not use real cities, real
 experiences, real photos, AI-generated images, external image URLs, external
 fonts, CDN resources, or external dependencies.
 
-The curved path, areas, and event nodes are structured for future editing in
-`script.js`. Future changes can adjust area order, area height, event type,
-event position, node offset, and SVG path shape through centralized data instead
-of rewriting the page markup.
+The curved path, areas, and event nodes are structured for editing in
+`script.js`. Each area owns its own background, SVG path segment, path style,
+node styles, and nodes. The visible `编辑主页` button opens a local editor
+prototype for changing area styles, dragging curve handles, adding/editing
+nodes, saving to `localStorage`, and exporting/importing JSON.
+
+Editor storage key:
+
+```text
+personal_web_homepage_timeline_v1
+```
+
+This editor is only a static browser-based prototype. It has no backend,
+database, login, authentication, authorization, or production CMS. Before a real
+public launch, the editor should be hidden from visitor mode or moved behind
+real admin access.
 
 ## Current Stage
 
@@ -33,6 +45,7 @@ of rewriting the page markup.
 - No real login
 - No authentication
 - No authorization
+- Local homepage editor persistence uses browser `localStorage` only
 - No private data storage
 - No cloud sync
 - No real reminders
