@@ -23,8 +23,9 @@ fonts, CDN resources, or external dependencies.
 The curved path, areas, and event nodes are structured for editing in
 `script.js`. Each area owns its own background, SVG path segment, path style,
 node styles, and nodes. The visible `编辑主页` button opens a local editor
-prototype for changing area styles, dragging curve handles, adding/editing
-nodes, saving to `localStorage`, and exporting/importing JSON.
+prototype for changing area styles, drawing freehand curves, smoothing drawn
+paths, anchoring nodes by path percentage, adding/editing nodes, saving to
+`localStorage`, and exporting/importing JSON.
 
 Editor storage key:
 

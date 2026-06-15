@@ -66,6 +66,11 @@ Editor prototype rules:
 - Each area owns its own background, path, path style, node style, and nodes.
 - Editor mode allows changing curve points, area styles, and node content.
 - Curve editing uses SVG anchor points and cubic Bezier control handles.
+- Curve editing also supports a freehand drawing mode. Drawn points should be
+  simplified, smoothed, and stored as editable SVG path data, never as a raster
+  image.
+- Nodes that should follow the route should prefer `anchorMode: "path"` and a
+  normalized `pathT` percentage over fixed `x/y` coordinates.
 - Node editing supports major/minor type, title, date, description, position,
   offsets, color, and card style.
 - Data is saved to browser `localStorage` only.

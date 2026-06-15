@@ -1,5 +1,11 @@
 const STORAGE_KEY = "personal_web_homepage_timeline_v1";
 const SVG_WIDTH = 1000;
+const DEFAULT_SMOOTHING = {
+  enabled: true,
+  strength: 0.55,
+  simplification: 0.35
+};
+const DRAW_POINT_MIN_DISTANCE = 6;
 
 const logHomepage = (message, details = {}) => {
   console.log(`[Personal_Web][HomepageEditor] ${message}`, details);
@@ -8,7 +14,7 @@ const logHomepage = (message, details = {}) => {
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
 const DEFAULT_HOMEPAGE_EDITOR_STATE = {
-  version: 1,
+  version: 2,
   mode: "preview",
   view: "overview",
   selectedAreaId: "area-01",
@@ -16,6 +22,8 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
   selectedPointId: "area-01-a1",
   selectedHandle: "anchor",
   addNodeType: "major",
+  activeTool: "select",
+  drawingPreviewPoints: [],
   resetConfirmPending: false,
   dirty: false,
   hero: {
@@ -342,12 +350,14 @@ const sanitizeState = (rawState) => {
   const nextState = clone(DEFAULT_HOMEPAGE_EDITOR_STATE);
   Object.assign(nextState, rawState, {
     mode: "preview",
+    activeTool: "select",
+    version: 2,
     dirty: false
   });
 
   nextState.areas = rawState.areas.map((area, index) => {
     const defaultArea = DEFAULT_HOMEPAGE_EDITOR_STATE.areas[index] || DEFAULT_HOMEPAGE_EDITOR_STATE.areas[0];
-    return {
+    const migratedArea = {
       ...clone(defaultArea),
       ...area,
       background: { ...clone(defaultArea.background), ...(area.background || {}) },
@@ -355,6 +365,9 @@ const sanitizeState = (rawState) => {
       areaStyles: { ...clone(defaultArea.areaStyles), ...(area.areaStyles || {}) },
       nodes: Array.isArray(area.nodes) ? area.nodes : clone(defaultArea.nodes)
     };
+    migrateAreaPath(migratedArea);
+    migrateAreaNodes(migratedArea);
+    return migratedArea;
   });
 
   return nextState;
@@ -365,7 +378,7 @@ const loadInitialState = () => {
 
   if (!saved) {
     logHomepage("Using default editable homepage data.");
-    return clone(DEFAULT_HOMEPAGE_EDITOR_STATE);
+    return sanitizeState(clone(DEFAULT_HOMEPAGE_EDITOR_STATE));
   }
 
   try {
@@ -378,7 +391,7 @@ const loadInitialState = () => {
     logHomepage("Saved homepage data is invalid. Falling back to defaults.", {
       error: error.message
     });
-    return clone(DEFAULT_HOMEPAGE_EDITOR_STATE);
+    return sanitizeState(clone(DEFAULT_HOMEPAGE_EDITOR_STATE));
   }
 };
 
@@ -404,6 +417,258 @@ const buildPathD = (points) => {
     const cpIn = point.cpIn || { x: point.x, y: point.y };
     return `${path} C ${cpOut.x} ${cpOut.y} ${cpIn.x} ${cpIn.y} ${point.x} ${point.y}`;
   }, "");
+};
+
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const distanceBetweenPoints = (first, second) =>
+  Math.hypot(first.x - second.x, first.y - second.y);
+
+const getBezierPoint = (p0, p1, p2, p3, t) => {
+  const inverse = 1 - t;
+  return {
+    x: inverse ** 3 * p0.x + 3 * inverse ** 2 * t * p1.x + 3 * inverse * t ** 2 * p2.x + t ** 3 * p3.x,
+    y: inverse ** 3 * p0.y + 3 * inverse ** 2 * t * p1.y + 3 * inverse * t ** 2 * p2.y + t ** 3 * p3.y
+  };
+};
+
+const pointsFromBezierAnchors = (points, stepsPerSegment = 28) => {
+  if (!points?.length) {
+    return [];
+  }
+
+  const sampled = [{ x: points[0].x, y: points[0].y }];
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const cpOut = previous.cpOut || previous;
+    const cpIn = current.cpIn || current;
+    for (let step = 1; step <= stepsPerSegment; step += 1) {
+      sampled.push(getBezierPoint(previous, cpOut, cpIn, current, step / stepsPerSegment));
+    }
+  }
+  return sampled.map((point) => ({ x: Math.round(point.x), y: Math.round(point.y) }));
+};
+
+const getBasePathPoints = (area) => {
+  if (area.path.mode === "freehand" && area.path.smoothPoints?.length >= 2) {
+    return area.path.smoothPoints;
+  }
+  return pointsFromBezierAnchors(area.path.points || []);
+};
+
+const catmullRomToBezierPath = (points, strength = 0.55) => {
+  if (!points.length) {
+    return "";
+  }
+  if (points.length === 1) {
+    return `M ${points[0].x} ${points[0].y}`;
+  }
+  if (points.length === 2) {
+    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  }
+
+  const tension = clamp(strength, 0, 1) / 6;
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const p0 = points[Math.max(0, index - 1)];
+    const p1 = points[index];
+    const p2 = points[index + 1];
+    const p3 = points[Math.min(points.length - 1, index + 2)];
+    const cp1 = {
+      x: Math.round(p1.x + (p2.x - p0.x) * tension),
+      y: Math.round(p1.y + (p2.y - p0.y) * tension)
+    };
+    const cp2 = {
+      x: Math.round(p2.x - (p3.x - p1.x) * tension),
+      y: Math.round(p2.y - (p3.y - p1.y) * tension)
+    };
+    d += ` C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${p2.x} ${p2.y}`;
+  }
+  return d;
+};
+
+const perpendicularDistance = (point, start, end) => {
+  const length = distanceBetweenPoints(start, end);
+  if (!length) {
+    return distanceBetweenPoints(point, start);
+  }
+  return Math.abs(
+    (end.y - start.y) * point.x -
+    (end.x - start.x) * point.y +
+    end.x * start.y -
+    end.y * start.x
+  ) / length;
+};
+
+const simplifyPoints = (points, tolerance) => {
+  if (points.length <= 3) {
+    return points;
+  }
+
+  let maxDistance = 0;
+  let splitIndex = 0;
+  const lastIndex = points.length - 1;
+
+  for (let index = 1; index < lastIndex; index += 1) {
+    const distance = perpendicularDistance(points[index], points[0], points[lastIndex]);
+    if (distance > maxDistance) {
+      maxDistance = distance;
+      splitIndex = index;
+    }
+  }
+
+  if (maxDistance > tolerance) {
+    const first = simplifyPoints(points.slice(0, splitIndex + 1), tolerance);
+    const second = simplifyPoints(points.slice(splitIndex), tolerance);
+    return first.slice(0, -1).concat(second);
+  }
+
+  return [points[0], points[lastIndex]];
+};
+
+const buildFreehandPathD = (points, smoothing = DEFAULT_SMOOTHING) => {
+  if (points.length < 3) {
+    return points.length ? `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
+  }
+  return catmullRomToBezierPath(points, smoothing.strength);
+};
+
+const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING) => {
+  if (rawPoints.length < 3) {
+    return null;
+  }
+
+  const tolerance = 2 + smoothing.simplification * 30;
+  const smoothPoints = simplifyPoints(rawPoints, tolerance);
+  return {
+    rawPoints,
+    smoothPoints,
+    d: buildFreehandPathD(smoothPoints, smoothing)
+  };
+};
+
+const getAreaPathElement = (areaId) =>
+  document.querySelector(`.area-path[data-area-id="${areaId}"] .area-path__main`);
+
+const samplePath = (area, sampleCount = 240) => {
+  const pathElement = typeof document !== "undefined" ? getAreaPathElement(area.id) : null;
+  if (pathElement?.getTotalLength) {
+    try {
+      const totalLength = pathElement.getTotalLength();
+      if (Number.isFinite(totalLength) && totalLength > 0) {
+        return Array.from({ length: sampleCount + 1 }, (_, index) => {
+          const length = (totalLength * index) / sampleCount;
+          const point = pathElement.getPointAtLength(length);
+          return {
+            t: index / sampleCount,
+            x: point.x,
+            y: point.y,
+            length
+          };
+        });
+      }
+    } catch (error) {
+      logHomepage("Path DOM sampling failed; falling back to data sampling.", {
+        areaId: area.id,
+        error: error.message
+      });
+    }
+  }
+
+  const basePoints = getBasePathPoints(area);
+  if (basePoints.length < 2) {
+    return [{ t: 0, x: 500, y: Math.round(area.height / 2), length: 0 }];
+  }
+
+  let totalLength = 0;
+  const samples = basePoints.map((point, index) => {
+    if (index > 0) {
+      totalLength += distanceBetweenPoints(basePoints[index - 1], point);
+    }
+    return { ...point, length: totalLength };
+  });
+
+  return samples.map((sample) => ({
+    ...sample,
+    t: totalLength ? sample.length / totalLength : 0
+  }));
+};
+
+const getPointAtPathT = (area, pathT) => {
+  const samples = samplePath(area);
+  const t = clamp(Number(pathT) || 0, 0, 1);
+
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1];
+    const current = samples[index];
+    if (current.t >= t) {
+      const span = current.t - previous.t || 1;
+      const localT = (t - previous.t) / span;
+      return {
+        x: Math.round(previous.x + (current.x - previous.x) * localT),
+        y: Math.round(previous.y + (current.y - previous.y) * localT)
+      };
+    }
+  }
+
+  const last = samples[samples.length - 1];
+  return { x: Math.round(last.x), y: Math.round(last.y) };
+};
+
+const getNearestPathT = (area, point) => {
+  const samples = samplePath(area);
+  let nearest = samples[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  samples.forEach((sample) => {
+    const distance = distanceBetweenPoints(sample, point);
+    if (distance < nearestDistance) {
+      nearest = sample;
+      nearestDistance = distance;
+    }
+  });
+
+  return {
+    pathT: clamp(nearest.t, 0, 1),
+    distance: nearestDistance,
+    point: { x: Math.round(nearest.x), y: Math.round(nearest.y) }
+  };
+};
+
+const migrateAreaPath = (area) => {
+  area.path.mode = area.path.mode || "bezier";
+  area.path.smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
+  area.path.rawPoints = Array.isArray(area.path.rawPoints)
+    ? area.path.rawPoints
+    : pointsFromBezierAnchors(area.path.points || [], 10);
+  area.path.smoothPoints = Array.isArray(area.path.smoothPoints)
+    ? area.path.smoothPoints
+    : pointsFromBezierAnchors(area.path.points || [], 10);
+  area.path.d = area.path.d || (
+    area.path.mode === "freehand"
+      ? buildFreehandPathD(area.path.smoothPoints, area.path.smoothing)
+      : buildPathD(area.path.points || [])
+  );
+};
+
+const migrateAreaNodes = (area) => {
+  area.nodes.forEach((node) => {
+    node.anchorMode = node.anchorMode || "path";
+    if (typeof node.pathT !== "number") {
+      if (typeof node.x === "number" && typeof node.y === "number") {
+        node.pathT = getNearestPathT(area, { x: node.x, y: node.y }).pathT;
+      } else {
+        node.anchorMode = "free";
+        node.pathT = 0.5;
+      }
+    }
+    if (node.anchorMode === "path") {
+      const point = getPointAtPathT(area, node.pathT);
+      node.x = point.x;
+      node.y = point.y;
+    }
+  });
 };
 
 const createSvgElement = (tagName, attributes = {}) => {
@@ -461,6 +726,7 @@ const setEditorMode = (mode) => {
 
   if (root) {
     root.dataset.editorMode = mode;
+    root.dataset.activeTool = editorState.activeTool || "select";
   }
   if (panel) {
     panel.hidden = mode !== "edit";
@@ -481,6 +747,11 @@ const renderTimeline = () => {
   if (!container) {
     logHomepage("Timeline render skipped because area container is missing.");
     return;
+  }
+
+  const root = document.querySelector(".timeline-home");
+  if (root) {
+    root.dataset.activeTool = editorState.activeTool || "select";
   }
 
   container.innerHTML = "";
@@ -513,16 +784,24 @@ const renderArea = (area, index) => {
   section.append(renderAreaCopy(area), renderAreaSvg(area), renderAreaNodes(area));
 
   if (editorState.mode === "edit") {
+    section.addEventListener("pointerdown", (event) => {
+      if (editorState.activeTool !== "freehand" || editorState.selectedAreaId !== area.id) {
+        return;
+      }
+      if (event.target.closest(".journey-event") || event.target.closest(".curve-handle")) {
+        return;
+      }
+      beginFreehandDrawing(event, section, area);
+    });
+
     section.addEventListener("click", (event) => {
       if (event.target.closest(".journey-event") || event.target.closest(".curve-handle")) {
         return;
       }
       editorState.selectedAreaId = area.id;
-      if (editorState.addNodeType) {
-        const rect = section.getBoundingClientRect();
-        const x = Math.round(((event.clientX - rect.left) / rect.width) * SVG_WIDTH);
-        const y = Math.round(((event.clientY - rect.top) / rect.height) * area.height);
-        addNodeAt(area.id, Math.max(0, Math.min(SVG_WIDTH, x)), Math.max(0, Math.min(area.height, y)), editorState.addNodeType);
+      if (editorState.activeTool === "add-node" && editorState.addNodeType) {
+        const point = getAreaPointFromPointer(event, section, area);
+        addNodeAt(area.id, point.x, point.y, editorState.addNodeType, "path");
         return;
       }
       renderEditorPanel();
@@ -553,7 +832,9 @@ const renderAreaSvg = (area) => {
     focusable: "false"
   });
 
-  const d = buildPathD(area.path.points);
+  const d = area.path.mode === "freehand"
+    ? area.path.d || buildFreehandPathD(area.path.smoothPoints || [], area.path.smoothing)
+    : buildPathD(area.path.points);
   const shadow = createSvgElement("path", {
     class: "area-path__shadow",
     d,
@@ -573,7 +854,16 @@ const renderAreaSvg = (area) => {
 
   svg.append(shadow, main);
 
-  if (editorState.mode === "edit") {
+  if (editorState.mode === "edit" && editorState.activeTool === "freehand" && editorState.selectedAreaId === area.id) {
+    svg.append(createSvgElement("path", {
+      class: "freehand-preview-path",
+      d: editorState.drawingPreviewPoints.length
+        ? `M ${editorState.drawingPreviewPoints.map((point) => `${point.x} ${point.y}`).join(" L ")}`
+        : ""
+    }));
+  }
+
+  if (editorState.mode === "edit" && area.path.mode !== "freehand") {
     renderCurveHandles(svg, area);
   }
 
@@ -662,13 +952,19 @@ const renderAreaNodes = (area) => {
 };
 
 const renderNode = (area, node) => {
+  const basePoint = node.anchorMode === "free"
+    ? { x: node.x, y: node.y }
+    : getPointAtPathT(area, node.pathT);
+  node.x = basePoint.x;
+  node.y = basePoint.y;
+
   const eventElement = document.createElement("article");
   eventElement.className = `journey-event journey-event--${node.type}`;
   eventElement.dataset.eventId = node.id;
   eventElement.dataset.eventType = node.type;
   eventElement.dataset.selected = String(editorState.selectedNodeId === node.id);
-  eventElement.style.setProperty("--event-x", `${(node.x / SVG_WIDTH) * 100}%`);
-  eventElement.style.setProperty("--event-y", `${(node.y / area.height) * 100}%`);
+  eventElement.style.setProperty("--event-x", `${(basePoint.x / SVG_WIDTH) * 100}%`);
+  eventElement.style.setProperty("--event-y", `${(basePoint.y / area.height) * 100}%`);
   eventElement.style.setProperty("--event-offset-x", `${node.offsetX}px`);
   eventElement.style.setProperty("--event-offset-y", `${node.offsetY}px`);
   eventElement.style.setProperty("--event-accent", node.style.color || getNodeColor(area, node));
@@ -749,6 +1045,124 @@ const selectNode = (areaId, nodeId, rerender = true) => {
   }
   renderEditorPanel();
   logHomepage("Selected timeline node.", { areaId, nodeId });
+};
+
+const setActiveTool = (tool) => {
+  editorState.activeTool = tool;
+  editorState.drawingPreviewPoints = [];
+  const root = document.querySelector(".timeline-home");
+  if (root) {
+    root.dataset.activeTool = tool;
+  }
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Changed homepage editor active tool.", { tool });
+};
+
+const getAreaPointFromPointer = (event, areaElement, area) => {
+  const rect = areaElement.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(SVG_WIDTH, Math.round(((event.clientX - rect.left) / rect.width) * SVG_WIDTH))),
+    y: Math.max(0, Math.min(area.height, Math.round(((event.clientY - rect.top) / rect.height) * area.height)))
+  };
+};
+
+const beginFreehandDrawing = (event, areaElement, area) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const firstPoint = getAreaPointFromPointer(event, areaElement, area);
+  editorState.selectedAreaId = area.id;
+  editorState.drawingPreviewPoints = [firstPoint];
+  dragState = {
+    kind: "freehand",
+    areaId: area.id,
+    areaRect: areaElement.getBoundingClientRect(),
+    areaHeight: area.height,
+    pointerId: event.pointerId
+  };
+  areaElement.setPointerCapture(event.pointerId);
+  renderTimeline();
+  logHomepage("Started freehand curve drawing.", { areaId: area.id, firstPoint });
+};
+
+const finishFreehandDrawing = () => {
+  if (!dragState || dragState.kind !== "freehand") {
+    return;
+  }
+
+  const area = getAreaById(dragState.areaId);
+  const rawPoints = editorState.drawingPreviewPoints || [];
+  if (!area || rawPoints.length < 3) {
+    editorState.drawingPreviewPoints = [];
+    showEditorMessage("曲线无效，请重新绘制。", true);
+    logHomepage("Freehand curve drawing was too short.", {
+      areaId: dragState.areaId,
+      pointCount: rawPoints.length
+    });
+    return;
+  }
+
+  const previousPath = clone(area.path);
+  const smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
+  const processed = processRawFreehandPoints(rawPoints, smoothing);
+  if (!processed.d || processed.smoothPoints.length < 3) {
+    area.path = previousPath;
+    editorState.drawingPreviewPoints = [];
+    showEditorMessage("曲线无效，请重新绘制。", true);
+    logHomepage("Freehand curve processing failed; previous path preserved.", {
+      areaId: area.id,
+      pointCount: rawPoints.length
+    });
+    return;
+  }
+
+  area.path = {
+    ...area.path,
+    mode: "freehand",
+    rawPoints: processed.rawPoints,
+    smoothPoints: processed.smoothPoints,
+    d: processed.d,
+    smoothing
+  };
+  area.nodes.forEach((node) => {
+    if (node.anchorMode === "path") {
+      const point = getPointAtPathT(area, node.pathT);
+      node.x = point.x;
+      node.y = point.y;
+    }
+  });
+  editorState.drawingPreviewPoints = [];
+  markDirty("freehand curve drawn");
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage("手绘曲线已自动平滑。");
+  logHomepage("Completed freehand curve drawing.", {
+    areaId: area.id,
+    rawPointCount: processed.rawPoints.length,
+    smoothPointCount: processed.smoothPoints.length
+  });
+};
+
+const resmoothCurrentAreaCurve = () => {
+  const area = getSelectedArea();
+  if (!area.path.rawPoints || area.path.rawPoints.length < 3) {
+    showEditorMessage("当前区域没有手绘曲线数据。", true);
+    logHomepage("Resmooth skipped because the current area has no raw freehand data.", { areaId: area.id });
+    return;
+  }
+
+  const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing);
+  area.path.mode = "freehand";
+  area.path.smoothPoints = processed.smoothPoints;
+  area.path.d = processed.d;
+  markDirty("freehand curve resmoothed");
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage("已重新平滑当前区域曲线。");
+  logHomepage("Resmoothed current area freehand curve.", {
+    areaId: area.id,
+    smoothing: area.path.smoothing
+  });
 };
 
 const updatePoint = (areaId, pointId, newX, newY) => {
@@ -843,12 +1257,14 @@ const resetCurrentAreaCurve = () => {
   logHomepage("Reset current area curve.", { areaId: area.id });
 };
 
-const addNodeAt = (areaId, x, y, type) => {
+const addNodeAt = (areaId, x, y, type, anchorMode = "path") => {
   const area = getAreaById(areaId);
   if (!area) {
     return;
   }
 
+  const nearest = anchorMode === "path" ? getNearestPathT(area, { x, y }) : null;
+  const pathPoint = nearest ? getPointAtPathT(area, nearest.pathT) : { x, y };
   const id = `${type}-${Date.now()}`;
   const color = type === "major" ? area.areaStyles.majorNodeColor : area.areaStyles.minorNodeColor;
   const node = {
@@ -858,8 +1274,10 @@ const addNodeAt = (areaId, x, y, type) => {
     date: "2020",
     description: "This is a placeholder event.",
     imageType: "placeholder",
-    x,
-    y,
+    anchorMode: nearest ? "path" : "free",
+    pathT: nearest ? nearest.pathT : 0.5,
+    x: pathPoint.x,
+    y: pathPoint.y,
     offsetX: type === "major" ? 110 : 70,
     offsetY: type === "major" ? -48 : -16,
     cardSide: "right",
@@ -876,12 +1294,25 @@ const addNodeAt = (areaId, x, y, type) => {
   markDirty("node added");
   renderTimeline();
   renderEditorPanel();
-  logHomepage("Added node.", { areaId, nodeId: id, type, x, y });
+  if (nearest && nearest.distance > 80) {
+    showEditorMessage("已吸附到最近的曲线路径。");
+  }
+  logHomepage("Added path-aware node.", {
+    areaId,
+    nodeId: id,
+    type,
+    anchorMode: node.anchorMode,
+    pathT: node.pathT,
+    clickPoint: { x, y },
+    snappedPoint: pathPoint
+  });
 };
 
 const addNodeFromPanel = (type) => {
-  const area = getSelectedArea();
-  addNodeAt(area.id, 500, Math.round(area.height / 2), type);
+  editorState.addNodeType = type;
+  setActiveTool("add-node");
+  showEditorMessage("点击曲线附近添加节点。");
+  logHomepage("Entered add-node tool.", { type });
 };
 
 const deleteSelectedNode = () => {
@@ -1028,6 +1459,19 @@ const renderEditorPanel = () => {
           <option value="dashed" ${area.path.lineStyle === "dashed" ? "selected" : ""}>dashed</option>
         </select>
       </label>
+      <label>平滑程度
+        <input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}">
+      </label>
+      <label>简化程度
+        <input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}">
+      </label>
+      <p class="editor-help">当前工具：${editorState.activeTool === "freehand" ? "手绘曲线" : editorState.activeTool === "add-node" ? "添加节点" : "选择"}</p>
+      <div class="editor-button-row">
+        <button type="button" class="homepage-editor__tool" data-editor-action="select-tool">选择</button>
+        <button type="button" class="homepage-editor__tool" data-editor-action="freehand">${editorState.activeTool === "freehand" ? "退出手绘" : "手绘曲线"}</button>
+        <button type="button" data-editor-action="resmooth">重新平滑</button>
+      </div>
+      ${editorState.activeTool === "freehand" ? "<p class=\"editor-help\">在当前区域内拖动鼠标绘制曲线，松开后自动平滑。</p>" : ""}
       <div class="editor-button-row">
         <button type="button" data-editor-action="add-point">添加曲线点</button>
         <button type="button" data-editor-action="delete-point">删除选中曲线点</button>
@@ -1086,6 +1530,15 @@ const renderNodeEditor = (node) => `
   <label>描述
     <textarea data-node-field="description">${node.description}</textarea>
   </label>
+  <label>绑定方式
+    <select data-node-field="anchorMode">
+      <option value="path" ${node.anchorMode !== "free" ? "selected" : ""}>绑定曲线</option>
+      <option value="free" ${node.anchorMode === "free" ? "selected" : ""}>自由放置</option>
+    </select>
+  </label>
+  <label>路径位置：${Math.round((Number.isFinite(node.pathT) ? node.pathT : 0.5) * 100)}%
+    <input type="range" min="0" max="100" step="1" data-node-field="pathPercent" value="${Math.round((Number.isFinite(node.pathT) ? node.pathT : 0.5) * 100)}">
+  </label>
   <label>X
     <input type="number" min="0" max="1000" step="5" data-node-field="x" value="${node.x}">
   </label>
@@ -1131,18 +1584,28 @@ const bindEditorPanelEvents = (panel) => {
     field.addEventListener("input", () => updateAreaPathField(field));
   });
 
+  panel.querySelectorAll("[data-path-smoothing-field]").forEach((field) => {
+    field.addEventListener("input", () => updatePathSmoothingField(field));
+    field.addEventListener("change", () => updatePathSmoothingField(field));
+  });
+
   panel.querySelectorAll("[data-node-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeField(field));
+    field.addEventListener("change", () => updateNodeField(field));
   });
 
   panel.querySelectorAll("[data-node-style-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeStyleField(field));
+    field.addEventListener("change", () => updateNodeStyleField(field));
   });
 };
 
 const handleEditorAction = (action) => {
   const actions = {
     preview: () => setEditorMode("preview"),
+    "select-tool": () => setActiveTool("select"),
+    freehand: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
+    resmooth: resmoothCurrentAreaCurve,
     "add-point": addCurvePoint,
     "delete-point": deleteSelectedCurvePoint,
     "reset-curve": resetCurrentAreaCurve,
@@ -1178,6 +1641,11 @@ const handleEditorField = (field) => {
 
   if (field.dataset.editorField === "addNodeType") {
     editorState.addNodeType = field.value;
+    editorState.activeTool = "add-node";
+    const root = document.querySelector(".timeline-home");
+    if (root) {
+      root.dataset.activeTool = "add-node";
+    }
     logHomepage("Changed add node type.", { type: field.value });
   }
 };
@@ -1208,6 +1676,17 @@ const updateAreaPathField = (field) => {
   renderTimeline();
 };
 
+const updatePathSmoothingField = (field) => {
+  const area = getSelectedArea();
+  area.path.smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
+  area.path.smoothing[field.dataset.pathSmoothingField] = Number(field.value);
+  markDirty("path smoothing changed");
+  logHomepage("Updated freehand smoothing configuration.", {
+    areaId: area.id,
+    smoothing: area.path.smoothing
+  });
+};
+
 const updateNodeField = (field) => {
   const selected = getNodeById(editorState.selectedNodeId);
   if (!selected) {
@@ -1215,7 +1694,29 @@ const updateNodeField = (field) => {
   }
 
   const key = field.dataset.nodeField;
-  selected.node[key] = field.type === "number" ? Number(field.value) : field.value;
+  if (key === "anchorMode") {
+    if (field.value === "path") {
+      const nearest = getNearestPathT(selected.area, { x: selected.node.x, y: selected.node.y });
+      selected.node.anchorMode = "path";
+      selected.node.pathT = nearest.pathT;
+      const point = getPointAtPathT(selected.area, nearest.pathT);
+      selected.node.x = point.x;
+      selected.node.y = point.y;
+    } else {
+      const point = getPointAtPathT(selected.area, selected.node.pathT);
+      selected.node.anchorMode = "free";
+      selected.node.x = point.x;
+      selected.node.y = point.y;
+    }
+  } else if (key === "pathPercent") {
+    selected.node.anchorMode = "path";
+    selected.node.pathT = Math.max(0, Math.min(1, Number(field.value) / 100));
+    const point = getPointAtPathT(selected.area, selected.node.pathT);
+    selected.node.x = point.x;
+    selected.node.y = point.y;
+  } else {
+    selected.node[key] = field.type === "number" ? Number(field.value) : field.value;
+  }
 
   if (key === "type" && !selected.node.style.color) {
     selected.node.style.color = getNodeColor(selected.area, selected.node);
@@ -1312,6 +1813,23 @@ const handlePointerMove = (event) => {
     return;
   }
 
+  if (dragState.kind === "freehand") {
+    const area = getAreaById(dragState.areaId);
+    if (!area) {
+      return;
+    }
+    const point = {
+      x: Math.max(0, Math.min(SVG_WIDTH, Math.round(((event.clientX - dragState.areaRect.left) / dragState.areaRect.width) * SVG_WIDTH))),
+      y: Math.max(0, Math.min(area.height, Math.round(((event.clientY - dragState.areaRect.top) / dragState.areaRect.height) * area.height)))
+    };
+    const previous = editorState.drawingPreviewPoints[editorState.drawingPreviewPoints.length - 1];
+    if (!previous || distanceBetweenPoints(previous, point) >= DRAW_POINT_MIN_DISTANCE) {
+      editorState.drawingPreviewPoints.push(point);
+      renderTimeline();
+    }
+    return;
+  }
+
   if (dragState.kind === "curve") {
     const point = {
       x: Math.round(((event.clientX - dragState.svgRect.left) / dragState.svgRect.width) * dragState.svgWidth),
@@ -1333,8 +1851,21 @@ const handlePointerMove = (event) => {
       return;
     }
     const area = selected.area;
-    selected.node.x = Math.max(0, Math.min(SVG_WIDTH, Math.round(((event.clientX - areaRect.left) / areaRect.width) * SVG_WIDTH)));
-    selected.node.y = Math.max(0, Math.min(area.height, Math.round(((event.clientY - areaRect.top) / areaRect.height) * area.height)));
+    const point = {
+      x: Math.max(0, Math.min(SVG_WIDTH, Math.round(((event.clientX - areaRect.left) / areaRect.width) * SVG_WIDTH))),
+      y: Math.max(0, Math.min(area.height, Math.round(((event.clientY - areaRect.top) / areaRect.height) * area.height)))
+    };
+    if (selected.node.anchorMode === "free") {
+      selected.node.x = point.x;
+      selected.node.y = point.y;
+    } else {
+      const nearest = getNearestPathT(area, point);
+      selected.node.anchorMode = "path";
+      selected.node.pathT = nearest.pathT;
+      const pathPoint = getPointAtPathT(area, nearest.pathT);
+      selected.node.x = pathPoint.x;
+      selected.node.y = pathPoint.y;
+    }
     markDirty("node dragged");
     renderTimeline();
   }
@@ -1342,6 +1873,9 @@ const handlePointerMove = (event) => {
 
 const handlePointerUp = () => {
   if (dragState) {
+    if (dragState.kind === "freehand") {
+      finishFreehandDrawing();
+    }
     logHomepage("Completed drag interaction.", dragState);
     dragState = null;
     renderEditorPanel();
@@ -1374,6 +1908,9 @@ const bindGlobalControls = () => {
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (editorState.mode === "edit" && ["freehand", "add-node"].includes(editorState.activeTool)) {
+        setActiveTool("select");
+      }
       closeEventPopover();
     }
   });

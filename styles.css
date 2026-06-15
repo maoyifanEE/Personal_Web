@@ -364,6 +364,14 @@ select {
   cursor: grab;
 }
 
+.timeline-home[data-editor-mode="edit"][data-active-tool="freehand"] .journey-area[data-selected="true"] {
+  cursor: crosshair;
+}
+
+.timeline-home[data-editor-mode="edit"][data-active-tool="add-node"] .journey-area[data-selected="true"] {
+  cursor: copy;
+}
+
 .timeline-home[data-editor-mode="edit"] .journey-event:active {
   cursor: grabbing;
 }
@@ -440,8 +448,20 @@ select {
   stroke: #ffffff;
 }
 
+.freehand-preview-path {
+  fill: none;
+  stroke: #168f90;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 14 10;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 .timeline-home[data-editor-mode="preview"] .curve-control-line,
-.timeline-home[data-editor-mode="preview"] .curve-handle {
+.timeline-home[data-editor-mode="preview"] .curve-handle,
+.timeline-home[data-editor-mode="preview"] .freehand-preview-path {
   display: none;
 }
 
@@ -512,6 +532,13 @@ select {
   color: #ad3c2d;
 }
 
+.editor-help {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .editor-section {
   display: grid;
   gap: 10px;
@@ -557,6 +584,12 @@ select {
 
 .editor-section button {
   padding: 7px 10px;
+}
+
+.homepage-editor__tool {
+  border-color: rgba(22, 143, 144, 0.28);
+  color: var(--teal);
+  background: rgba(22, 143, 144, 0.08);
 }
 
 .editor-section .danger-button {

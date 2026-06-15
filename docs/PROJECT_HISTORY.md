@@ -1,5 +1,83 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-14 - Add freehand curve drawing and path-anchored nodes
+
+### 本次目标
+
+* 将首页曲线路径编辑从单纯控制点编辑升级为手绘曲线模式。
+* 支持在当前区域内直接手绘曲线。
+* 手绘结束后自动简化和平滑曲线。
+* 节点不再只依赖固定 x/y，而是可以绑定到曲线的百分比位置 pathT。
+* 曲线变化后，绑定曲线的节点会根据 pathT 自动跟随新曲线。
+* 支持在曲线任意位置添加 major/minor 节点。
+* 支持沿曲线拖动节点来修改 pathT。
+* 保留 localStorage 保存和 JSON 导入导出结构。
+* 不新增后端、数据库或外部依赖。
+
+### 实际完成
+
+* 新增 freehand 路径数据模型，支持 rawPoints、smoothPoints、smoothing 和 SVG path d。
+* 新增手绘曲线工具，支持 pointer 拖动绘制、实时临时线和松开后自动处理。
+* 新增 Ramer-Douglas-Peucker 简化、Catmull-Rom 到 cubic Bezier 的平滑路径生成。
+* 新增平滑程度、简化程度和重新平滑控件。
+* 新增路径采样工具，优先使用 SVG path 的长度采样，回退到数据点采样。
+* 将节点迁移为支持 anchorMode 和 pathT 的路径百分比锚定结构。
+* 新增沿曲线添加 major/minor 节点，默认吸附最近曲线位置。
+* 更新节点拖拽逻辑，path 节点拖动时修改 pathT，free 节点保留自由 x/y。
+* 新增节点绑定方式和路径位置百分比编辑控件。
+* 保留原有 Bezier 控制点作为非 freehand 路径的高级调整方式。
+* 保留 localStorage 保存、刷新恢复、JSON 导出和 JSON 导入结构。
+* 增加关键流程日志，覆盖手绘、重新平滑、节点添加、节点拖动和迁移分支。
+
+### 修改范围
+
+* script.js
+* styles.css
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未使用外部依赖。
+* 未使用真实个人信息。
+* 未使用真实图片。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 首页可以打开。
+* [x] 编辑模式可以打开。
+* [x] 可以选择 Area 01 至 Area 04。
+* [x] 可以点击“手绘曲线”进入绘制模式。
+* [x] 可以在当前区域直接拖动绘制曲线。
+* [x] 松开鼠标后曲线自动变平滑。
+* [x] 平滑程度滑杆有效。
+* [x] 简化程度滑杆有效。
+* [x] 重新平滑按钮有效。
+* [x] 曲线保存后刷新仍存在。
+* [x] 可以在曲线附近添加 major 节点。
+* [x] 可以在曲线附近添加 minor 节点。
+* [x] 新节点默认绑定到曲线 pathT。
+* [x] 节点显示路径位置百分比。
+* [x] 可以沿曲线拖动节点。
+* [x] 拖动节点会改变 pathT。
+* [x] 重画曲线后，path-anchored 节点会根据 pathT 跟随新曲线。
+* [x] free 节点不会被曲线重画影响。
+* [x] Overview / Details 仍然可用。
+* [x] 预览模式点击节点仍打开详情小窗。
+* [x] localStorage 保存有效。
+* [x] JSON 导出/导入包含手绘曲线和 pathT 节点数据。
+* [x] 隐藏入口仍然进入 login.html。
+* [x] 任务清单页面未受影响。
+* [x] 健康管理页面未受影响。
+
 ## 2026-06-14 - Add editable homepage timeline admin prototype
 
 ### 本次目标
