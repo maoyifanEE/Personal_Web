@@ -27,6 +27,10 @@ prototype for changing area styles, drawing freehand curves, smoothing drawn
 paths, anchoring nodes by path percentage, adding/editing nodes, saving to
 `localStorage`, and exporting/importing JSON.
 
+The editor now uses contextual direct editing instead of a persistent global
+console: a compact floating toolbar handles mode/save/data actions, while hero,
+area, curve, and node settings open near the object being edited.
+
 Editor storage key:
 
 ```text

@@ -63,14 +63,22 @@ The homepage curve, areas, and nodes are data-driven in `script.js`.
 
 Editor prototype rules:
 
+- The global right-side editor console has been intentionally removed.
+- Editing should use a compact floating toolbar, context menus, and object-level
+  popovers instead of a persistent dashboard-like form.
 - Each area owns its own background, path, path style, node style, and nodes.
-- Editor mode allows changing curve points, area styles, and node content.
-- Curve editing uses SVG anchor points and cubic Bezier control handles.
+- Editor mode allows changing hero, area, curve, and node content directly on
+  the homepage canvas.
 - Curve editing also supports a freehand drawing mode. Drawn points should be
   simplified, smoothed, and stored as editable SVG path data, never as a raster
   image.
 - Nodes that should follow the route should prefer `anchorMode: "path"` and a
   normalized `pathT` percentage over fixed `x/y` coordinates.
+- Bezier handle editing is intentionally not part of the user-facing UI.
+- Timeline nodes should render as dots by default. Event cards should appear as
+  hover previews, click details, or edit popovers.
+- Right-clicking near a curve in edit mode should create nodes at the nearest
+  curve point through the contextual menu.
 - Node editing supports major/minor type, title, date, description, position,
   offsets, color, and card style.
 - Data is saved to browser `localStorage` only.

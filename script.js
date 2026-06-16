@@ -327,6 +327,12 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
 
 let editorState = clone(DEFAULT_HOMEPAGE_EDITOR_STATE);
 let dragState = null;
+let uiState = {
+  popover: null,
+  contextMenu: null,
+  hoverPreview: null,
+  lastPointerWasDrag: false
+};
 
 const getOrderedAreas = () => [...editorState.areas].sort((a, b) => a.order - b.order);
 const getAreaById = (areaId) => editorState.areas.find((area) => area.id === areaId);
@@ -527,6 +533,79 @@ const simplifyPoints = (points, tolerance) => {
   return [points[0], points[lastIndex]];
 };
 
+const filterJitterPoints = (points, minDistance = DRAW_POINT_MIN_DISTANCE) => {
+  if (points.length <= 2) {
+    return points;
+  }
+  const filtered = [points[0]];
+  points.slice(1, -1).forEach((point) => {
+    const previous = filtered[filtered.length - 1];
+    if (distanceBetweenPoints(previous, point) >= minDistance) {
+      filtered.push(point);
+    }
+  });
+  filtered.push(points[points.length - 1]);
+  return filtered;
+};
+
+const resamplePointsByDistance = (points, spacing = 22) => {
+  if (points.length <= 2) {
+    return points;
+  }
+  const resampled = [points[0]];
+  let carried = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const segmentLength = distanceBetweenPoints(previous, current);
+    if (!segmentLength) {
+      continue;
+    }
+    let target = spacing - carried;
+    while (target <= segmentLength) {
+      const ratio = target / segmentLength;
+      resampled.push({
+        x: Math.round(previous.x + (current.x - previous.x) * ratio),
+        y: Math.round(previous.y + (current.y - previous.y) * ratio)
+      });
+      target += spacing;
+    }
+    carried = segmentLength - (target - spacing);
+  }
+  const last = points[points.length - 1];
+  if (distanceBetweenPoints(resampled[resampled.length - 1], last) > 1) {
+    resampled.push(last);
+  }
+  return resampled;
+};
+
+const chaikinSmooth = (points, iterations = 2) => {
+  if (points.length <= 2 || iterations <= 0) {
+    return points;
+  }
+  let smoothed = points;
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const next = [smoothed[0]];
+    for (let index = 0; index < smoothed.length - 1; index += 1) {
+      const current = smoothed[index];
+      const following = smoothed[index + 1];
+      next.push(
+        {
+          x: Math.round(current.x * 0.75 + following.x * 0.25),
+          y: Math.round(current.y * 0.75 + following.y * 0.25)
+        },
+        {
+          x: Math.round(current.x * 0.25 + following.x * 0.75),
+          y: Math.round(current.y * 0.25 + following.y * 0.75)
+        }
+      );
+    }
+    next.push(smoothed[smoothed.length - 1]);
+    smoothed = next;
+  }
+  return smoothed;
+};
+
 const buildFreehandPathD = (points, smoothing = DEFAULT_SMOOTHING) => {
   if (points.length < 3) {
     return points.length ? `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
@@ -539,8 +618,12 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING) => {
     return null;
   }
 
-  const tolerance = 2 + smoothing.simplification * 30;
-  const smoothPoints = simplifyPoints(rawPoints, tolerance);
+  const jitterFiltered = filterJitterPoints(rawPoints, DRAW_POINT_MIN_DISTANCE);
+  const resampled = resamplePointsByDistance(jitterFiltered, 18 + (1 - smoothing.strength) * 18);
+  const tolerance = 2 + smoothing.simplification * 26;
+  const simplified = simplifyPoints(resampled, tolerance);
+  const iterations = Math.max(1, Math.min(3, Math.round(1 + smoothing.strength * 2)));
+  const smoothPoints = chaikinSmooth(simplified, iterations);
   return {
     rawPoints,
     smoothPoints,
@@ -721,25 +804,56 @@ const setTimelineView = (view) => {
 const setEditorMode = (mode) => {
   editorState.mode = mode;
   const root = document.querySelector(".timeline-home");
-  const panel = document.querySelector("#homepage-editor");
   const toggle = document.querySelector("[data-editor-toggle]");
 
   if (root) {
     root.dataset.editorMode = mode;
     root.dataset.activeTool = editorState.activeTool || "select";
   }
-  if (panel) {
-    panel.hidden = mode !== "edit";
-  }
   if (toggle) {
     toggle.textContent = mode === "edit" ? "退出编辑" : "编辑主页";
     toggle.setAttribute("aria-pressed", String(mode === "edit"));
   }
 
+  if (mode !== "edit") {
+    uiState = { popover: null, contextMenu: null, hoverPreview: null, lastPointerWasDrag: false };
+    editorState.activeTool = "select";
+  }
   closeEventPopover();
   renderTimeline();
   renderEditorPanel();
   logHomepage("Homepage editor mode changed.", { mode });
+};
+
+const renderHero = () => {
+  const hero = document.querySelector(".timeline-hero");
+  if (!hero) {
+    return;
+  }
+
+  const copy = hero.querySelector(".timeline-hero__copy");
+  const eyebrow = hero.querySelector(".timeline-eyebrow");
+  const title = hero.querySelector("#page-title");
+  const heroData = {
+    colorA: "#fffdf8",
+    colorB: "#fbf8f1",
+    height: 340,
+    align: "center",
+    ...editorState.hero
+  };
+
+  if (eyebrow) {
+    eyebrow.textContent = heroData.eyebrow || "Hello, World!";
+  }
+  if (title) {
+    title.textContent = heroData.title || "A simple curved path timeline prototype.";
+  }
+  hero.style.setProperty("--hero-color-a", heroData.colorA);
+  hero.style.setProperty("--hero-color-b", heroData.colorB);
+  hero.style.setProperty("--hero-height", `${heroData.height}px`);
+  if (copy) {
+    copy.dataset.align = heroData.align || "center";
+  }
 };
 
 const renderTimeline = () => {
@@ -749,6 +863,7 @@ const renderTimeline = () => {
     return;
   }
 
+  renderHero();
   const root = document.querySelector(".timeline-home");
   if (root) {
     root.dataset.activeTool = editorState.activeTool || "select";
@@ -782,6 +897,10 @@ const renderArea = (area, index) => {
   section.style.setProperty("--minor-node-color", area.areaStyles.minorNodeColor);
 
   section.append(renderAreaCopy(area), renderAreaSvg(area), renderAreaNodes(area));
+  if (editorState.mode === "edit") {
+    section.append(renderAreaEditBadge(area));
+    section.append(renderAreaResizeHandle(area));
+  }
 
   if (editorState.mode === "edit") {
     section.addEventListener("pointerdown", (event) => {
@@ -795,7 +914,7 @@ const renderArea = (area, index) => {
     });
 
     section.addEventListener("click", (event) => {
-      if (event.target.closest(".journey-event") || event.target.closest(".curve-handle")) {
+      if (event.target.closest(".journey-event") || event.target.closest(".curve-handle") || event.target.closest(".area-resize-handle")) {
         return;
       }
       editorState.selectedAreaId = area.id;
@@ -805,6 +924,28 @@ const renderArea = (area, index) => {
         return;
       }
       renderEditorPanel();
+    });
+
+    section.addEventListener("contextmenu", (event) => {
+      if (event.target.closest(".journey-event") || event.target.closest(".area-resize-handle")) {
+        return;
+      }
+      event.preventDefault();
+      editorState.selectedAreaId = area.id;
+      const point = getAreaPointFromPointer(event, section, area);
+      const nearest = getNearestPathT(area, point);
+      uiState.contextMenu = {
+        type: "curve",
+        areaId: area.id,
+        x: event.clientX,
+        y: event.clientY,
+        pathT: nearest.pathT,
+        distance: nearest.distance
+      };
+      uiState.popover = null;
+      renderTimeline();
+      renderEditorPanel();
+      logHomepage("Opened contextual curve menu.", { areaId: area.id, pathT: nearest.pathT });
     });
   }
 
@@ -861,10 +1002,6 @@ const renderAreaSvg = (area) => {
         ? `M ${editorState.drawingPreviewPoints.map((point) => `${point.x} ${point.y}`).join(" L ")}`
         : ""
     }));
-  }
-
-  if (editorState.mode === "edit" && area.path.mode !== "freehand") {
-    renderCurveHandles(svg, area);
   }
 
   return svg;
@@ -1006,10 +1143,61 @@ const renderNode = (area, node) => {
   button.addEventListener("click", (event) => {
     if (editorState.mode === "edit") {
       event.preventDefault();
-      selectNode(area.id, node.id);
+      if (uiState.lastPointerWasDrag) {
+        uiState.lastPointerWasDrag = false;
+        return;
+      }
+      selectNode(area.id, node.id, false);
+      openContextPopover("node", { areaId: area.id, nodeId: node.id }, event.clientX, event.clientY);
       return;
     }
     openEventPopover(area.id, node.id);
+  });
+
+  const showNodePreview = (event) => {
+    if (dragState || uiState.popover || uiState.contextMenu) {
+      return;
+    }
+    uiState.hoverPreview = {
+      areaId: area.id,
+      nodeId: node.id,
+      x: event.clientX + 14,
+      y: event.clientY + 14
+    };
+    renderEditorPanel();
+  };
+
+  const hideNodePreview = () => {
+    if (uiState.hoverPreview?.nodeId === node.id) {
+      uiState.hoverPreview = null;
+      renderEditorPanel();
+    }
+  };
+
+  button.addEventListener("mouseenter", showNodePreview);
+  button.addEventListener("pointerenter", showNodePreview);
+  button.addEventListener("mouseleave", hideNodePreview);
+  button.addEventListener("pointerleave", hideNodePreview);
+
+  button.addEventListener("contextmenu", (event) => {
+    if (editorState.mode !== "edit") {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    editorState.selectedAreaId = area.id;
+    editorState.selectedNodeId = node.id;
+    uiState.contextMenu = {
+      type: "node",
+      areaId: area.id,
+      nodeId: node.id,
+      x: event.clientX,
+      y: event.clientY
+    };
+    uiState.popover = null;
+    renderTimeline();
+    renderEditorPanel();
+    logHomepage("Opened node context menu.", { areaId: area.id, nodeId: node.id });
   });
 
   if (editorState.mode === "edit") {
@@ -1024,8 +1212,10 @@ const renderNode = (area, node) => {
         startY: event.clientY,
         originalX: node.x,
         originalY: node.y,
-        areaRect: eventElement.closest(".journey-area").getBoundingClientRect()
+        areaRect: eventElement.closest(".journey-area").getBoundingClientRect(),
+        moved: false
       };
+      uiState.hoverPreview = null;
       eventElement.setPointerCapture(event.pointerId);
       logHomepage("Started node drag.", { areaId: area.id, nodeId: node.id });
     });
@@ -1045,6 +1235,42 @@ const selectNode = (areaId, nodeId, rerender = true) => {
   }
   renderEditorPanel();
   logHomepage("Selected timeline node.", { areaId, nodeId });
+};
+
+const renderAreaEditBadge = (area) => {
+  const badge = document.createElement("button");
+  badge.type = "button";
+  badge.className = "area-edit-badge";
+  badge.textContent = area.title;
+  badge.addEventListener("click", (event) => {
+    event.stopPropagation();
+    editorState.selectedAreaId = area.id;
+    openContextPopover("area", { areaId: area.id }, event.clientX, event.clientY);
+  });
+  return badge;
+};
+
+const renderAreaResizeHandle = (area) => {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "area-resize-handle";
+  handle.title = "拖动调整区域高度";
+  handle.setAttribute("aria-label", `拖动调整 ${area.title} 区域高度`);
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const areaElement = handle.closest(".journey-area");
+    dragState = {
+      kind: "area-resize",
+      areaId: area.id,
+      startY: event.clientY,
+      startHeight: area.height
+    };
+    uiState.lastPointerWasDrag = false;
+    areaElement?.setPointerCapture(event.pointerId);
+    logHomepage("Started area resize.", { areaId: area.id, height: area.height });
+  });
+  return handle;
 };
 
 const setActiveTool = (tool) => {
@@ -1322,6 +1548,11 @@ const deleteSelectedNode = () => {
     return;
   }
 
+  if (!window.confirm("确认删除这个节点？")) {
+    logHomepage("Node deletion cancelled.", { nodeId: selected.node.id });
+    return;
+  }
+
   selected.area.nodes = selected.area.nodes.filter((node) => node.id !== selected.node.id);
   editorState.selectedNodeId = selected.area.nodes[0]?.id || "";
   markDirty("node deleted");
@@ -1344,7 +1575,12 @@ const saveToLocalStorage = () => {
 };
 
 const resetExampleData = () => {
-  if (!editorState.resetConfirmPending) {
+  if (!window.confirm("确认重置主页时间线示例配置？")) {
+    logHomepage("Reset example data cancelled.");
+    return;
+  }
+
+  if (false && !editorState.resetConfirmPending) {
     editorState.resetConfirmPending = true;
     showEditorMessage("确认重置主页时间线示例配置？再次点击重置示例。", true);
     logHomepage("Reset example data confirmation requested.");
@@ -1391,7 +1627,366 @@ const importJson = () => {
   }
 };
 
+const getContextEditorRoot = () => {
+  let root = document.querySelector("#context-editor-root");
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "context-editor-root";
+    root.className = "context-editor-root";
+    document.body.append(root);
+  }
+  return root;
+};
+
+const escapeHtml = (value = "") =>
+  String(value).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;"
+  }[character]));
+
 const renderEditorPanel = () => {
+  const root = getContextEditorRoot();
+  root.innerHTML = "";
+  if (editorState.mode !== "edit") {
+    if (uiState.hoverPreview) {
+      root.append(renderNodeHoverPreview());
+    }
+    return;
+  }
+
+  root.append(renderFloatingToolbar());
+  if (uiState.contextMenu) {
+    root.append(renderContextMenu());
+  }
+  if (uiState.popover) {
+    root.append(renderContextPopover());
+  }
+  if (uiState.hoverPreview) {
+    root.append(renderNodeHoverPreview());
+  }
+};
+
+const renderFloatingToolbar = () => {
+  const toolbar = document.createElement("div");
+  toolbar.className = "context-toolbar";
+  toolbar.setAttribute("role", "toolbar");
+  toolbar.setAttribute("aria-label", "主页编辑工具栏");
+  toolbar.innerHTML = `
+    <button type="button" data-context-action="select" aria-pressed="${editorState.activeTool === "select"}">选择</button>
+    <button type="button" data-context-action="draw" aria-pressed="${editorState.activeTool === "freehand"}">手绘曲线</button>
+    <button type="button" data-context-action="save">保存</button>
+    <button type="button" data-context-action="data">数据</button>
+    <span class="context-toolbar__status" data-editor-status>${editorState.dirty ? "未保存" : "已保存"}</span>
+    <button type="button" data-context-action="exit">退出编辑</button>
+  `;
+  toolbar.querySelectorAll("[data-context-action]").forEach((button) => {
+    button.addEventListener("click", () => handleContextAction(button.dataset.contextAction));
+  });
+  return toolbar;
+};
+
+const handleContextAction = (action) => {
+  const actions = {
+    select: () => setActiveTool("select"),
+    draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
+    save: saveToLocalStorage,
+    data: () => openContextPopover("data", {}, window.innerWidth - 360, 84),
+    exit: () => setEditorMode("preview")
+  };
+  actions[action]?.();
+  logHomepage("Handled floating toolbar action.", { action });
+};
+
+const openContextPopover = (type, payload = {}, x = 120, y = 120) => {
+  uiState.contextMenu = null;
+  uiState.hoverPreview = null;
+  uiState.popover = { type, payload, x, y };
+  renderEditorPanel();
+  logHomepage("Opened contextual editor popover.", { type, payload });
+};
+
+const renderContextPopover = () => {
+  const popover = document.createElement("section");
+  popover.className = "context-popover";
+  popover.dataset.popoverType = uiState.popover.type;
+  popover.style.left = `${Math.min(window.innerWidth - 340, Math.max(12, uiState.popover.x))}px`;
+  popover.style.top = `${Math.min(window.innerHeight - 220, Math.max(72, uiState.popover.y))}px`;
+  popover.setAttribute("role", "dialog");
+
+  const renderers = {
+    data: renderDataPopoverContent,
+    hero: renderHeroPopoverContent,
+    area: renderAreaPopoverContent,
+    curve: renderCurvePopoverContent,
+    node: renderNodePopoverContent
+  };
+  popover.innerHTML = renderers[uiState.popover.type]?.() || "";
+  bindContextPopoverEvents(popover);
+  return popover;
+};
+
+const renderPopoverHeader = (title) => `
+  <div class="context-popover__header">
+    <h2>${title}</h2>
+    <button type="button" aria-label="关闭" data-popover-close>×</button>
+  </div>
+`;
+
+const renderDataPopoverContent = () => `
+  ${renderPopoverHeader("数据")}
+  <p class="context-note">当前为本地编辑原型，配置仅保存在当前浏览器。</p>
+  <div class="context-button-row">
+    <button type="button" data-context-popover-action="save">保存到本地</button>
+    <button type="button" data-context-popover-action="reset">重置示例</button>
+  </div>
+  <div class="context-button-row">
+    <button type="button" data-context-popover-action="export">导出 JSON</button>
+    <button type="button" data-context-popover-action="import">导入 JSON</button>
+  </div>
+  <textarea class="context-json" data-editor-field="json" placeholder="在这里粘贴或导出 JSON"></textarea>
+  <p class="context-status" data-editor-status>${editorState.dirty ? "未保存" : "已保存"}</p>
+`;
+
+const renderHeroPopoverContent = () => {
+  const hero = { colorA: "#fffdf8", colorB: "#fbf8f1", height: 340, align: "center", ...editorState.hero };
+  return `
+    ${renderPopoverHeader("Hero 设置")}
+    <label>eyebrow text<input data-hero-field="eyebrow" value="${escapeHtml(hero.eyebrow)}"></label>
+    <label>title text<input data-hero-field="title" value="${escapeHtml(hero.title)}"></label>
+    <label>背景颜色 A<input type="color" data-hero-field="colorA" value="${hero.colorA}"></label>
+    <label>背景颜色 B<input type="color" data-hero-field="colorB" value="${hero.colorB}"></label>
+    <label>Hero 高度<input type="number" min="240" max="520" step="10" data-hero-field="height" value="${hero.height}"></label>
+    <label>文字对齐<select data-hero-field="align">
+      <option value="center" ${hero.align === "center" ? "selected" : ""}>center</option>
+      <option value="left" ${hero.align === "left" ? "selected" : ""}>left</option>
+    </select></label>
+    <button type="button" data-context-popover-action="save">保存</button>
+  `;
+};
+
+const renderAreaPopoverContent = () => {
+  const area = getSelectedArea();
+  return `
+    ${renderPopoverHeader("区域设置")}
+    <label>area title<input data-area-field="title" value="${escapeHtml(area.title)}"></label>
+    <label>area description<textarea data-area-field="description">${escapeHtml(area.description)}</textarea></label>
+    <label>区域高度<input type="number" min="360" max="1200" step="10" data-area-field="height" value="${area.height}"></label>
+    <label>背景颜色 A<input type="color" data-area-background-field="colorA" value="${area.background.colorA}"></label>
+    <label>背景颜色 B<input type="color" data-area-background-field="colorB" value="${area.background.colorB}"></label>
+    <label>背景图案<select data-area-background-field="pattern">
+      ${["none", "soft-hills", "soft-skyline", "soft-waves", "soft-abstract"].map((pattern) => `<option value="${pattern}" ${area.background.pattern === pattern ? "selected" : ""}>${pattern}</option>`).join("")}
+    </select></label>
+    <label>major 默认颜色<input type="color" data-area-style-field="majorNodeColor" value="${area.areaStyles.majorNodeColor}"></label>
+    <label>minor 默认颜色<input type="color" data-area-style-field="minorNodeColor" value="${area.areaStyles.minorNodeColor}"></label>
+    <button type="button" data-context-popover-action="save">保存</button>
+  `;
+};
+
+const renderCurvePopoverContent = () => {
+  const area = getSelectedArea();
+  return `
+    ${renderPopoverHeader("曲线设置")}
+    <label>曲线颜色<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
+    <label>阴影颜色<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
+    <label>曲线宽度<input type="number" min="8" max="80" step="2" data-area-path-field="strokeWidth" value="${area.path.strokeWidth}"></label>
+    <label>线条样式<select data-area-path-field="lineStyle">
+      <option value="solid" ${area.path.lineStyle === "solid" ? "selected" : ""}>solid</option>
+      <option value="dashed" ${area.path.lineStyle === "dashed" ? "selected" : ""}>dashed</option>
+    </select></label>
+    <label>平滑程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}"></label>
+    <label>简化程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}"></label>
+    <div class="context-button-row">
+      <button type="button" data-context-popover-action="resmooth">重新平滑</button>
+      <button type="button" data-context-popover-action="redraw">重画当前区域曲线</button>
+    </div>
+  `;
+};
+
+const renderNodePopoverContent = () => {
+  const selected = getNodeById(uiState.popover.payload.nodeId || editorState.selectedNodeId);
+  if (!selected) {
+    return `${renderPopoverHeader("节点设置")}<p class="context-note">请选择一个节点。</p>`;
+  }
+  const node = selected.node;
+  return `
+    ${renderPopoverHeader("节点设置")}
+    <label>type<select data-node-field="type">
+      <option value="major" ${node.type === "major" ? "selected" : ""}>major</option>
+      <option value="minor" ${node.type === "minor" ? "selected" : ""}>minor</option>
+    </select></label>
+    <label>date<input data-node-field="date" value="${escapeHtml(node.date)}"></label>
+    <label>title<input data-node-field="title" value="${escapeHtml(node.title)}"></label>
+    <label>description<textarea data-node-field="description">${escapeHtml(node.description)}</textarea></label>
+    <label>绑定方式<select data-node-field="anchorMode">
+      <option value="path" ${node.anchorMode !== "free" ? "selected" : ""}>绑定曲线</option>
+      <option value="free" ${node.anchorMode === "free" ? "selected" : ""}>自由放置</option>
+    </select></label>
+    <label>路径位置：${Math.round((Number.isFinite(node.pathT) ? node.pathT : 0.5) * 100)}%
+      <input type="range" min="0" max="100" step="1" data-node-field="pathPercent" value="${Math.round((Number.isFinite(node.pathT) ? node.pathT : 0.5) * 100)}">
+    </label>
+    <label>offset X<input type="number" step="5" data-node-field="offsetX" value="${node.offsetX}"></label>
+    <label>offset Y<input type="number" step="5" data-node-field="offsetY" value="${node.offsetY}"></label>
+    <label>节点颜色<input type="color" data-node-style-field="color" value="${node.style.color}"></label>
+    <div class="context-button-row">
+      <button type="button" data-context-popover-action="save">保存</button>
+      <button type="button" class="danger-button" data-context-popover-action="delete-node">删除节点</button>
+    </div>
+  `;
+};
+
+const bindContextPopoverEvents = (popover) => {
+  popover.querySelector("[data-popover-close]")?.addEventListener("click", () => {
+    uiState.popover = null;
+    renderEditorPanel();
+  });
+  popover.querySelectorAll("[data-context-popover-action]").forEach((button) => {
+    button.addEventListener("click", () => handleContextPopoverAction(button.dataset.contextPopoverAction));
+  });
+  popover.querySelectorAll("[data-hero-field]").forEach((field) => {
+    field.addEventListener("input", () => updateHeroField(field));
+    field.addEventListener("change", () => updateHeroField(field));
+  });
+  popover.querySelectorAll("[data-area-field]").forEach((field) => {
+    field.addEventListener("input", () => updateAreaField(field));
+  });
+  popover.querySelectorAll("[data-area-background-field]").forEach((field) => {
+    field.addEventListener("input", () => updateAreaBackgroundField(field));
+  });
+  popover.querySelectorAll("[data-area-style-field]").forEach((field) => {
+    field.addEventListener("input", () => updateAreaStyleField(field));
+  });
+  popover.querySelectorAll("[data-area-path-field]").forEach((field) => {
+    field.addEventListener("input", () => updateAreaPathField(field));
+  });
+  popover.querySelectorAll("[data-path-smoothing-field]").forEach((field) => {
+    field.addEventListener("input", () => updatePathSmoothingField(field));
+  });
+  popover.querySelectorAll("[data-node-field]").forEach((field) => {
+    field.addEventListener("input", () => updateNodeField(field));
+    field.addEventListener("change", () => updateNodeField(field));
+  });
+  popover.querySelectorAll("[data-node-style-field]").forEach((field) => {
+    field.addEventListener("input", () => updateNodeStyleField(field));
+  });
+};
+
+const handleContextPopoverAction = (action) => {
+  const actions = {
+    save: saveToLocalStorage,
+    reset: resetExampleData,
+    export: exportJson,
+    import: importJson,
+    resmooth: resmoothCurrentAreaCurve,
+    redraw: () => setActiveTool("freehand"),
+    "delete-node": deleteSelectedNode
+  };
+  actions[action]?.();
+  logHomepage("Handled context popover action.", { action });
+};
+
+const renderContextMenu = () => {
+  const menu = document.createElement("div");
+  menu.className = "context-menu";
+  menu.style.left = `${Math.min(window.innerWidth - 240, Math.max(8, uiState.contextMenu.x))}px`;
+  menu.style.top = `${Math.min(window.innerHeight - 180, Math.max(8, uiState.contextMenu.y))}px`;
+  menu.setAttribute("role", "menu");
+  const type = uiState.contextMenu.type;
+  if (type === "node") {
+    menu.innerHTML = `
+      <button type="button" data-context-menu-action="edit-node">节点设置</button>
+      <button type="button" data-context-menu-action="delete-node">删除节点</button>
+      <button type="button" data-context-menu-action="cancel">取消</button>
+    `;
+  } else {
+    menu.innerHTML = `
+      <button type="button" data-context-menu-action="add-major">添加大事件节点</button>
+      <button type="button" data-context-menu-action="add-minor">添加小事件节点</button>
+      <button type="button" data-context-menu-action="curve-settings">曲线设置</button>
+      <button type="button" data-context-menu-action="area-settings">区域设置</button>
+      <button type="button" data-context-menu-action="redraw">重画当前区域曲线</button>
+      <button type="button" data-context-menu-action="cancel">取消</button>
+    `;
+  }
+  menu.querySelectorAll("[data-context-menu-action]").forEach((button) => {
+    button.addEventListener("click", () => handleContextMenuAction(button.dataset.contextMenuAction));
+  });
+  return menu;
+};
+
+const handleContextMenuAction = (action) => {
+  const menu = uiState.contextMenu;
+  if (!menu) {
+    return;
+  }
+  if (action === "cancel") {
+    uiState.contextMenu = null;
+  } else if (action === "add-major" || action === "add-minor") {
+    const area = getAreaById(menu.areaId);
+    const point = getPointAtPathT(area, menu.pathT);
+    addNodeAt(menu.areaId, point.x, point.y, action === "add-major" ? "major" : "minor", "path");
+    const selected = getNodeById(editorState.selectedNodeId);
+    uiState.contextMenu = null;
+    if (selected) {
+      openContextPopover("node", { areaId: selected.area.id, nodeId: selected.node.id }, menu.x, menu.y);
+    }
+  } else if (action === "curve-settings") {
+    uiState.contextMenu = null;
+    openContextPopover("curve", { areaId: menu.areaId }, menu.x, menu.y);
+  } else if (action === "area-settings") {
+    uiState.contextMenu = null;
+    openContextPopover("area", { areaId: menu.areaId }, menu.x, menu.y);
+  } else if (action === "redraw") {
+    uiState.contextMenu = null;
+    setActiveTool("freehand");
+  } else if (action === "edit-node") {
+    uiState.contextMenu = null;
+    openContextPopover("node", { areaId: menu.areaId, nodeId: menu.nodeId }, menu.x, menu.y);
+  } else if (action === "delete-node") {
+    uiState.contextMenu = null;
+    deleteSelectedNode();
+  }
+  renderEditorPanel();
+  logHomepage("Handled contextual menu action.", { action });
+};
+
+const renderNodeHoverPreview = () => {
+  const preview = document.createElement("aside");
+  const area = getAreaById(uiState.hoverPreview.areaId);
+  const node = area?.nodes.find((item) => item.id === uiState.hoverPreview.nodeId);
+  if (!area || !node) {
+    return preview;
+  }
+  preview.className = "node-hover-preview";
+  preview.style.left = `${Math.min(window.innerWidth - 300, Math.max(10, uiState.hoverPreview.x))}px`;
+  preview.style.top = `${Math.min(window.innerHeight - 210, Math.max(10, uiState.hoverPreview.y))}px`;
+  preview.innerHTML = `
+    <div class="placeholder-image" aria-hidden="true">Placeholder</div>
+    <p class="node-hover-preview__type">${node.type === "major" ? "Major" : "Minor"}</p>
+    <p class="node-hover-preview__date">${escapeHtml(node.date)}</p>
+    <strong>${escapeHtml(node.title)}</strong>
+    <p>${escapeHtml(node.description)}</p>
+  `;
+  return preview;
+};
+
+const updateHeroField = (field) => {
+  editorState.hero = {
+    colorA: "#fffdf8",
+    colorB: "#fbf8f1",
+    height: 340,
+    align: "center",
+    ...editorState.hero
+  };
+  editorState.hero[field.dataset.heroField] = field.type === "number" ? Number(field.value) : field.value;
+  markDirty("hero field changed");
+  renderHero();
+  logHomepage("Updated hero field.", { field: field.dataset.heroField });
+};
+
+const renderLegacyEditorPanel = () => {
   const panel = document.querySelector("#homepage-editor");
   if (!panel || editorState.mode !== "edit") {
     return;
@@ -1668,6 +2263,20 @@ const updateAreaBackgroundField = (field) => {
   renderTimeline();
 };
 
+const updateAreaStyleField = (field) => {
+  const area = getSelectedArea();
+  area.areaStyles[field.dataset.areaStyleField] = field.value;
+  area.nodes.forEach((node) => {
+    if (!node.style.color || node.style.color === getNodeColor(area, node)) {
+      node.style.color = node.type === "major" ? area.areaStyles.majorNodeColor : area.areaStyles.minorNodeColor;
+    }
+  });
+  markDirty("area node style changed");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Updated area node style.", { areaId: area.id, field: field.dataset.areaStyleField });
+};
+
 const updateAreaPathField = (field) => {
   const area = getSelectedArea();
   const key = field.dataset.areaPathField;
@@ -1844,6 +2453,23 @@ const handlePointerMove = (event) => {
     return;
   }
 
+  if (dragState.kind === "area-resize") {
+    const area = getAreaById(dragState.areaId);
+    if (!area) {
+      return;
+    }
+    const nextHeight = Math.max(360, Math.min(1200, Math.round(dragState.startHeight + event.clientY - dragState.startY)));
+    if (Math.abs(nextHeight - area.height) >= 2) {
+      area.height = nextHeight;
+      area.mobileHeight = Math.max(460, nextHeight);
+      area.path.viewBox = `0 0 ${SVG_WIDTH} ${area.height}`;
+      uiState.lastPointerWasDrag = true;
+      markDirty("area resized");
+      renderTimeline();
+    }
+    return;
+  }
+
   if (dragState.kind === "node") {
     const selected = getNodeById(dragState.nodeId);
     const areaRect = dragState.areaRect;
@@ -1855,6 +2481,10 @@ const handlePointerMove = (event) => {
       x: Math.max(0, Math.min(SVG_WIDTH, Math.round(((event.clientX - areaRect.left) / areaRect.width) * SVG_WIDTH))),
       y: Math.max(0, Math.min(area.height, Math.round(((event.clientY - areaRect.top) / areaRect.height) * area.height)))
     };
+    if (Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY) > 4) {
+      dragState.moved = true;
+      uiState.lastPointerWasDrag = true;
+    }
     if (selected.node.anchorMode === "free") {
       selected.node.x = point.x;
       selected.node.y = point.y;
@@ -1868,6 +2498,9 @@ const handlePointerMove = (event) => {
     }
     markDirty("node dragged");
     renderTimeline();
+    if (uiState.popover?.type === "node") {
+      renderEditorPanel();
+    }
   }
 };
 
@@ -1897,6 +2530,23 @@ const bindGlobalControls = () => {
     });
   }
 
+  const hero = document.querySelector(".timeline-hero");
+  if (hero) {
+    hero.addEventListener("click", (event) => {
+      if (editorState.mode !== "edit" || event.target.closest(".timeline-hero__actions")) {
+        return;
+      }
+      openContextPopover("hero", {}, event.clientX, event.clientY);
+    });
+    hero.addEventListener("contextmenu", (event) => {
+      if (editorState.mode !== "edit" || event.target.closest(".timeline-hero__actions")) {
+        return;
+      }
+      event.preventDefault();
+      openContextPopover("hero", {}, event.clientX, event.clientY);
+    });
+  }
+
   const popover = document.querySelector("#timeline-event-popover");
   if (popover) {
     popover.addEventListener("click", (event) => {
@@ -1908,8 +2558,24 @@ const bindGlobalControls = () => {
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      if (uiState.popover) {
+        uiState.popover = null;
+        renderEditorPanel();
+        return;
+      }
+      if (uiState.contextMenu) {
+        uiState.contextMenu = null;
+        renderEditorPanel();
+        return;
+      }
+      if (uiState.hoverPreview) {
+        uiState.hoverPreview = null;
+        renderEditorPanel();
+        return;
+      }
       if (editorState.mode === "edit" && ["freehand", "add-node"].includes(editorState.activeTool)) {
         setActiveTool("select");
+        return;
       }
       closeEventPopover();
     }
