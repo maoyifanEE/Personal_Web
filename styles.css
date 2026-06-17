@@ -100,6 +100,28 @@ h1 span {
   outline-offset: 4px;
 }
 
+.site-footer {
+  position: fixed;
+  z-index: 2;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.site-footer a {
+  color: rgba(24, 42, 58, 0.46);
+  text-decoration: none;
+}
+
+.site-footer a:hover,
+.site-footer a:focus-visible {
+  color: rgba(24, 42, 58, 0.72);
+  text-decoration: underline;
+}
+
 .private-page {
   min-height: 100vh;
   min-height: 100svh;
