@@ -1,5 +1,59 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-17 - Add ICP filing number to public homepage footer
+
+### 本次目标
+
+* 在公开首页底部添加 ICP 备案号。
+* ICP 备案号显示为：赣ICP备2026013131号-1。
+* ICP 备案号链接到 https://beian.miit.gov.cn/。
+* 不添加公安联网备案号。
+* 仅保留公安联网备案号后续添加 TODO 注释。
+* 不修改首页文案、背景、隐藏入口、login、hub、健康管理或任务清单应用。
+
+### 实际完成
+
+* 在 `index.html` 的公开首页底部新增静默页脚。
+* 将 `赣ICP备2026013131号-1` 显示为链接，指向 `https://beian.miit.gov.cn/`。
+* 为 ICP 链接添加 `target="_blank"` 和 `rel="noopener noreferrer"`。
+* 在页脚代码附近添加后续公安联网备案号 TODO 注释，但不在页面显示公安联网备案号。
+* 在 `styles.css` 中新增低调的底部居中页脚样式。
+
+### 修改范围
+
+* index.html
+* styles.css
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+* 未新增公安联网备案号显示内容。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-update。
+* [x] 首页可以打开。
+* [x] 首页原有文案未改变。
+* [x] 首页背景未改变。
+* [x] 隐藏入口行为未改变。
+* [x] 页脚显示 赣ICP备2026013131号-1。
+* [x] ICP 链接 href 为 https://beian.miit.gov.cn/。
+* [x] ICP 链接包含 target="_blank"。
+* [x] ICP 链接包含 rel="noopener noreferrer"。
+* [x] 页面没有显示公安联网备案号。
+* [x] 代码中有后续添加公安联网备案号的 TODO 注释。
+* [x] login.html 未改变。
+* [x] hub.html 未改变。
+* [x] apps/health/* 未改变。
+* [x] apps/tasks/* 未改变。
+
 ## 2026-06-14 - Restyle task calendar with floating edit popovers
 
 ### 本次目标
