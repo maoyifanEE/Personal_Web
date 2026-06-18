@@ -1,5 +1,61 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-17 - Clean up journey entrance documentation and obsolete cover styles
+
+### 本次目标
+
+* 修正 README 中关于进入 journey.html 的旧描述。
+* 删除封面页旧的“点击任意区域进入 journey.html”相关残留样式。
+* 保持当前实际行为：左下角隐藏入口进入 journey.html。
+* 保持普通封面区域点击不跳转。
+* 保留隐藏私人入口进入 login.html。
+* 保留 ICP 备案号页脚。
+
+### 实际完成
+
+* 将 README 中旧的非链接区域点击进入 `journey.html` 描述改为左下角隐藏入口进入。
+* 在 README 中说明普通封面背景点击不会跳转。
+* 在 README 中补充隐藏私人入口和 ICP 页脚与 journey 入口相互独立。
+* 检查 `styles.css`，确认旧的 `.hero[data-cover-entry]` 全页点击样式已不存在。
+* 检查 `script.js`，确认不再包含普通封面点击跳转到 `journey.html` 的逻辑。
+
+### 修改范围
+
+* README.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 journey.html 主体功能。
+* 未修改 journey.css / journey.js 主体功能。
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] README 已改为左下角隐藏入口进入 journey.html。
+* [x] README 不再写普通非链接区域点击进入 journey.html。
+* [x] styles.css 不再包含 .hero[data-cover-entry] 等旧点击区域样式。
+* [x] index.html 可以打开。
+* [x] 普通封面背景点击不会进入 journey.html。
+* [x] 首页文字区域点击不会进入 journey.html。
+* [x] 左下角隐藏入口可以进入 journey.html。
+* [x] 原有隐藏私人入口仍然进入 login.html。
+* [x] ICP 备案号仍然打开 https://beian.miit.gov.cn/。
+* [x] journey.html 可以直接打开。
+* [x] index.html 无 console error。
+* [x] journey.html 无 console error。
+
 ## 2026-06-17 - Change journey entry to lower-left hidden button
 
 ### 本次目标

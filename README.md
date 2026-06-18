@@ -6,9 +6,10 @@ Current stage: static front-end preview.
 
 ## Current Public Homepage
 
-The public homepage, `index.html`, is the stable public cover page. Clicking the
-non-link area of the cover opens `journey.html`, which contains the **Curved
-Path Timeline Homepage** prototype with a visible local admin/editor mode.
+The public homepage, `index.html`, is the stable public cover page. A hidden
+lower-left entrance on the cover opens `journey.html`, which contains the
+**Curved Path Timeline Homepage** prototype with a visible local admin/editor
+mode. Normal cover background clicks do not navigate to `journey.html`.
 
 It uses placeholder content only:
 
@@ -66,6 +67,9 @@ real admin access.
 - Do not store private data in the current static version.
 - The hidden entrance is only a visual placeholder, not a security mechanism.
 - The hidden entrance leads to `login.html` first.
+- The hidden lower-left journey entrance leads to `journey.html`; it is separate
+  from the private entrance.
+- The ICP footer remains separate and opens `https://beian.miit.gov.cn/`.
 - `login.html` is a future login/private entrance placeholder.
 - `hub.html` is only a static Personal Hub placeholder.
 - Child apps are local prototypes only.
@@ -144,7 +148,9 @@ Personal_Web/
 
 ## Current Pages
 
-- `index.html`: public cover homepage. Non-link cover clicks enter `journey.html`.
+- `index.html`: public cover homepage with the ICP filing footer, the existing
+  hidden private entrance to `login.html`, and a hidden lower-left entrance to
+  `journey.html`. Normal cover background clicks do not navigate.
 - `journey.html`: Curved Path Timeline Homepage prototype/editor with placeholder content only.
 - `login.html`: static private entrance placeholder. It does not authenticate anyone.
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
