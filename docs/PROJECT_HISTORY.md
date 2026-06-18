@@ -1,5 +1,83 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-17 - Split cover homepage and curved path journey page
+
+### 本次目标
+
+* 将最新 origin/main 合入 Feature/homepage-curved-path-timeline 分支，避免覆盖 main 后续更新。
+* 保留 main 当前稳定公开首页作为封面页。
+* 将 Curved Path Timeline Prototype 从 index.html 迁移到 journey.html。
+* 点击封面页非链接区域进入 journey.html。
+* 保留隐藏入口进入 login.html。
+* 保留 ICP 备案号页脚。
+* 将曲线路径时间线相关 CSS/JS 与封面页 CSS/JS 尽量拆分。
+* 为后续将曲线路径大框架合回 main 做准备。
+
+### 实际完成
+
+* 将 origin/main 合入当前功能分支并解决首页与项目历史冲突。
+* 保留 main 的稳定封面首页作为 `index.html`，并保留 ICP 备案号页脚。
+* 新增 `journey.html`，承载原 Curved Path Timeline Prototype 和编辑器原型。
+* 新增 `journey.css` 和 `journey.js`，承载时间线与编辑器样式和脚本。
+* 将 `styles.css` 和 `script.js` 收敛为封面页样式与点击进入 journey 的轻量脚本。
+* 在封面页非链接区域点击时进入 `journey.html`，并排除 ICP 链接与隐藏入口。
+* 更新 README 和视觉风格指南，说明 cover / journey 页面拆分结构。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* journey.html
+* journey.css
+* journey.js
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未使用真实个人信息。
+* 未使用真实图片。
+* 未删除 docs/00_DESIGN_GUIDE.md。
+* 未删除 .gitignore 安全规则。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 已将最新 origin/main 合入当前分支。
+* [x] index.html 可以打开。
+* [x] index.html 保留 main 当前封面首页视觉。
+* [x] index.html 保留原有首页文案。
+* [x] index.html 保留 ICP 备案号。
+* [x] 点击 ICP 备案号不会进入 journey.html。
+* [x] 点击隐藏入口进入 login.html。
+* [x] 点击封面页非链接区域进入 journey.html。
+* [x] journey.html 可以打开。
+* [x] journey.html 显示 Curved Path Timeline Prototype。
+* [x] journey.html 的 Overview / Details 可用。
+* [x] journey.html 的编辑器原型仍可用。
+* [x] journey.html 无 console error。
+* [x] index.html 无 console error。
+* [x] login.html 未受影响。
+* [x] hub.html 未受影响。
+* [x] apps/tasks/index.html 未受影响。
+* [x] apps/health/index.html 未受影响。
+* [x] docs/00_DESIGN_GUIDE.md 仍存在。
+* [x] .gitignore 安全规则仍存在。
+
 ## 2026-06-14 - Remove global console and add contextual homepage editing
 
 ### 本次目标
@@ -331,6 +409,60 @@
 * [x] 隐藏入口仍然可以进入 login.html。
 * [x] 任务清单页面未受影响。
 * [x] 健康管理页面未受影响。
+
+## 2026-06-17 - Add ICP filing number to public homepage footer
+
+### 本次目标
+
+* 在公开首页底部添加 ICP 备案号。
+* ICP 备案号显示为：赣ICP备2026013131号-1。
+* ICP 备案号链接到 https://beian.miit.gov.cn/。
+* 不添加公安联网备案号。
+* 仅保留公安联网备案号后续添加 TODO 注释。
+* 不修改首页文案、背景、隐藏入口、login、hub、健康管理或任务清单应用。
+
+### 实际完成
+
+* 在 `index.html` 的公开首页底部新增静默页脚。
+* 将 `赣ICP备2026013131号-1` 显示为链接，指向 `https://beian.miit.gov.cn/`。
+* 为 ICP 链接添加 `target="_blank"` 和 `rel="noopener noreferrer"`。
+* 在页脚代码附近添加后续公安联网备案号 TODO 注释，但不在页面显示公安联网备案号。
+* 在 `styles.css` 中新增低调的底部居中页脚样式。
+
+### 修改范围
+
+* index.html
+* styles.css
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+* 未新增公安联网备案号显示内容。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-update。
+* [x] 首页可以打开。
+* [x] 首页原有文案未改变。
+* [x] 首页背景未改变。
+* [x] 隐藏入口行为未改变。
+* [x] 页脚显示 赣ICP备2026013131号-1。
+* [x] ICP 链接 href 为 https://beian.miit.gov.cn/。
+* [x] ICP 链接包含 target="_blank"。
+* [x] ICP 链接包含 rel="noopener noreferrer"。
+* [x] 页面没有显示公安联网备案号。
+* [x] 代码中有后续添加公安联网备案号的 TODO 注释。
+* [x] login.html 未改变。
+* [x] hub.html 未改变。
+* [x] apps/health/* 未改变。
+* [x] apps/tasks/* 未改变。
 
 ## 2026-06-14 - Restyle task calendar with floating edit popovers
 

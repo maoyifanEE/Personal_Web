@@ -6,8 +6,9 @@ Current stage: static front-end preview.
 
 ## Current Public Homepage
 
-The public homepage, `index.html`, is now a **Curved Path Timeline Homepage**
-prototype with a visible local admin/editor mode.
+The public homepage, `index.html`, is the stable public cover page. Clicking the
+non-link area of the cover opens `journey.html`, which contains the **Curved
+Path Timeline Homepage** prototype with a visible local admin/editor mode.
 
 It uses placeholder content only:
 
@@ -21,7 +22,7 @@ experiences, real photos, AI-generated images, external image URLs, external
 fonts, CDN resources, or external dependencies.
 
 The curved path, areas, and event nodes are structured for editing in
-`script.js`. Each area owns its own background, SVG path segment, path style,
+`journey.js`. Each area owns its own background, SVG path segment, path style,
 node styles, and nodes. The visible `编辑主页` button opens a local editor
 prototype for changing area styles, drawing freehand curves, smoothing drawn
 paths, anchoring nodes by path percentage, adding/editing nodes, saving to
@@ -51,6 +52,7 @@ real admin access.
 - No authentication
 - No authorization
 - Local homepage editor persistence uses browser `localStorage` only
+- `journey.html` is a local/static prototype page, not a production CMS
 - No private data storage
 - No cloud sync
 - No real reminders
@@ -119,6 +121,9 @@ Generated `.lnk` files must not be committed.
 ```text
 Personal_Web/
 |-- index.html
+|-- journey.html
+|-- journey.css
+|-- journey.js
 |-- login.html
 |-- hub.html
 |-- apps/
@@ -139,7 +144,8 @@ Personal_Web/
 
 ## Current Pages
 
-- `index.html`: public Curved Path Timeline Homepage prototype.
+- `index.html`: public cover homepage. Non-link cover clicks enter `journey.html`.
+- `journey.html`: Curved Path Timeline Homepage prototype/editor with placeholder content only.
 - `login.html`: static private entrance placeholder. It does not authenticate anyone.
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
 - `apps/tasks/index.html`: task-list local front-end prototype.

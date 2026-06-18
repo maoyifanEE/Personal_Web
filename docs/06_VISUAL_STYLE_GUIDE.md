@@ -59,7 +59,7 @@ Visual direction:
 
 ## Homepage Editor Prototype
 
-The homepage curve, areas, and nodes are data-driven in `script.js`.
+The homepage curve, areas, and nodes are data-driven in `journey.js`.
 
 Editor prototype rules:
 
@@ -88,6 +88,25 @@ Editor prototype rules:
 - No AI-generated images are used.
 - The future production version should separate admin editing from public
   visitor mode with real authentication and authorization.
+
+## Public Homepage Structure
+
+`index.html` is the public cover page. It should remain minimal, stable, and
+visitor-facing.
+
+`journey.html` is the curved path timeline prototype. It can be iterated
+independently without replacing the cover page.
+
+Structure rules:
+
+- The cover page keeps the ICP filing footer.
+- The hidden entrance to `login.html` remains separate from the journey page.
+- Clicking non-link cover areas may enter `journey.html`.
+- ICP footer links, hidden entrance links, and future buttons must not trigger
+  journey navigation.
+- The journey page must use placeholder content only.
+- Do not expose private apps from the cover page.
+- Do not put real personal data in the prototype.
 
 ## 3. Personal Hub Style
 

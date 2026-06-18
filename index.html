@@ -3,50 +3,21 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Curved Path Timeline Prototype - Personal_Web</title>
+    <title>MAO Yifan - Personal_Web</title>
     <meta
       name="description"
-      content="A static Curved Path Timeline Homepage prototype using placeholder areas and events only."
+      content="Hello, World! Welcome to MAO Yifan’s corner of the web. More is on the way."
     >
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
     <script src="./script.js" defer></script>
   </head>
-  <body data-page="home">
-    <main
-      class="timeline-home"
-      data-view="overview"
-      data-editor-mode="preview"
-      aria-labelledby="page-title"
-    >
-      <section class="timeline-hero" aria-label="Homepage introduction">
-        <div class="timeline-hero__copy">
-          <p class="timeline-eyebrow">Hello, World!</p>
-          <h1 id="page-title">A simple curved path timeline prototype.</h1>
-        </div>
-
-        <div class="timeline-hero__actions">
-          <div
-            class="timeline-view-switch"
-            role="group"
-            aria-label="Timeline view switch"
-          >
-            <button type="button" data-view-button="overview" aria-pressed="true">
-              Overview
-            </button>
-            <button type="button" data-view-button="details" aria-pressed="false">
-              Details
-            </button>
-          </div>
-
-          <button type="button" class="editor-toggle" data-editor-toggle>
-            编辑主页
-          </button>
-        </div>
-      </section>
-
-      <section class="journey-map" aria-label="Curved path timeline prototype">
-        <div class="journey-areas" id="journey-areas"></div>
+  <body>
+    <main class="hero" aria-labelledby="page-title" data-cover-entry>
+      <section class="hero-copy" aria-label="Homepage introduction">
+        <h1 id="page-title">Hello, <span>World!</span></h1>
+        <p>Welcome to MAO Yifan’s corner of the web.</p>
+        <p>More is on the way.</p>
       </section>
 
       <a
@@ -55,16 +26,13 @@
         aria-label="Open private entrance placeholder"
       ></a>
     </main>
-
-    <div
-      class="timeline-event-popover"
-      id="timeline-event-popover"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="timeline-popover-title"
-      hidden
-    ></div>
-
-    <div class="context-editor-root" id="context-editor-root" aria-live="polite"></div>
+    <footer class="site-footer" aria-label="Site filing information">
+      <!-- TODO: Add the public security filing number after 公安联网备案 approval. -->
+      <a
+        href="https://beian.miit.gov.cn/"
+        target="_blank"
+        rel="noopener noreferrer"
+      >&#36195;ICP&#22791;2026013131&#21495;-1</a>
+    </footer>
   </body>
 </html>
