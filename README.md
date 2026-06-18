@@ -1,23 +1,59 @@
 # Personal_Web
 
-Personal_Web 是一个长期个人网站项目。
-当前阶段是 **static preview**：只包含纯静态页面、样式、脚本和项目文档。
+Personal_Web is a long-term personal website project.
 
-长期方向是：
+Current stage: static front-end preview.
 
-- public visitor-facing website；
-- private personal tools hub。
+## Current Public Homepage
 
-当前只整理静态基础，不实现真实业务功能。
+The public homepage, `index.html`, is the stable public cover page. A hidden
+lower-left entrance on the cover opens `journey.html`, which contains the
+**Curved Path Timeline Homepage** prototype with a visible local admin/editor
+mode. Normal cover background clicks do not navigate to `journey.html`.
 
-## Current stage
+It uses placeholder content only:
 
-- Current stage: static preview
+- Placeholder areas: `Area 01` to `Area 04`
+- Placeholder events: `Major Event` and `Minor Event`
+- Placeholder dates and descriptions
+- CSS/SVG placeholder image blocks
+
+No real personal data is included. The homepage does not use real cities, real
+experiences, real photos, AI-generated images, external image URLs, external
+fonts, CDN resources, or external dependencies.
+
+The curved path, areas, and event nodes are structured for editing in
+`journey.js`. Each area owns its own background, SVG path segment, path style,
+node styles, and nodes. The visible `编辑主页` button opens a local editor
+prototype for changing area styles, drawing freehand curves, smoothing drawn
+paths, anchoring nodes by path percentage, adding/editing nodes, saving to
+`localStorage`, and exporting/importing JSON.
+
+The editor now uses contextual direct editing instead of a persistent global
+console: a compact floating toolbar handles mode/save/data actions, while hero,
+area, curve, and node settings open near the object being edited.
+
+Editor storage key:
+
+```text
+personal_web_homepage_timeline_v1
+```
+
+This editor is only a static browser-based prototype. It has no backend,
+database, login, authentication, authorization, or production CMS. Before a real
+public launch, the editor should be hidden from visitor mode or moved behind
+real admin access.
+
+## Current Stage
+
+- Static preview
 - No backend
 - No database
 - No real login
 - No authentication
 - No authorization
+- Local homepage editor persistence uses browser `localStorage` only
+- `journey.html` is a local/static prototype page, not a production CMS
 - No private data storage
 - No cloud sync
 - No real reminders
@@ -25,20 +61,22 @@ Personal_Web 是一个长期个人网站项目。
 - No external resources outside this project folder
 - Generated `.lnk` files are ignored and must not be committed
 
-## Safety warnings
+## Safety Warnings
 
 - Do not enter real passwords.
 - Do not store private data in the current static version.
-- The hidden entrance is only a visual placeholder,
-  not a security mechanism.
+- The hidden entrance is only a visual placeholder, not a security mechanism.
 - The hidden entrance leads to `login.html` first.
+- The hidden lower-left journey entrance leads to `journey.html`; it is separate
+  from the private entrance.
+- The ICP footer remains separate and opens `https://beian.miit.gov.cn/`.
 - `login.html` is a future login/private entrance placeholder.
 - `hub.html` is only a static Personal Hub placeholder.
-- Child apps are placeholders only.
-- Real security must be implemented later with proper authentication
-  and authorization.
+- Child apps are local prototypes only.
+- Real security must be implemented later with proper authentication,
+  authorization, server-side checks, and route protection.
 
-## How to open
+## How To Open
 
 Open the homepage directly:
 
@@ -49,13 +87,13 @@ index.html
 Or run a local static server from the project root:
 
 ```powershell
-python -m http.server 8000
+python -m http.server 4173
 ```
 
 Then open:
 
 ```text
-http://localhost:8000/
+http://127.0.0.1:4173/
 ```
 
 The placeholder pages can also be opened directly:
@@ -65,7 +103,7 @@ login.html
 hub.html
 ```
 
-## Desktop shortcut
+## Desktop Shortcut
 
 To create a Windows desktop shortcut, run this from the project root:
 
@@ -74,106 +112,55 @@ To create a Windows desktop shortcut, run this from the project root:
 ```
 
 The script creates `Personal_Web.lnk` on the desktop and opens `index.html`
-through the default file association.
-If the project folder moves, recreate the shortcut.
+through the default file association. If the project folder moves, recreate the
+shortcut.
 
-The desktop shortcut icon uses `assets/shortcut-icon-current.ico`,
-generated from `assets/icon.jpg`.
+The desktop shortcut icon uses `assets/shortcut-icon-current.ico`, generated
+from `assets/icon.jpg`.
 
 Generated `.lnk` files must not be committed.
 
-## File structure
+## File Structure
 
 ```text
 Personal_Web/
-├── index.html
-├── login.html
-├── hub.html
-├── apps/
-│   ├── tasks/
-│   │   ├── index.html
-│   │   ├── tasks.css
-│   │   └── tasks.js
-│   └── health/
-│       ├── index.html
-│       ├── health.css
-│       └── health.js
-├── styles.css
-├── script.js
-├── assets/
-│   ├── icon.svg
-│   ├── icon.jpg
-│   ├── shortcut-icon.ico
-│   └── shortcut-icon-current.ico
-├── scripts/
-│   └── create_desktop_shortcut.ps1
-├── docs/
-│   ├── 00_PROJECT_OVERVIEW.md
-│   ├── 01_INFORMATION_ARCHITECTURE.md
-│   ├── 02_PUBLIC_SITE_DESIGN.md
-│   ├── 03_PERSONAL_HUB_DESIGN.md
-│   ├── 04_USER_ROLE_PERMISSION.md
-│   ├── 05_APP_MODULES.md
-│   ├── 06_VISUAL_STYLE_GUIDE.md
-│   ├── 07_ROUTE_AND_SECURITY_RULES.md
-│   ├── 08_DESIGN_DECISIONS.md
-│   ├── PROJECT_GUIDE.md
-│   ├── PROJECT_HISTORY.md
-│   └── assets/
-│       └── README.md
-├── README.md
-└── .gitignore
+|-- index.html
+|-- journey.html
+|-- journey.css
+|-- journey.js
+|-- login.html
+|-- hub.html
+|-- apps/
+|   |-- tasks/
+|   |   |-- index.html
+|   |   |-- tasks.css
+|   |   `-- tasks.js
+|   `-- health/
+|       |-- index.html
+|       |-- health.css
+|       `-- health.js
+|-- styles.css
+|-- script.js
+|-- assets/
+|-- scripts/
+`-- docs/
 ```
 
-Key paths:
+## Current Pages
 
-- `index.html`
-- `login.html`
-- `hub.html`
-- `apps/tasks/index.html`
-- `apps/tasks/tasks.css`
-- `apps/tasks/tasks.js`
-- `apps/health/index.html`
-- `apps/health/health.css`
-- `apps/health/health.js`
-- `styles.css`
-- `script.js`
-- `assets/icon.svg`
-- `assets/icon.jpg`
-- `assets/shortcut-icon.ico`
-- `assets/shortcut-icon-current.ico`
-- `scripts/create_desktop_shortcut.ps1`
-- `docs/00_PROJECT_OVERVIEW.md`
-- `docs/01_INFORMATION_ARCHITECTURE.md`
-- `docs/02_PUBLIC_SITE_DESIGN.md`
-- `docs/03_PERSONAL_HUB_DESIGN.md`
-- `docs/04_USER_ROLE_PERMISSION.md`
-- `docs/05_APP_MODULES.md`
-- `docs/06_VISUAL_STYLE_GUIDE.md`
-- `docs/07_ROUTE_AND_SECURITY_RULES.md`
-- `docs/08_DESIGN_DECISIONS.md`
-- `docs/PROJECT_GUIDE.md`
-- `docs/PROJECT_HISTORY.md`
-- `docs/assets/README.md`
-
-## Current pages
-
-- `index.html`: public visitor-facing homepage.
+- `index.html`: public cover homepage with the ICP filing footer, the existing
+  hidden private entrance to `login.html`, and a hidden lower-left entrance to
+  `journey.html`. Normal cover background clicks do not navigate.
+- `journey.html`: Curved Path Timeline Homepage prototype/editor with placeholder content only.
 - `login.html`: static private entrance placeholder. It does not authenticate anyone.
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
-- `apps/tasks/index.html`: 任务清单 V1 local front-end prototype.
-  It provides task list view and an interactive calendar scheduling panel
-  over the same local task data.
-  It does not include backend, database, authentication, authorization, cloud sync,
-  real reminders, Pomodoro, Habit tracker, Eisenhower Matrix, Kanban, Timeline,
-  or Countdown.
-- `apps/health/index.html`: 健康管理 V1 local front-end prototype.
-  It stores demo/user interaction data in browser `localStorage` only.
+- `apps/tasks/index.html`: task-list local front-end prototype.
+- `apps/health/index.html`: health-management local front-end prototype.
 
-## Project docs
+## Project Docs
 
 The `docs/` folder records the long-term direction, information architecture,
-role model, route model, visual style, and design decisions.
+route model, visual style, and project history.
 
 Important principles:
 
@@ -181,9 +168,6 @@ Important principles:
 - Hidden entrance is only a visual design element.
 - Future private routes must rely on real authentication, authorization,
   server-side checks, and route protection.
-- Any future backend, database, or authentication work must be designed
-  and verified separately.
-- 健康管理 currently has a usable local prototype, but it still has no backend,
-  database, authentication, or authorization.
-- 任务清单 currently has a usable local prototype, but it still has no backend,
-  database, authentication, authorization, cloud sync, or real notifications.
+- Any future backend, database, or authentication work must be designed and
+  verified separately.
+- The public homepage must not expose private app content.

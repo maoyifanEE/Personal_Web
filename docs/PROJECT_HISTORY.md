@@ -1,5 +1,533 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-17 - Clean up journey entrance documentation and obsolete cover styles
+
+### 本次目标
+
+* 修正 README 中关于进入 journey.html 的旧描述。
+* 删除封面页旧的“点击任意区域进入 journey.html”相关残留样式。
+* 保持当前实际行为：左下角隐藏入口进入 journey.html。
+* 保持普通封面区域点击不跳转。
+* 保留隐藏私人入口进入 login.html。
+* 保留 ICP 备案号页脚。
+
+### 实际完成
+
+* 将 README 中旧的非链接区域点击进入 `journey.html` 描述改为左下角隐藏入口进入。
+* 在 README 中说明普通封面背景点击不会跳转。
+* 在 README 中补充隐藏私人入口和 ICP 页脚与 journey 入口相互独立。
+* 检查 `styles.css`，确认旧的 `.hero[data-cover-entry]` 全页点击样式已不存在。
+* 检查 `script.js`，确认不再包含普通封面点击跳转到 `journey.html` 的逻辑。
+
+### 修改范围
+
+* README.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 journey.html 主体功能。
+* 未修改 journey.css / journey.js 主体功能。
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] README 已改为左下角隐藏入口进入 journey.html。
+* [x] README 不再写普通非链接区域点击进入 journey.html。
+* [x] styles.css 不再包含 .hero[data-cover-entry] 等旧点击区域样式。
+* [x] index.html 可以打开。
+* [x] 普通封面背景点击不会进入 journey.html。
+* [x] 首页文字区域点击不会进入 journey.html。
+* [x] 左下角隐藏入口可以进入 journey.html。
+* [x] 原有隐藏私人入口仍然进入 login.html。
+* [x] ICP 备案号仍然打开 https://beian.miit.gov.cn/。
+* [x] journey.html 可以直接打开。
+* [x] index.html 无 console error。
+* [x] journey.html 无 console error。
+
+## 2026-06-17 - Change journey entry to lower-left hidden button
+
+### 本次目标
+
+* 取消封面页点击任意非链接区域进入 journey.html 的行为。
+* 改为通过左下角隐藏入口进入 journey.html。
+* 保留右下角/原有隐藏私人入口进入 login.html。
+* 保留 ICP 备案号页脚。
+* 保持 index.html 作为稳定公开封面页。
+* 不修改 journey.html 曲线路径原型主体功能。
+
+### 实际完成
+
+* 移除 `index.html` 封面容器上的全页点击入口标记。
+* 新增左下角隐藏 `journey-hidden-entrance` 链接，指向 `./journey.html`。
+* 移除让整个封面页呈现可点击状态的 CSS。
+* 将 `script.js` 改为只记录封面页入口配置，不再绑定点击任意区域跳转。
+* 保留原有隐藏私人入口继续指向 `./login.html`。
+* 保留 ICP 备案号页脚和链接属性。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未修改 journey.html 主体功能。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] index.html 可以打开。
+* [x] 首页视觉仍然是封面页。
+* [x] 点击普通封面背景不会进入 journey.html。
+* [x] 点击首页文字区域不会进入 journey.html。
+* [x] 点击左下角隐藏入口可以进入 journey.html。
+* [x] 点击 ICP 备案号不会进入 journey.html。
+* [x] 点击 ICP 备案号打开 https://beian.miit.gov.cn/。
+* [x] 原有隐藏私人入口仍然进入 login.html。
+* [x] journey.html 可以直接打开。
+* [x] journey.html 的路径图原型仍然可用。
+* [x] index.html 无 console error。
+* [x] journey.html 无 console error。
+* [x] login.html 未受影响。
+* [x] hub.html 未受影响。
+* [x] apps/tasks/index.html 未受影响。
+* [x] apps/health/index.html 未受影响。
+
+## 2026-06-17 - Split cover homepage and curved path journey page
+
+### 本次目标
+
+* 将最新 origin/main 合入 Feature/homepage-curved-path-timeline 分支，避免覆盖 main 后续更新。
+* 保留 main 当前稳定公开首页作为封面页。
+* 将 Curved Path Timeline Prototype 从 index.html 迁移到 journey.html。
+* 点击封面页非链接区域进入 journey.html。
+* 保留隐藏入口进入 login.html。
+* 保留 ICP 备案号页脚。
+* 将曲线路径时间线相关 CSS/JS 与封面页 CSS/JS 尽量拆分。
+* 为后续将曲线路径大框架合回 main 做准备。
+
+### 实际完成
+
+* 将 origin/main 合入当前功能分支并解决首页与项目历史冲突。
+* 保留 main 的稳定封面首页作为 `index.html`，并保留 ICP 备案号页脚。
+* 新增 `journey.html`，承载原 Curved Path Timeline Prototype 和编辑器原型。
+* 新增 `journey.css` 和 `journey.js`，承载时间线与编辑器样式和脚本。
+* 将 `styles.css` 和 `script.js` 收敛为封面页样式与点击进入 journey 的轻量脚本。
+* 在封面页非链接区域点击时进入 `journey.html`，并排除 ICP 链接与隐藏入口。
+* 更新 README 和视觉风格指南，说明 cover / journey 页面拆分结构。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* journey.html
+* journey.css
+* journey.js
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未使用真实个人信息。
+* 未使用真实图片。
+* 未删除 docs/00_DESIGN_GUIDE.md。
+* 未删除 .gitignore 安全规则。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 已将最新 origin/main 合入当前分支。
+* [x] index.html 可以打开。
+* [x] index.html 保留 main 当前封面首页视觉。
+* [x] index.html 保留原有首页文案。
+* [x] index.html 保留 ICP 备案号。
+* [x] 点击 ICP 备案号不会进入 journey.html。
+* [x] 点击隐藏入口进入 login.html。
+* [x] 点击封面页非链接区域进入 journey.html。
+* [x] journey.html 可以打开。
+* [x] journey.html 显示 Curved Path Timeline Prototype。
+* [x] journey.html 的 Overview / Details 可用。
+* [x] journey.html 的编辑器原型仍可用。
+* [x] journey.html 无 console error。
+* [x] index.html 无 console error。
+* [x] login.html 未受影响。
+* [x] hub.html 未受影响。
+* [x] apps/tasks/index.html 未受影响。
+* [x] apps/health/index.html 未受影响。
+* [x] docs/00_DESIGN_GUIDE.md 仍存在。
+* [x] .gitignore 安全规则仍存在。
+
+## 2026-06-14 - Remove global console and add contextual homepage editing
+
+### 本次目标
+
+* 删除首页编辑器中的右侧总控制台。
+* 将编辑方式改为直接在页面画布上操作。
+* 用小型悬浮工具条替代大型全局面板。
+* 用上下文菜单和就地弹窗替代总控制台表单。
+* 支持拖动区域边界直接调整区域高度。
+* 支持手绘曲线并自动平滑。
+* 删除曲线控制点/Bezier 控制柄拖拽改弧度的用户界面。
+* 支持右键曲线最近点创建 major/minor 节点。
+* 节点默认只显示曲线上的圆点。
+* 鼠标悬停节点显示信息预览小窗。
+* 左键点击节点打开节点编辑小窗。
+* 支持沿曲线拖动节点并更新 pathT。
+* 曲线重画后，绑定曲线的节点根据 pathT 自动跟随。
+* 所有数据操作通过“数据”弹窗完成。
+* 保留 localStorage 和 JSON 导入导出。
+
+### 实际完成
+
+* 移除 `index.html` 中旧的 `homepage-editor` 右侧面板容器。
+* 新增上下文编辑根节点，用于渲染浮动工具条、右键菜单、对象弹窗和 hover 预览。
+* 将 `renderEditorPanel()` 改为渲染小型悬浮工具条，不再渲染全局表单控制台。
+* 新增数据弹窗，支持保存、重置、导出 JSON 和导入 JSON。
+* 新增 Hero 设置弹窗，支持编辑 placeholder 文案、背景色、高度和对齐方式。
+* 新增区域设置弹窗、区域右键菜单和区域底部高度拖拽手柄。
+* 移除用户可见的 Bezier 控制柄渲染入口，曲线编辑以手绘为主。
+* 升级手绘曲线处理流程：抖动过滤、等距重采样、RDP 简化、Chaikin 平滑和 Catmull-Rom SVG path 生成。
+* 新增曲线右键菜单，可在最近曲线点创建 major/minor 节点或打开曲线设置。
+* 将节点默认显示改为圆点，不再常驻大卡片。
+* 新增节点 hover 预览小窗和左键节点设置弹窗。
+* 保留 pathT 节点锚定，拖动节点时更新 pathT，重画曲线后 path 节点跟随新曲线。
+* 保留 localStorage 保存和 JSON 导入导出结构。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未使用外部依赖。
+* 未使用真实个人信息。
+* 未使用真实图片。
+* 未实现生产级 CMS。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 首页可以打开。
+* [x] 编辑模式可以打开。
+* [x] 旧的右侧总控制台已删除。
+* [x] 编辑模式显示小型悬浮工具条。
+* [x] 数据操作通过“数据”弹窗完成。
+* [x] 区域设置通过右键区域或就地弹窗完成。
+* [x] Hero 设置通过点击/右键 Hero 后的小窗完成。
+* [x] 曲线设置通过右键曲线后的小窗完成。
+* [x] 节点设置通过左键节点后的小窗完成。
+* [x] 区域底部边界可以拖动调整高度。
+* [x] 曲线控制柄/Bezier 控制点 UI 已删除或隐藏。
+* [x] 可以手绘当前区域曲线。
+* [x] 手绘曲线松开后自动变得更平滑。
+* [x] 曲线上默认只显示节点圆点，不常驻大卡片。
+* [x] Overview 只显示 major 节点。
+* [x] Details 显示 major 和 minor 节点。
+* [ ] 鼠标悬停节点会显示信息预览小窗。
+* [x] 左键点击节点会打开节点编辑小窗。
+* [x] 编辑模式下右键曲线附近会弹出添加节点菜单。
+* [x] 右键添加 major 节点会吸附到最近曲线点。
+* [x] 右键添加 minor 节点会吸附到最近曲线点。
+* [x] 新节点默认 anchorMode = path。
+* [x] 新节点保存 pathT。
+* [x] 可以沿曲线拖动节点。
+* [x] 拖动节点会更新 pathT。
+* [x] 重画曲线后 path 节点会跟随新曲线。
+* [x] localStorage 保存有效。
+* [x] 刷新后曲线、区域高度、节点位置仍保留。
+* [x] JSON 导出/导入仍然有效。
+* [x] 预览模式下不会右键创建节点。
+* [x] 隐藏入口仍然进入 login.html。
+* [x] 任务清单页面未受影响。
+* [x] 健康管理页面未受影响。
+
+## 2026-06-14 - Add freehand curve drawing and path-anchored nodes
+
+### 本次目标
+
+* 将首页曲线路径编辑从单纯控制点编辑升级为手绘曲线模式。
+* 支持在当前区域内直接手绘曲线。
+* 手绘结束后自动简化和平滑曲线。
+* 节点不再只依赖固定 x/y，而是可以绑定到曲线的百分比位置 pathT。
+* 曲线变化后，绑定曲线的节点会根据 pathT 自动跟随新曲线。
+* 支持在曲线任意位置添加 major/minor 节点。
+* 支持沿曲线拖动节点来修改 pathT。
+* 保留 localStorage 保存和 JSON 导入导出结构。
+* 不新增后端、数据库或外部依赖。
+
+### 实际完成
+
+* 新增 freehand 路径数据模型，支持 rawPoints、smoothPoints、smoothing 和 SVG path d。
+* 新增手绘曲线工具，支持 pointer 拖动绘制、实时临时线和松开后自动处理。
+* 新增 Ramer-Douglas-Peucker 简化、Catmull-Rom 到 cubic Bezier 的平滑路径生成。
+* 新增平滑程度、简化程度和重新平滑控件。
+* 新增路径采样工具，优先使用 SVG path 的长度采样，回退到数据点采样。
+* 将节点迁移为支持 anchorMode 和 pathT 的路径百分比锚定结构。
+* 新增沿曲线添加 major/minor 节点，默认吸附最近曲线位置。
+* 更新节点拖拽逻辑，path 节点拖动时修改 pathT，free 节点保留自由 x/y。
+* 新增节点绑定方式和路径位置百分比编辑控件。
+* 保留原有 Bezier 控制点作为非 freehand 路径的高级调整方式。
+* 保留 localStorage 保存、刷新恢复、JSON 导出和 JSON 导入结构。
+* 增加关键流程日志，覆盖手绘、重新平滑、节点添加、节点拖动和迁移分支。
+
+### 修改范围
+
+* script.js
+* styles.css
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未使用外部依赖。
+* 未使用真实个人信息。
+* 未使用真实图片。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 首页可以打开。
+* [x] 编辑模式可以打开。
+* [x] 可以选择 Area 01 至 Area 04。
+* [x] 可以点击“手绘曲线”进入绘制模式。
+* [x] 可以在当前区域直接拖动绘制曲线。
+* [x] 松开鼠标后曲线自动变平滑。
+* [x] 平滑程度滑杆有效。
+* [x] 简化程度滑杆有效。
+* [x] 重新平滑按钮有效。
+* [x] 曲线保存后刷新仍存在。
+* [x] 可以在曲线附近添加 major 节点。
+* [x] 可以在曲线附近添加 minor 节点。
+* [x] 新节点默认绑定到曲线 pathT。
+* [x] 节点显示路径位置百分比。
+* [x] 可以沿曲线拖动节点。
+* [x] 拖动节点会改变 pathT。
+* [x] 重画曲线后，path-anchored 节点会根据 pathT 跟随新曲线。
+* [x] free 节点不会被曲线重画影响。
+* [x] Overview / Details 仍然可用。
+* [x] 预览模式点击节点仍打开详情小窗。
+* [x] localStorage 保存有效。
+* [x] JSON 导出/导入包含手绘曲线和 pathT 节点数据。
+* [x] 隐藏入口仍然进入 login.html。
+* [x] 任务清单页面未受影响。
+* [x] 健康管理页面未受影响。
+
+## 2026-06-14 - Add editable homepage timeline admin prototype
+
+### 本次目标
+
+* 在 Curved Path Timeline Homepage 原型基础上增加可视化编辑模式。
+* 增加可见的“编辑主页”按钮。
+* 支持区域独立配置背景、曲线样式和节点样式。
+* 支持通过拖动控制点调整曲线走势、曲度、长度和方向。
+* 支持在区域内添加 major/minor 节点。
+* 支持拖动节点、编辑节点内容和位置。
+* 使用 localStorage 保存主页时间线配置。
+* 支持导出/导入 JSON，为后续正式后台编辑器预留结构。
+* 不引入后端、数据库、真实登录或权限系统。
+
+### 实际完成
+
+* 将首页时间线重构为区域级渲染，每个区域独立持有背景、SVG 曲线、曲线样式、节点样式和节点数据。
+* 增加可见“编辑主页”按钮，支持 Preview / Edit 模式切换。
+* 增加“主页编辑器”侧边面板，包含区域、曲线、节点和数据四组编辑控件。
+* 支持选择 Area 01 至 Area 04 并修改标题、描述、高度、背景颜色和背景图案。
+* 支持修改当前区域曲线颜色、宽度和线条样式。
+* 使用 cubic Bezier anchors/control handles 生成区域 SVG path。
+* 在编辑模式显示曲线锚点、控制点和控制线。
+* 支持拖动曲线锚点和控制点实时改变曲线形状。
+* 支持添加 major/minor 节点，支持点击区域放置节点。
+* 支持选择节点、拖动节点、编辑节点标题、时间、描述、坐标、偏移、颜色和卡片样式。
+* 支持删除选中节点。
+* 支持保存到 localStorage，storage key 为 `personal_web_homepage_timeline_v1`。
+* 支持从 localStorage 加载、重置示例、导出 JSON 和导入 JSON。
+* 保留 Overview / Details 切换，预览模式仍可点击节点打开详情小窗。
+* 保留隐藏入口，继续指向 `./login.html`。
+* 增加编辑器初始化、渲染、拖拽、保存、导入导出和异常分支日志。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未使用真实个人信息。
+* 未使用真实图片。
+* 未使用外部依赖。
+* 未实现生产级 CMS。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 首页可以打开。
+* [x] 可以看到“编辑主页”按钮。
+* [x] 点击“编辑主页”进入编辑模式。
+* [x] 编辑模式显示主页编辑器面板。
+* [x] 可以选择 Area 01 至 Area 04。
+* [x] 可以修改区域背景颜色。
+* [x] 可以修改区域高度。
+* [x] 可以修改曲线颜色和宽度。
+* [x] 可以看到曲线锚点和控制点。
+* [x] 可以拖动曲线控制点改变曲线形状。
+* [x] 可以添加 major 节点。
+* [x] 可以添加 minor 节点。
+* [x] 可以拖动节点改变位置。
+* [x] 可以编辑节点标题、时间、描述。
+* [x] 可以删除节点。
+* [x] 可以保存到 localStorage。
+* [x] 刷新后保存的配置仍然存在。
+* [x] 可以重置示例配置。
+* [x] 可以导出 JSON。
+* [x] 可以导入 JSON。
+* [x] 预览模式隐藏编辑控制点。
+* [x] Overview / Details 切换仍然可用。
+* [x] 预览模式点击节点仍能打开详情小窗。
+* [x] 隐藏入口仍然进入 login.html。
+* [x] 任务清单页面未受影响。
+* [x] 健康管理页面未受影响。
+
+## 2026-06-14 - Build curved path timeline homepage framework
+
+### 本次目标
+
+* 从 main 新建 Feature/homepage-curved-path-timeline 分支。
+* 将公开首页改造成 Curved Path Timeline Homepage 的结构原型。
+* 使用测试区域 Area 01 至 Area 04。
+* 使用测试节点 Major Event / Minor Event。
+* 实现 Overview / Details 切换。
+* 实现连续曲线路径穿过多个区域。
+* 实现大事件和小事件节点。
+* 实现节点点击详情小窗。
+* 为后续编辑曲线走势、节点位置、区域顺序和内容预留数据结构。
+* 不使用真实个人信息、真实城市、真实照片或 AI 生成图片。
+
+### 实际完成
+
+* 将 `index.html` 改为 Curved Path Timeline Homepage 的语义化结构。
+* 在 `script.js` 中新增集中式 `HOMEPAGE_TIMELINE_DATA`，包含 areas、events 和 path。
+* 使用测试区域 Area 01 至 Area 04 渲染四个柔和视觉区域。
+* 使用测试节点 Major Event 01 至 04 与 Minor Event 01 至 06 渲染时间线节点。
+* 使用 SVG path 渲染一条连续曲线路径，并提供 desktop / mobile 两套路径常量。
+* 实现 Overview / Details 切换，默认 Overview 仅显示 major nodes。
+* 实现节点点击详情小窗，支持关闭按钮、遮罩点击和 Esc 关闭。
+* 使用 CSS 自定义属性从 JS 注入节点位置，便于未来编辑节点坐标与偏移。
+* 保留隐藏入口，继续指向 `./login.html`。
+* 更新 README 和视觉规范，记录占位内容、非游戏化边界和未来可编辑结构。
+* 新增初始化、渲染、切换、弹窗和异常分支日志。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* README.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未使用外部图片。
+* 未使用 AI 生成图片。
+* 未使用真实个人经历。
+* 未实现复杂后台编辑器。
+
+### 测试结果
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] 首页可以打开。
+* [x] Hero 显示 Hello, World!。
+* [x] Hero 显示 A simple curved path timeline prototype.。
+* [x] 页面使用 Area 01 至 Area 04 测试区域。
+* [x] 页面使用 Major Event / Minor Event 测试节点。
+* [x] Overview 默认只显示 major nodes。
+* [x] Details 显示 major + minor nodes。
+* [x] 曲线路径连续贯穿所有区域。
+* [x] 曲线不是直线。
+* [x] 页面没有多邻游游戏化元素。
+* [x] 页面没有金币、经验、锁定关卡、排行榜。
+* [x] 页面没有真实个人信息。
+* [x] 页面没有真实城市信息。
+* [x] 页面没有真实图片。
+* [x] 点击节点可以打开详情小窗。
+* [x] 手机端路径变为纵向可读布局。
+* [x] 隐藏入口仍然可以进入 login.html。
+* [x] 任务清单页面未受影响。
+* [x] 健康管理页面未受影响。
+
 ## 2026-06-17 - Add ICP filing number to public homepage footer
 
 ### 本次目标

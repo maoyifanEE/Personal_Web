@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Curved Path Timeline Prototype - Personal_Web</title>
+    <meta
+      name="description"
+      content="A static Curved Path Timeline Homepage prototype using placeholder areas and events only."
+    >
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./journey.css">
+    <script src="./journey.js" defer></script>
+  </head>
+  <body data-page="home">
+    <main
+      class="timeline-home"
+      data-view="overview"
+      data-editor-mode="preview"
+      aria-labelledby="page-title"
+    >
+      <a class="journey-back-link" href="./index.html">返回封面</a>
+
+      <section class="timeline-hero" aria-label="Homepage introduction">
+        <div class="timeline-hero__copy">
+          <p class="timeline-eyebrow">Hello, World!</p>
+          <h1 id="page-title">A simple curved path timeline prototype.</h1>
+        </div>
+
+        <div class="timeline-hero__actions">
+          <div
+            class="timeline-view-switch"
+            role="group"
+            aria-label="Timeline view switch"
+          >
+            <button type="button" data-view-button="overview" aria-pressed="true">
+              Overview
+            </button>
+            <button type="button" data-view-button="details" aria-pressed="false">
+              Details
+            </button>
+          </div>
+
+          <button type="button" class="editor-toggle" data-editor-toggle>
+            编辑主页
+          </button>
+        </div>
+      </section>
+
+      <section class="journey-map" aria-label="Curved path timeline prototype">
+        <div class="journey-areas" id="journey-areas"></div>
+      </section>
+
+      <a
+        class="hidden-entrance"
+        href="./login.html"
+        aria-label="Open private entrance placeholder"
+      ></a>
+    </main>
+
+    <div
+      class="timeline-event-popover"
+      id="timeline-event-popover"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="timeline-popover-title"
+      hidden
+    ></div>
+
+    <div class="context-editor-root" id="context-editor-root" aria-live="polite"></div>
+  </body>
+</html>

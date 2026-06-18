@@ -100,6 +100,25 @@ h1 span {
   outline-offset: 4px;
 }
 
+.journey-hidden-entrance {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 3;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  opacity: 0;
+  background: transparent;
+  text-decoration: none;
+}
+
+.journey-hidden-entrance:focus-visible {
+  opacity: 0.18;
+  outline: 2px solid rgba(21, 156, 165, 0.36);
+  outline-offset: 4px;
+}
+
 .site-footer {
   position: fixed;
   z-index: 2;
@@ -304,6 +323,11 @@ h1 span {
   .hidden-entrance {
     right: 18px;
     bottom: 18px;
+  }
+
+  .journey-hidden-entrance {
+    left: 14px;
+    bottom: 14px;
   }
 
   .private-page {
