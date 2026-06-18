@@ -1,5 +1,67 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-17 - Change journey entry to lower-left hidden button
+
+### 本次目标
+
+* 取消封面页点击任意非链接区域进入 journey.html 的行为。
+* 改为通过左下角隐藏入口进入 journey.html。
+* 保留右下角/原有隐藏私人入口进入 login.html。
+* 保留 ICP 备案号页脚。
+* 保持 index.html 作为稳定公开封面页。
+* 不修改 journey.html 曲线路径原型主体功能。
+
+### 实际完成
+
+* 移除 `index.html` 封面容器上的全页点击入口标记。
+* 新增左下角隐藏 `journey-hidden-entrance` 链接，指向 `./journey.html`。
+* 移除让整个封面页呈现可点击状态的 CSS。
+* 将 `script.js` 改为只记录封面页入口配置，不再绑定点击任意区域跳转。
+* 保留原有隐藏私人入口继续指向 `./login.html`。
+* 保留 ICP 备案号页脚和链接属性。
+
+### 修改范围
+
+* index.html
+* styles.css
+* script.js
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未修改 journey.html 主体功能。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/homepage-curved-path-timeline。
+* [x] index.html 可以打开。
+* [x] 首页视觉仍然是封面页。
+* [x] 点击普通封面背景不会进入 journey.html。
+* [x] 点击首页文字区域不会进入 journey.html。
+* [x] 点击左下角隐藏入口可以进入 journey.html。
+* [x] 点击 ICP 备案号不会进入 journey.html。
+* [x] 点击 ICP 备案号打开 https://beian.miit.gov.cn/。
+* [x] 原有隐藏私人入口仍然进入 login.html。
+* [x] journey.html 可以直接打开。
+* [x] journey.html 的路径图原型仍然可用。
+* [x] index.html 无 console error。
+* [x] journey.html 无 console error。
+* [x] login.html 未受影响。
+* [x] hub.html 未受影响。
+* [x] apps/tasks/index.html 未受影响。
+* [x] apps/health/index.html 未受影响。
+
 ## 2026-06-17 - Split cover homepage and curved path journey page
 
 ### 本次目标
