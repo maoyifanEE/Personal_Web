@@ -135,10 +135,13 @@ Personal_Web/
 |   |   |-- index.html
 |   |   |-- tasks.css
 |   |   `-- tasks.js
-|   `-- health/
+|   |-- health/
+|   |   |-- index.html
+|   |   |-- health.css
+|   |   `-- health.js
+|   `-- special-subscription/
 |       |-- index.html
-|       |-- health.css
-|       `-- health.js
+|       `-- special-subscription.css
 |-- styles.css
 |-- script.js
 |-- assets/
@@ -156,6 +159,8 @@ Personal_Web/
 - `hub.html`: static Personal Hub placeholder. It must not be used for private data.
 - `apps/tasks/index.html`: task-list local front-end prototype.
 - `apps/health/index.html`: health-management local front-end prototype.
+- `apps/special-subscription/index.html`: 特别订阅 static blank placeholder child app.
+  It has no backend, database, authentication, payment, API, or real subscription logic.
 
 ## Project Docs
 
