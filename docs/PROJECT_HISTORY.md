@@ -1,5 +1,67 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-18 - Add Special Subscription placeholder app
+
+### 本次目标
+
+* 新增一个名为“特别订阅”的子应用占位页。
+* 在私人工具中心 hub.html 中增加入口。
+* 点击入口进入空白占位页面。
+* 不实现真实订阅功能。
+* 不新增后端、数据库、登录、认证、授权或外部服务。
+
+### 实际完成
+
+* 在 `hub.html` 中将原 App 03 占位卡替换为“特别订阅”入口。
+* 新增 `apps/special-subscription/index.html` 作为特别订阅空白占位页。
+* 新增 `apps/special-subscription/special-subscription.css`，保持页面简洁并匹配现有私人工具页面风格。
+* 页面提供返回 `../../hub.html` 的链接。
+* 更新 README 的文件结构和当前页面说明。
+
+### 修改范围
+
+* hub.html
+* styles.css
+* apps/special-subscription/index.html
+* apps/special-subscription/special-subscription.css
+* README.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改公开首页 index.html。
+* 未修改 journey.html。
+* 未修改路径图功能。
+* 未修改 login.html。
+* 未修改健康管理应用。
+* 未修改任务清单应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增真实登录。
+* 未新增认证或授权。
+* 未新增真实订阅功能。
+* 未新增外部 API。
+* 未新增支付功能。
+* 未存储私人数据。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/special-subscription-placeholder。
+* [x] hub.html 可以打开。
+* [x] hub.html 中出现“特别订阅”入口。
+* [x] 点击“特别订阅”入口进入 apps/special-subscription/index.html。
+* [x] 特别订阅页面可以打开。
+* [x] 特别订阅页面是空白占位空间。
+* [x] 特别订阅页面可以返回 hub.html。
+* [x] 健康管理入口未受影响。
+* [x] 任务清单入口未受影响。
+* [x] login.html 未受影响。
+* [x] index.html 未受影响。
+* [x] journey.html 未受影响。
+* [ ] 无 console error。
+
 ## 2026-06-17 - Clean up journey entrance documentation and obsolete cover styles
 
 ### 本次目标
