@@ -1,4 +1,4 @@
-﻿# App Modules
+# App Modules
 
 ## Purpose
 

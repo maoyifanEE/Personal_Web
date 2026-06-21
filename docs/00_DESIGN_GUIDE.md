@@ -1,4 +1,4 @@
-﻿# Design Guide
+# Design Guide
 
 ## Purpose
 

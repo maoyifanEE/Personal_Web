@@ -1,4 +1,4 @@
-﻿# Visual Style Guide
+# Visual Style Guide
 
 ## Purpose
 

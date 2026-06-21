@@ -1,4 +1,4 @@
-﻿# Backend and Database Plan
+# Backend and Database Plan
 
 ## Current Status
 

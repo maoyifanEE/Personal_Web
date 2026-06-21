@@ -1,4 +1,4 @@
-﻿# Route and Security Rules
+# Route and Security Rules
 
 ## Purpose
 

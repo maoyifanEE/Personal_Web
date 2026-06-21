@@ -1,4 +1,4 @@
-﻿# Project Structure Standard
+# Project Structure Standard
 
 ## Purpose
 

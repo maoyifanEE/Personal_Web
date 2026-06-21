@@ -1,4 +1,4 @@
-﻿# Project History
+# Project History
 
 ## 2026-06-21 - Fix raw Markdown source formatting
 
@@ -271,4 +271,3 @@
 * [x] Area 和 Event 使用测试数据。
 * [x] Overview / Details 切换已实现。
 * [x] 未使用真实个人信息、真实城市或真实图片。
-

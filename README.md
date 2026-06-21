@@ -1,4 +1,4 @@
-﻿# Personal_Web
+# Personal_Web
 
 ## Current Stage
 
