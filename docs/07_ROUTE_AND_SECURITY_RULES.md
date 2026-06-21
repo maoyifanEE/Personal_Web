@@ -25,6 +25,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Child app prototype | `apps/tasks/index.html` | Task List prototype | Direct URL access possible |
 | Child app prototype | `apps/health/index.html` | Health Management prototype | Direct URL access possible |
 | Child app placeholder | `apps/special-subscription/index.html` | Special Subscription placeholder | Direct URL access possible |
+| Admin UI prototype | `apps/messages/index.html` | Message Management prototype | Direct URL access possible |
 
 ## Important Security Boundary
 
@@ -96,3 +97,18 @@ Real private data must wait for the future security model.
 * [ ] Database work is marked planned until implemented.
 * [ ] Authentication work is marked planned until implemented.
 * [ ] Authorization work is marked planned until implemented.
+
+
+## Visitor Message Route Boundary
+
+The visitor message modal on `index.html` is a front-end prototype only.
+
+Submitting the visitor message form does not persist data in the current project.
+
+`apps/messages/index.html` is an admin message management UI prototype only.
+
+It is not a real protected admin page yet.
+
+Direct URL access is possible until backend authentication and authorization exist.
+
+Real visitor messages require backend API routes, database storage, and admin authorization before production use.

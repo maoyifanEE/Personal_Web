@@ -28,6 +28,8 @@ Static private placeholders are visually private but not secure.
 
 Child apps live under `apps/` and are linked from the hub.
 
+Current child app folders include `apps/tasks/`, `apps/health/`, `apps/special-subscription/`, and `apps/messages/`.
+
 Prototype pages may include local-only editor behavior.
 
 Future backend/API areas must be planned before implementation.
@@ -118,3 +120,14 @@ Future backend/API areas must be planned before implementation.
 * [ ] No unrelated app behavior changes are included.
 * [ ] Branch name matches the task type.
 * [ ] Commit scope matches the documented task.
+
+
+## Message App Structure Rule
+
+The message management prototype must remain under `apps/messages/`.
+
+Message management files must stay separate from task, health, and special subscription app files.
+
+Future backend message APIs must not be implemented inside the static child app folder.
+
+Future message persistence work must update the backend/database plan before implementation.

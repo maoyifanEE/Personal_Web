@@ -105,3 +105,22 @@ Documentation-only visual guide changes should not change app behavior.
 If HTML, CSS, or JavaScript is changed, run a browser smoke test.
 
 If only Markdown is changed, verify raw Markdown source formatting.
+
+
+## Floating Toolbar and Message Modal
+
+The public cover page may include a subtle bottom-right floating toolbar.
+
+The floating toolbar should not dominate the cover page.
+
+The `??` button opens a modal front-end prototype.
+
+The modal should clearly state that real submission requires backend and database support.
+
+The modal should remain keyboard accessible.
+
+The modal should work on mobile widths.
+
+The floating toolbar must not make the whole cover page feel like a large button.
+
+The floating toolbar should not block the ICP footer in an unusable way.

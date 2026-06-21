@@ -32,6 +32,58 @@
         title=""
       ></a>
     </main>
+
+    <div class="floating-tools" aria-label="Floating website tools">
+      <button
+        class="floating-tool-button"
+        type="button"
+        data-message-open
+        aria-haspopup="dialog"
+        aria-controls="visitor-message-modal"
+      >??</button>
+    </div>
+
+    <div
+      class="visitor-message-modal"
+      id="visitor-message-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="visitor-message-title"
+      hidden
+    >
+      <div class="visitor-message-modal__overlay" data-message-close></div>
+      <section class="visitor-message-modal__panel" tabindex="-1">
+        <button
+          class="visitor-message-modal__close"
+          type="button"
+          data-message-close
+          aria-label="??????"
+        >?</button>
+        <p class="visitor-message-modal__eyebrow">Prototype</p>
+        <h2 id="visitor-message-title">??</h2>
+        <p class="visitor-message-notice">
+          ??????????????????????????
+        </p>
+        <form class="visitor-message-form" data-message-form novalidate>
+          <label>
+            <span>??</span>
+            <input name="nickname" type="text" autocomplete="name" required>
+          </label>
+          <label>
+            <span>????????</span>
+            <input name="contact" type="text" autocomplete="email">
+          </label>
+          <label>
+            <span>????</span>
+            <textarea name="message" rows="5" required></textarea>
+          </label>
+          <p class="visitor-message-status" data-message-status aria-live="polite">
+            ?????????????
+          </p>
+          <button class="visitor-message-submit" type="submit">????????</button>
+        </form>
+      </section>
+    </div>
     <footer class="site-footer" aria-label="Site filing information">
       <!-- TODO: Add the public security filing number after 公安联网备案 approval. -->
       <a

@@ -76,6 +76,7 @@ Future backend work may need to cover these data areas:
 * Special Subscription data.
 * Journey page data.
 * User/account data.
+* Visitor Message data.
 * Login session data.
 * Backup metadata.
 
@@ -124,3 +125,36 @@ This document is only a plan.
 * [ ] Backup and export needs are documented.
 * [ ] Local development data is fake or test-only.
 * [ ] Production deployment boundaries are documented.
+
+
+## Planned Visitor Message Data Model
+
+The following fields are planned only and are not implemented yet:
+
+* id
+* created_at
+* nickname
+* contact
+* message_content
+* read_status
+* reply_status
+* admin_reply
+* replied_at
+* visitor_ip_hash or anti-spam metadata if future requirements allow
+
+These fields are not a committed database schema.
+
+They document the expected future shape of visitor message storage.
+
+## Planned Visitor Message API Examples
+
+The following API routes are planned only and are not implemented:
+
+* `POST /api/messages`
+* `GET /api/admin/messages`
+* `PATCH /api/admin/messages/:id/read`
+* `PATCH /api/admin/messages/:id/reply`
+
+Visitor submission must save to the server-side database only after backend, database, authentication, and authorization are implemented.
+
+Admin message management must require real administrator authorization before production use.
