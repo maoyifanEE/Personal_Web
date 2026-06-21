@@ -1,5 +1,65 @@
 # Project History
 
+## 2026-06-21 - Improve journey curve smoothing and area alignment
+
+### 本次目标
+
+* 在 `Feature/homepage-update` 分支继续实现路径页曲线优化。
+* 先将最新 `main` 合入当前工作分支。
+* 让相邻 journey 区域的路径端点自动对齐，避免区域交界处出现断裂。
+* 强化手绘曲线平滑逻辑，将手绘输入视为方向意图而不是最终几何。
+* 让算法生成更平滑、更像设计曲线的最终路径。
+* 保持现有路径页编辑器、节点绑定和本地原型数据兼容。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* `Feature/homepage-update` 已从最新 `origin/main` 更新。
+* journey 曲线处理新增算法优先参数。
+* 手绘点处理流程加强了去抖、重采样、简化、Chaikin 平滑和点数限制。
+* 渲染前会同步相邻区域路径端点，使 A 到 B、B 到 C、C 到 D 的交界连续。
+* 曲线设置中增加“算法优先”控制和说明文案。
+* README 和视觉规范补充了路径平滑与区域对齐说明。
+* 未修改公开首页、隐藏入口、ICP 页脚或任何子应用。
+
+### 修改范围
+
+* `journey.js`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `login.html`。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改留言原型应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 最新 `origin/main` 已合入当前分支。
+* [x] `node --check journey.js` 通过。
+* [x] 变更文件 LF / CR / 长行检查通过。
+* [x] `git diff --stat` 已检查。
+* [ ] `journey.html` 已在浏览器中打开。
+* [ ] Overview / Details 已在浏览器中手动验证。
+* [ ] 编辑器手绘曲线已在浏览器中手动验证。
+* [ ] 相邻区域端点连续性已在浏览器中手动验证。
+* [ ] 首页、Hub 和子应用已在浏览器中回归验证。
+
 ## 2026-06-21 - Fix raw Markdown source formatting
 
 ### 本次目标

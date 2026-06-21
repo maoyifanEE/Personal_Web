@@ -2,10 +2,12 @@ const STORAGE_KEY = "personal_web_homepage_timeline_v1";
 const SVG_WIDTH = 1000;
 const DEFAULT_SMOOTHING = {
   enabled: true,
-  strength: 0.55,
-  simplification: 0.35
+  strength: 0.78,
+  simplification: 0.62,
+  algorithmPriority: 0.8
 };
-const DRAW_POINT_MIN_DISTANCE = 6;
+const DRAW_POINT_MIN_DISTANCE = 10;
+const PATH_ALIGNMENT_HANDLE_DISTANCE = 96;
 
 const logHomepage = (message, details = {}) => {
   console.log(`[Personal_Web][HomepageEditor] ${message}`, details);
@@ -372,9 +374,11 @@ const sanitizeState = (rawState) => {
       nodes: Array.isArray(area.nodes) ? area.nodes : clone(defaultArea.nodes)
     };
     migrateAreaPath(migratedArea);
-    migrateAreaNodes(migratedArea);
     return migratedArea;
   });
+
+  alignAdjacentAreaPaths(nextState.areas, "sanitize");
+  nextState.areas.forEach((area) => migrateAreaNodes(area));
 
   return nextState;
 };
@@ -429,6 +433,19 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
 const distanceBetweenPoints = (first, second) =>
   Math.hypot(first.x - second.x, first.y - second.y);
+
+const normalizeSmoothing = (smoothing = {}) => ({
+  ...DEFAULT_SMOOTHING,
+  ...smoothing,
+  strength: clamp(Number(smoothing.strength ?? DEFAULT_SMOOTHING.strength), 0, 1),
+  simplification: clamp(Number(smoothing.simplification ?? DEFAULT_SMOOTHING.simplification), 0, 1),
+  algorithmPriority: clamp(Number(smoothing.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority), 0, 1)
+});
+
+const normalizePoint = (point, fallback = { x: SVG_WIDTH / 2, y: 0 }) => ({
+  x: Math.round(Number.isFinite(point?.x) ? point.x : fallback.x),
+  y: Math.round(Number.isFinite(point?.y) ? point.y : fallback.y)
+});
 
 const getBezierPoint = (p0, p1, p2, p3, t) => {
   const inverse = 1 - t;
@@ -548,6 +565,23 @@ const filterJitterPoints = (points, minDistance = DRAW_POINT_MIN_DISTANCE) => {
   return filtered;
 };
 
+const ensureUsefulCurvePoints = (points, referencePoints) => {
+  if (points.length >= 3) {
+    return points;
+  }
+
+  if (referencePoints.length < 3) {
+    return referencePoints;
+  }
+
+  const middle = referencePoints[Math.floor(referencePoints.length / 2)];
+  return [
+    normalizePoint(referencePoints[0]),
+    normalizePoint(middle),
+    normalizePoint(referencePoints[referencePoints.length - 1])
+  ];
+};
+
 const resamplePointsByDistance = (points, spacing = 22) => {
   if (points.length <= 2) {
     return points;
@@ -579,6 +613,20 @@ const resamplePointsByDistance = (points, spacing = 22) => {
   return resampled;
 };
 
+const limitPointCount = (points, maxCount = 44) => {
+  if (points.length <= maxCount) {
+    return points;
+  }
+
+  const spacing = Math.max(1, (points.length - 1) / (maxCount - 1));
+  return Array.from({ length: maxCount }, (_, index) => {
+    if (index === maxCount - 1) {
+      return points[points.length - 1];
+    }
+    return points[Math.round(index * spacing)];
+  });
+};
+
 const chaikinSmooth = (points, iterations = 2) => {
   if (points.length <= 2 || iterations <= 0) {
     return points;
@@ -607,28 +655,199 @@ const chaikinSmooth = (points, iterations = 2) => {
 };
 
 const buildFreehandPathD = (points, smoothing = DEFAULT_SMOOTHING) => {
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
   if (points.length < 3) {
     return points.length ? `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
   }
-  return catmullRomToBezierPath(points, smoothing.strength);
+  return catmullRomToBezierPath(points, normalizedSmoothing.strength);
 };
 
-const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING) => {
+const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, options = {}) => {
   if (rawPoints.length < 3) {
     return null;
   }
 
-  const jitterFiltered = filterJitterPoints(rawPoints, DRAW_POINT_MIN_DISTANCE);
-  const resampled = resamplePointsByDistance(jitterFiltered, 18 + (1 - smoothing.strength) * 18);
-  const tolerance = 2 + smoothing.simplification * 26;
-  const simplified = simplifyPoints(resampled, tolerance);
-  const iterations = Math.max(1, Math.min(3, Math.round(1 + smoothing.strength * 2)));
-  const smoothPoints = chaikinSmooth(simplified, iterations);
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
+  const priority = normalizedSmoothing.algorithmPriority;
+  const sourcePoints = rawPoints.map((point) => normalizePoint(point));
+  const jitterFiltered = filterJitterPoints(sourcePoints, DRAW_POINT_MIN_DISTANCE + priority * 14);
+  const intentionSpacing = 28 + priority * 26 - normalizedSmoothing.strength * 8;
+  const resampled = resamplePointsByDistance(jitterFiltered, intentionSpacing);
+  const tolerance = 8 + normalizedSmoothing.simplification * 44 + priority * 18;
+  const simplified = ensureUsefulCurvePoints(simplifyPoints(resampled, tolerance), resampled);
+  const broadGesture = resamplePointsByDistance(simplified, 34 + priority * 18);
+  const iterations = Math.max(
+    2,
+    Math.min(6, Math.round(2 + normalizedSmoothing.strength * 3 + priority * 2))
+  );
+  const smoothed = chaikinSmooth(broadGesture, iterations);
+  const polished = resamplePointsByDistance(smoothed, 24 + (1 - normalizedSmoothing.strength) * 16);
+  const smoothPoints = limitPointCount(ensureUsefulCurvePoints(polished, sourcePoints)).map((point, index, points) => {
+    if (index === 0) {
+      return normalizePoint(sourcePoints[0]);
+    }
+    if (index === points.length - 1) {
+      return normalizePoint(sourcePoints[sourcePoints.length - 1]);
+    }
+    return normalizePoint(point);
+  });
+
+  if (options.log) {
+    logHomepage("Processed algorithm-dominant freehand curve.", {
+      rawPointCount: rawPoints.length,
+      filteredPointCount: jitterFiltered.length,
+      smoothPointCount: smoothPoints.length,
+      smoothing: normalizedSmoothing
+    });
+  }
+
   return {
-    rawPoints,
+    rawPoints: sourcePoints,
     smoothPoints,
-    d: buildFreehandPathD(smoothPoints, smoothing)
+    d: buildFreehandPathD(smoothPoints, normalizedSmoothing)
   };
+};
+
+const getRenderablePathPoints = (area) => {
+  if (area.path.mode === "freehand" && area.path.smoothPoints?.length >= 2) {
+    return area.path.smoothPoints.map((point) => normalizePoint(point));
+  }
+
+  return pointsFromBezierAnchors(area.path.points || [], 14);
+};
+
+const rebuildAreaPathData = (area) => {
+  area.path.smoothing = normalizeSmoothing(area.path.smoothing);
+  area.path.viewBox = `0 0 ${SVG_WIDTH} ${area.height}`;
+
+  if (area.path.mode === "freehand") {
+    const source = area.path.rawPoints?.length >= 3
+      ? area.path.rawPoints
+      : area.path.smoothPoints || [];
+    const processed = processRawFreehandPoints(source, area.path.smoothing);
+    if (processed?.smoothPoints?.length >= 3) {
+      area.path.rawPoints = processed.rawPoints;
+      area.path.smoothPoints = processed.smoothPoints;
+      area.path.d = processed.d;
+    } else {
+      area.path.smoothPoints = (area.path.smoothPoints || []).map((point) => normalizePoint(point));
+      area.path.d = buildFreehandPathD(area.path.smoothPoints, area.path.smoothing);
+    }
+    return;
+  }
+
+  area.path.d = buildPathD(area.path.points || []);
+};
+
+const setAreaPathBoundaryPoint = (area, boundary, point) => {
+  const safePoint = normalizePoint(point);
+
+  if (area.path.mode === "freehand" && area.path.smoothPoints?.length >= 2) {
+    const targetIndex = boundary === "start" ? 0 : area.path.smoothPoints.length - 1;
+    area.path.smoothPoints[targetIndex] = safePoint;
+    if (area.path.rawPoints?.length >= 2) {
+      const rawTargetIndex = boundary === "start" ? 0 : area.path.rawPoints.length - 1;
+      area.path.rawPoints[rawTargetIndex] = safePoint;
+    }
+    area.path.d = buildFreehandPathD(area.path.smoothPoints, area.path.smoothing);
+    return true;
+  }
+
+  const anchors = area.path.points || [];
+  if (!anchors.length) {
+    return false;
+  }
+
+  const targetIndex = boundary === "start" ? 0 : anchors.length - 1;
+  anchors[targetIndex].x = safePoint.x;
+  anchors[targetIndex].y = safePoint.y;
+  area.path.d = buildPathD(anchors);
+  return true;
+};
+
+const smoothBezierBoundaryHandles = (previousArea, nextArea, previousPoint, nextPoint) => {
+  const previousAnchors = previousArea.path.points || [];
+  const nextAnchors = nextArea.path.points || [];
+  const previousEnd = previousAnchors[previousAnchors.length - 1];
+  const previousBefore = previousAnchors[previousAnchors.length - 2];
+  const nextStart = nextAnchors[0];
+  const nextAfter = nextAnchors[1];
+
+  if (previousEnd && previousBefore) {
+    const distance = Math.min(
+      180,
+      Math.max(PATH_ALIGNMENT_HANDLE_DISTANCE, distanceBetweenPoints(previousBefore, previousPoint) * 0.45)
+    );
+    const direction = {
+      x: previousPoint.x - previousBefore.x,
+      y: previousPoint.y - previousBefore.y
+    };
+    const length = Math.hypot(direction.x, direction.y) || 1;
+    previousEnd.cpIn = {
+      x: Math.round(clamp(previousPoint.x - (direction.x / length) * distance, 0, SVG_WIDTH)),
+      y: Math.round(clamp(previousPoint.y - (direction.y / length) * distance, 0, previousArea.height))
+    };
+  }
+
+  if (nextStart && nextAfter) {
+    const distance = Math.min(
+      180,
+      Math.max(PATH_ALIGNMENT_HANDLE_DISTANCE, distanceBetweenPoints(nextPoint, nextAfter) * 0.45)
+    );
+    const direction = {
+      x: nextAfter.x - nextPoint.x,
+      y: nextAfter.y - nextPoint.y
+    };
+    const length = Math.hypot(direction.x, direction.y) || 1;
+    nextStart.cpOut = {
+      x: Math.round(clamp(nextPoint.x + (direction.x / length) * distance, 0, SVG_WIDTH)),
+      y: Math.round(clamp(nextPoint.y + (direction.y / length) * distance, 0, nextArea.height))
+    };
+  }
+};
+
+const alignAdjacentAreaPaths = (areas, reason = "render") => {
+  const orderedAreas = [...areas].sort((first, second) => first.order - second.order);
+  let connectionCount = 0;
+
+  orderedAreas.forEach((area) => rebuildAreaPathData(area));
+
+  for (let index = 0; index < orderedAreas.length - 1; index += 1) {
+    const previousArea = orderedAreas[index];
+    const nextArea = orderedAreas[index + 1];
+    const previousPoints = getRenderablePathPoints(previousArea);
+    const nextPoints = getRenderablePathPoints(nextArea);
+
+    if (previousPoints.length < 2 || nextPoints.length < 2) {
+      logHomepage("Skipped journey area path alignment because a segment is too short.", {
+        previousAreaId: previousArea.id,
+        nextAreaId: nextArea.id
+      });
+      continue;
+    }
+
+    const previousExit = previousPoints[previousPoints.length - 1];
+    const nextEntry = nextPoints[0];
+    const sharedX = Math.round(clamp((previousExit.x + nextEntry.x) / 2, 0, SVG_WIDTH));
+    const previousBoundaryPoint = { x: sharedX, y: previousArea.height };
+    const nextBoundaryPoint = { x: sharedX, y: 0 };
+    const previousUpdated = setAreaPathBoundaryPoint(previousArea, "end", previousBoundaryPoint);
+    const nextUpdated = setAreaPathBoundaryPoint(nextArea, "start", nextBoundaryPoint);
+
+    if (previousUpdated && nextUpdated) {
+      smoothBezierBoundaryHandles(previousArea, nextArea, previousBoundaryPoint, nextBoundaryPoint);
+      rebuildAreaPathData(previousArea);
+      rebuildAreaPathData(nextArea);
+      connectionCount += 1;
+    }
+  }
+
+  if (connectionCount) {
+    logHomepage("Aligned adjacent journey area paths.", {
+      reason,
+      connectionCount
+    });
+  }
 };
 
 const getAreaPathElement = (areaId) =>
@@ -864,6 +1083,7 @@ const renderTimeline = () => {
   }
 
   renderHero();
+  alignAdjacentAreaPaths(editorState.areas, "render");
   const root = document.querySelector(".timeline-home");
   if (root) {
     root.dataset.activeTool = editorState.activeTool || "select";
@@ -1330,7 +1550,7 @@ const finishFreehandDrawing = () => {
 
   const previousPath = clone(area.path);
   const smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
-  const processed = processRawFreehandPoints(rawPoints, smoothing);
+  const processed = processRawFreehandPoints(rawPoints, smoothing, { log: true });
   if (!processed.d || processed.smoothPoints.length < 3) {
     area.path = previousPath;
     editorState.drawingPreviewPoints = [];
@@ -1350,6 +1570,7 @@ const finishFreehandDrawing = () => {
     d: processed.d,
     smoothing
   };
+  alignAdjacentAreaPaths(editorState.areas, "freehand draw");
   area.nodes.forEach((node) => {
     if (node.anchorMode === "path") {
       const point = getPointAtPathT(area, node.pathT);
@@ -1377,10 +1598,18 @@ const resmoothCurrentAreaCurve = () => {
     return;
   }
 
-  const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing);
+  const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing, { log: true });
   area.path.mode = "freehand";
   area.path.smoothPoints = processed.smoothPoints;
   area.path.d = processed.d;
+  alignAdjacentAreaPaths(editorState.areas, "resmooth");
+  area.nodes.forEach((node) => {
+    if (node.anchorMode === "path") {
+      const point = getPointAtPathT(area, node.pathT);
+      node.x = point.x;
+      node.y = point.y;
+    }
+  });
   markDirty("freehand curve resmoothed");
   renderTimeline();
   renderEditorPanel();
@@ -1798,6 +2027,8 @@ const renderCurvePopoverContent = () => {
     </select></label>
     <label>平滑程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}"></label>
     <label>简化程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}"></label>
+    <label>算法优先<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="algorithmPriority" value="${area.path.smoothing?.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority}"></label>
+    <p class="context-note">手绘线条只表达大方向，最终曲线会由算法自动简化、平滑，并与相邻区域端点对齐。</p>
     <div class="context-button-row">
       <button type="button" data-context-popover-action="resmooth">重新平滑</button>
       <button type="button" data-context-popover-action="redraw">重画当前区域曲线</button>
@@ -2060,6 +2291,10 @@ const renderLegacyEditorPanel = () => {
       <label>简化程度
         <input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}">
       </label>
+      <label>算法优先
+        <input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="algorithmPriority" value="${area.path.smoothing?.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority}">
+      </label>
+      <p class="editor-help">手绘线条只表达大方向，最终曲线会由算法自动简化、平滑，并与相邻区域端点对齐。</p>
       <p class="editor-help">当前工具：${editorState.activeTool === "freehand" ? "手绘曲线" : editorState.activeTool === "add-node" ? "添加节点" : "选择"}</p>
       <div class="editor-button-row">
         <button type="button" class="homepage-editor__tool" data-editor-action="select-tool">选择</button>
@@ -2289,7 +2524,26 @@ const updatePathSmoothingField = (field) => {
   const area = getSelectedArea();
   area.path.smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
   area.path.smoothing[field.dataset.pathSmoothingField] = Number(field.value);
+  area.path.smoothing = normalizeSmoothing(area.path.smoothing);
+
+  if (area.path.mode === "freehand" && area.path.rawPoints?.length >= 3) {
+    const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing, { log: true });
+    if (processed?.smoothPoints?.length >= 3) {
+      area.path.smoothPoints = processed.smoothPoints;
+      area.path.d = processed.d;
+      alignAdjacentAreaPaths(editorState.areas, "smoothing control");
+      area.nodes.forEach((node) => {
+        if (node.anchorMode === "path") {
+          const point = getPointAtPathT(area, node.pathT);
+          node.x = point.x;
+          node.y = point.y;
+        }
+      });
+    }
+  }
+
   markDirty("path smoothing changed");
+  renderTimeline();
   logHomepage("Updated freehand smoothing configuration.", {
     areaId: area.id,
     smoothing: area.path.smoothing

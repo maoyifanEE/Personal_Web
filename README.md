@@ -33,6 +33,10 @@ The repository must not contain real private data, secrets, production database 
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 
+The journey prototype includes editable curve paths.
+Hand-drawn strokes are treated as rough direction input, then converted into algorithm-smoothed SVG curves.
+Adjacent journey areas automatically align their path endpoints so the timeline reads as one continuous path.
+
 ## Navigation Behavior
 
 * Hidden lower-left entrance on `index.html` opens `journey.html`.
