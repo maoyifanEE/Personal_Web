@@ -1,82 +1,74 @@
 # Personal_Web
 
-Personal_Web is a long-term personal website and personal tools project.
+## Current Stage
 
-Current stage: **static front-end preview**.
+`Personal_Web` is a long-term personal website and personal tools platform.
 
-The project currently has no backend, no database, no real login,
-no authentication, no authorization, and no cloud sync. Private pages and child
-apps are static/local prototypes, not secure production tools.
+The current project stage is a static front-end preview.
+
+Current implementation boundaries:
+
+* Backend is not implemented.
+* Database is not implemented.
+* Real login is not implemented.
+* Authentication is not implemented.
+* Authorization is not implemented.
+* Cloud sync is not implemented.
+* Private pages are placeholders and are not secure yet.
+* Real private data must not be committed to GitHub.
+
+The repository may contain source code, static structure, safe assets, project notes, and clearly fake sample data.
+
+The repository must not contain real private data, secrets, production database files, uploads, logs, backups, or production-only configuration.
 
 ## Current Pages
 
-| Page | Category | Current status |
+| Page | Purpose | Current status |
 | --- | --- | --- |
-| `index.html` | Public cover homepage | Contains ICP footer, hidden journey entrance, and hidden private entrance. Normal cover background clicks do not navigate. |
-| `journey.html` | Public/static prototype | Curved Path Timeline prototype with placeholder data and a local editor prototype. Not a secure admin page. |
-| `login.html` | Hidden/private placeholder | Static login placeholder. It does not authenticate anyone. |
-| `hub.html` | Hidden/private placeholder | Static Personal Hub placeholder. It is not protected by real authorization. |
-| `apps/tasks/index.html` | Child app prototype | 任务清单 static/local prototype. |
-| `apps/health/index.html` | Child app prototype | 健康管理 static/local prototype. |
-| `apps/special-subscription/index.html` | Child app placeholder | 特别订阅 blank placeholder. |
+| `index.html` | Public cover homepage | Implemented static page |
+| `journey.html` | Curved path timeline prototype | Static/local prototype |
+| `login.html` | Login placeholder | Not real authentication |
+| `hub.html` | Private hub placeholder | Not real authorization |
+| `apps/tasks/index.html` | Task List prototype | Static/local prototype |
+| `apps/health/index.html` | Health Management prototype | Static/local prototype |
+| `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 
-Detailed child app status and development rules live in
-`docs/05_APP_MODULES.md`.
+## Navigation Behavior
 
-## Navigation Rules
-
-- The ICP footer opens `https://beian.miit.gov.cn/`.
-- The hidden lower-left journey entrance opens `journey.html`.
-- The hidden private entrance opens `login.html`.
-- Normal cover background clicks do not open `journey.html`.
-- `hub.html` links to child app prototypes.
-- Hidden entrances are visual navigation devices only. They are not security.
+* Hidden lower-left entrance on `index.html` opens `journey.html`.
+* Normal cover background clicks do not navigate.
+* Hidden private entrance opens `login.html`.
+* ICP footer opens `https://beian.miit.gov.cn/`.
+* `hub.html` links to child app prototypes.
+* Hidden entrances are navigation devices, not security mechanisms.
+* Direct URL access is still possible for placeholder private pages.
 
 ## Data Safety
 
-- Real private data must never be committed to GitHub.
-- Secrets, `.env`, database files, uploads, logs, backups, and production config
-  must never be committed.
-- Current `localStorage` usage is prototype-only. It is not long-term private
-  data storage.
-- Future backend/database/auth work is planned, not implemented.
-- Before adding data-related behavior, read `docs/00_DESIGN_GUIDE.md`.
-- Before route/auth/security work, read `docs/07_ROUTE_AND_SECURITY_RULES.md`.
-- Before backend/database work, read `docs/09_BACKEND_DATABASE_PLAN.md`.
+Code and documentation may be committed to GitHub.
 
-## Development Rules
+Real private data must not be committed to GitHub.
 
-- Do not work directly on `main`.
-- Use `Feature/xxx` branches for new features.
-- Use `BugFix/xxx` branches for fixes.
-- Read `docs/05_APP_MODULES.md` before adding or changing child apps.
-- Read `docs/08_PROJECT_STRUCTURE_STANDARD.md` before changing project
-  structure.
+The following items must stay out of GitHub:
 
-## How To Open Locally
+* Real private data.
+* Real account passwords.
+* API keys.
+* Access tokens.
+* SSH private keys.
+* Production certificates.
+* Database files.
+* Uploaded private files.
+* Server logs.
+* Backups.
+* Production-only configuration.
+* Local `.env` files with real secrets.
 
-Run from the project root:
+`localStorage` is allowed only for early static prototypes.
 
-```powershell
-python -m http.server 4173
-```
+`localStorage` is not final long-term private data storage.
 
-Then open:
-
-```text
-http://127.0.0.1:4173/
-```
-
-Useful direct URLs:
-
-```text
-http://127.0.0.1:4173/journey.html
-http://127.0.0.1:4173/login.html
-http://127.0.0.1:4173/hub.html
-http://127.0.0.1:4173/apps/tasks/index.html
-http://127.0.0.1:4173/apps/health/index.html
-http://127.0.0.1:4173/apps/special-subscription/index.html
-```
+Long-term private data should eventually move to a backend API and a server-side database.
 
 ## File Structure
 
@@ -84,27 +76,84 @@ http://127.0.0.1:4173/apps/special-subscription/index.html
 Personal_Web/
 |-- index.html
 |-- journey.html
-|-- journey.css
-|-- journey.js
 |-- login.html
 |-- hub.html
 |-- styles.css
 |-- script.js
+|-- journey.css
+|-- journey.js
 |-- apps/
 |   |-- tasks/
+|   |   `-- index.html
 |   |-- health/
+|   |   `-- index.html
 |   `-- special-subscription/
-|-- assets/
-|-- scripts/
+|       `-- index.html
 `-- docs/
+    |-- 00_DESIGN_GUIDE.md
+    |-- 05_APP_MODULES.md
+    |-- 06_VISUAL_STYLE_GUIDE.md
+    |-- 07_ROUTE_AND_SECURITY_RULES.md
+    |-- 08_PROJECT_STRUCTURE_STANDARD.md
+    |-- 09_BACKEND_DATABASE_PLAN.md
+    `-- PROJECT_HISTORY.md
 ```
 
 ## Documentation Map
 
-- `docs/00_DESIGN_GUIDE.md`: code, deployment, and data ownership model.
-- `docs/05_APP_MODULES.md`: child app registry and module standards.
-- `docs/06_VISUAL_STYLE_GUIDE.md`: visual and navigation style rules.
-- `docs/07_ROUTE_AND_SECURITY_RULES.md`: route and security rules.
-- `docs/08_PROJECT_STRUCTURE_STANDARD.md`: project structure standard.
-- `docs/09_BACKEND_DATABASE_PLAN.md`: planned backend/database boundary.
-- `docs/PROJECT_HISTORY.md`: project change history.
+* `docs/00_DESIGN_GUIDE.md`: ownership, data safety, and deployment boundaries.
+* `docs/05_APP_MODULES.md`: child app registry and app module standards.
+* `docs/06_VISUAL_STYLE_GUIDE.md`: visual and navigation style rules.
+* `docs/07_ROUTE_AND_SECURITY_RULES.md`: route categories and security limits.
+* `docs/08_PROJECT_STRUCTURE_STANDARD.md`: structure and branch standards.
+* `docs/09_BACKEND_DATABASE_PLAN.md`: future backend and database planning.
+* `docs/PROJECT_HISTORY.md`: project change history.
+
+## Development Rules
+
+* Do not work directly on `main` unless explicitly instructed.
+* Use `Feature/xxx` for new features.
+* Use `BugFix/xxx` for fixes.
+* Update relevant docs when adding or changing modules.
+* Read `docs/00_DESIGN_GUIDE.md` before data-related work.
+* Read `docs/05_APP_MODULES.md` before adding child apps.
+* Read `docs/07_ROUTE_AND_SECURITY_RULES.md` before route or security work.
+* Do not add backend, database, or auth unless explicitly requested.
+* Do not add real private data to static files.
+* Keep app-specific code inside the relevant app folder.
+* Keep documentation readable in raw Markdown source form.
+
+## Local Preview
+
+Run this command from the repository root:
+
+```bash
+python -m http.server 4173
+```
+
+Then open these URLs as needed:
+
+* `http://127.0.0.1:4173/`
+* `http://127.0.0.1:4173/journey.html`
+* `http://127.0.0.1:4173/login.html`
+* `http://127.0.0.1:4173/hub.html`
+* `http://127.0.0.1:4173/apps/tasks/index.html`
+* `http://127.0.0.1:4173/apps/health/index.html`
+* `http://127.0.0.1:4173/apps/special-subscription/index.html`
+
+## Current Non-Goals
+
+* Real backend server.
+* Real database.
+* Real login.
+* Real authorization.
+* Real cloud synchronization.
+* Real payment or subscription integration.
+* Production CMS.
+* Multi-user permission system.
+
+## Merge Readiness Note
+
+Documentation fixes should not change website behavior.
+
+Application behavior should be verified separately when application files are changed.

@@ -2,154 +2,106 @@
 
 ## Purpose
 
-This document records the current visual and navigation rules for the public
-cover page, the journey prototype, the private hub placeholder, and child apps.
+This document records visual and navigation style rules for the current static front-end preview.
 
-It is a style and behavior guide only. It does not introduce backend,
-authentication, authorization, or database behavior.
+It should guide small visual changes without turning documentation into a full design system.
 
-## Overall Direction
-
-The project should feel:
-
-- clean
-- calm
-- personal but not biographical in public prototypes
-- quiet around hidden entrances
-- clear about the separation between public pages and private placeholders
+It should also prevent old navigation behavior from returning by accident.
 
 ## Public Cover Homepage
 
-`index.html` is the public cover homepage. It should remain minimal, quiet, and
-visitor-facing.
-
-Rules:
-
-- The approved English hero text must not change unless explicitly requested.
-- The current cover background and layout should remain stable unless a task
-  explicitly asks for visual redesign.
-- The ICP filing footer is subtle, visible, and separate from hidden entrances.
-- The hidden lower-left journey entrance opens `journey.html`.
-- The hidden private entrance opens `login.html`.
-- Normal cover background clicks do not navigate to `journey.html`.
-- Normal cover background and hero text should not feel like one large button.
-- The cover page must not expose private apps directly.
-
-Current cover navigation:
-
-| Interaction | Expected behavior |
-| --- | --- |
-| Click normal cover background | No navigation |
-| Click hidden lower-left journey entrance | Open `journey.html` |
-| Click hidden private entrance | Open `login.html` |
-| Click ICP footer | Open `https://beian.miit.gov.cn/` |
+* `index.html` is the public cover homepage.
+* The cover page should remain minimal, quiet, and stable.
+* The approved public hero text should not be changed unless explicitly requested.
+* The public cover homepage is not an app launcher.
+* The public cover homepage is not the private hub.
+* The public cover homepage is not the journey prototype itself.
+* The ICP footer is subtle and visible.
+* The ICP footer links to `https://beian.miit.gov.cn/`.
+* The hidden lower-left journey entrance opens `journey.html`.
+* The hidden private entrance opens `login.html`.
+* Normal cover background clicks do not navigate.
+* The cover should not feel like a giant button.
+* The hidden journey entrance should stay visually hidden or nearly invisible.
+* The hidden private entrance should remain separate from the journey entrance.
 
 ## Journey Page
 
-`journey.html` is the Curved Path Timeline prototype.
+* `journey.html` is the curved path timeline prototype.
+* It uses placeholder data only for now.
+* It is a public/static prototype in the current project stage.
+* The editor UI is prototype-level and not secure admin.
+* Major and minor nodes are part of the journey prototype.
+* The Overview and Details switch is part of the prototype.
+* Freehand curve editing and path-anchored nodes are prototype editor features.
+* The journey page should not contain real private personal history yet.
+* The journey page should not contain real photos.
+* The journey page should not expose private app data.
 
-Current status:
+## Login and Hub
 
-- Public/static prototype for now.
-- Uses placeholder data only.
-- Contains a local editor prototype.
-- The editor UI is not a secure admin system.
-- Major/minor nodes and Overview/Details behavior are part of the prototype.
-- Future production editing must be separated from public visitor mode with real
-  authentication and authorization.
+* `login.html` is a static login placeholder.
+* It is not real authentication.
+* `hub.html` is a static private hub placeholder.
+* It is not real authorization.
+* Direct URL access is still possible until backend security exists.
+* The hub may link to child app prototypes.
+* The hub should not be treated as a secure private dashboard yet.
 
-Visual direction:
+## Child Apps
 
-- Warm white page background.
-- Soft green, blue, sand, and lavender regions.
-- Dark navy or charcoal text.
-- Gentle accent colors for nodes.
-- Elegant continuous curve, not a game board.
-- Major nodes are stronger and more readable.
-- Minor nodes are quieter and visible only in Details mode.
+* Child apps should use clean Simplified Chinese UI by default.
+* Each child app may keep app-local CSS.
+* Each child app should remain visually consistent with the quiet project tone.
+* Child apps should include a simple return link to `../../hub.html`.
+* Child apps should not expose real private data in static files.
+* Child apps should not introduce external visual dependencies without approval.
+* The Task List app is a prototype.
+* The Health Management app is a prototype and may involve sensitive concepts.
+* The Special Subscription app is a blank placeholder.
 
-Prototype content rules:
+## Visual Consistency Rules
 
-- Use placeholder `Area 01` to `Area 04` content.
-- Use placeholder `Major Event` and `Minor Event` content.
-- Use SVG paths and real HTML/CSS/SVG elements.
-- Do not use real personal information.
-- Do not use real city names.
-- Do not use real experiences.
-- Do not use real photos.
-- Do not use external images.
-- Do not use AI-generated images.
-- Future content replacement should use local assets only.
+* Use system fonts unless a future design task explicitly changes typography.
+* Avoid external font CDNs.
+* Avoid external image URLs.
+* Avoid generated decorative assets unless explicitly requested.
+* Keep public pages calm and uncluttered.
+* Keep private placeholder pages simple and readable.
+* Keep child apps focused on their own task area.
+* Do not mix one app visual system into another app without a reason.
+* Do not add heavy animations to placeholder pages.
+* Do not add game-like mechanics to the journey timeline.
+* Do not add coins, XP, locked levels, leaderboards, or game progression.
 
-## Journey Editor Prototype
+## Forbidden Visual Changes Without Approval
 
-The journey curve, areas, and nodes are data-driven in `journey.js`.
+* Do not change the public homepage hero text without explicit request.
+* Do not change the public homepage background without explicit request.
+* Do not remove the ICP footer.
+* Do not display a public security filing number until approval exists.
+* Do not expose private apps from the public cover page.
+* Do not turn hidden entrances into visible navigation unless requested.
+* Do not replace static prototypes with framework applications unless requested.
+* Do not add external libraries or CDNs for visual changes.
 
-Editor prototype rules:
+## Manual Visual Review Checklist
 
-- The global right-side editor console has been intentionally removed.
-- Editing should use a compact floating toolbar, context menus, and object-level
-  popovers instead of a persistent dashboard-like form.
-- Each area owns its own background, path, path style, node style, and nodes.
-- Editor mode allows changing hero, area, curve, and node content directly on
-  the journey canvas.
-- Curve editing supports freehand drawing.
-- Drawn points should be simplified, smoothed, and stored as editable SVG path
-  data, never as a raster image.
-- Nodes that should follow the route should prefer `anchorMode: "path"` and a
-  normalized `pathT` percentage over fixed `x/y` coordinates.
-- Bezier handle editing is intentionally not part of the user-facing UI.
-- Timeline nodes should render as dots by default.
-- Event cards should appear as hover previews, click details, or edit popovers.
-- Right-clicking near a curve in edit mode should create nodes at the nearest
-  curve point through the contextual menu.
-- Node editing supports major/minor type, title, date, description, position,
-  offsets, color, and card style.
-- Data is saved to browser `localStorage` only.
-- JSON export/import exists for future migration to a real admin tool.
-- No real personal data should be entered in V1.
+* [ ] `index.html` still looks like the public cover homepage.
+* [ ] Public hero text is unchanged unless the task requested it.
+* [ ] ICP footer remains visible and subtle.
+* [ ] Hidden journey entrance remains hidden and opens `journey.html`.
+* [ ] Hidden private entrance remains hidden and opens `login.html`.
+* [ ] Normal cover background clicks do not navigate.
+* [ ] `journey.html` still opens as the timeline prototype.
+* [ ] `hub.html` still opens as a static placeholder.
+* [ ] Child apps still open from the hub.
+* [ ] No real private data appears in static pages.
 
-## Private Hub and Child Apps
+## Merge Readiness Notes
 
-`hub.html` is currently a static private hub placeholder. It is not protected by
-real authentication or authorization.
+Documentation-only visual guide changes should not change app behavior.
 
-Private hub direction:
+If HTML, CSS, or JavaScript is changed, run a browser smoke test.
 
-- Restrained tool-center feeling.
-- Clear navigation.
-- Consistent buttons.
-- Consistent spacing.
-- Desktop and mobile usability.
-- No real private data in the static prototype.
-
-Child app UI direction:
-
-- Child app user-facing UI should default to Simplified Chinese.
-- Child apps should feel consistent with the project.
-- Each app may own its CSS when needed.
-- Placeholder apps should stay quiet and mostly empty until requirements are
-  defined.
-- Prototype editors and hidden entrances are not security mechanisms.
-
-## Page Language
-
-Visible page content can follow the specific task requirements.
-
-- Public homepage approved English text must not change unless explicitly
-  requested.
-- Private pages and child apps should default to Simplified Chinese.
-- Documentation may mix Chinese project notes and English technical terms when
-  useful.
-
-## Undecided Items
-
-The following items remain undecided and should not be finalized without a
-separate task:
-
-- Long-term primary brand color.
-- Long-term typography direction.
-- Logo direction.
-- Final hidden entrance treatment.
-- Final motion style.
-- Dark mode support.
+If only Markdown is changed, verify raw Markdown source formatting.
