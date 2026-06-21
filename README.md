@@ -163,7 +163,7 @@ Application behavior should be verified separately when application files are ch
 
 ## Visitor Message Prototype
 
-The public cover page includes a bottom-right floating `??` tool.
+The public cover page includes a bottom-right floating `留言` tool.
 
 This tool opens a front-end modal prototype for visitor messages.
 

@@ -63,7 +63,7 @@ It also prevents placeholder pages from being mistaken for production systems.
 
 ### Visitor Messages
 
-* Chinese display name: ?? / ????
+* Chinese display name: 留言 / 留言管理
 * English/internal name: Visitor Messages / Message Management
 * Path: `apps/messages/index.html`
 * Current status: static/front-end prototype
