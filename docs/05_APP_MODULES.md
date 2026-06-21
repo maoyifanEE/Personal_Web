@@ -15,8 +15,8 @@ static prototypes, but they are not secure production apps yet.
 
 | Module | Chinese name | Path | Status | Storage | Backend | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Real sync requires future backend, database, and auth. |
-| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Health data is sensitive. Do not commit real private health data. |
+| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Real sync requires future backend, database, and authentication. |
+| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Health-related data is sensitive; do not commit real private data. |
 | Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not implemented | No real subscription, payment, API, or backend logic yet. |
 
 ## Module Details
@@ -79,7 +79,7 @@ existing behavior.
 ## Child App Development Rules
 
 - Add or update this document before creating a new child app.
-- Child apps live under `apps/<module-name>/`.
+- Child apps live under `apps/&lt;module-name&gt;/`.
 - Each child app should have its own `index.html`.
 - CSS and JS should be app-local unless shared styles are intentionally
   introduced.
@@ -116,7 +116,7 @@ existing behavior.
 ## New Child App Checklist
 
 - [ ] Update `docs/05_APP_MODULES.md`.
-- [ ] Create `apps/<module-name>/index.html`.
+- [ ] Create `apps/&lt;module-name&gt;/index.html`.
 - [ ] Add app-local CSS only if needed.
 - [ ] Add app-local JS only if needed.
 - [ ] Add a `hub.html` entry.
