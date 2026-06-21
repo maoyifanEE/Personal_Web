@@ -113,7 +113,7 @@ The public cover page may include a subtle bottom-right floating toolbar.
 
 The floating toolbar should not dominate the cover page.
 
-The `??` button opens a modal front-end prototype.
+The `留言` button opens a modal front-end prototype.
 
 The modal should clearly state that real submission requires backend and database support.
 
