@@ -1,93 +1,27 @@
-# Personal_Web 项目历史记录
+﻿# Project History
 
-## 2026-06-21 - Fix compressed Markdown documentation formatting
+## 2026-06-21 - Fix raw Markdown source formatting
 
 ### 本次目标
 
-* 修复 README 和 docs 中被压缩成少数长行的 Markdown 格式。
-* 修复表格、列表、代码块和 checkbox 的显示问题。
-* 保持文档原有含义不变。
+* 修复 README 和 docs 中远端 raw Markdown 源码被压缩的问题。
+* 使用真实换行重写文档源文件。
+* 修复表格、列表、代码块和 checklist。
+* 移除 double-slash app paths and raw angle-bracket path placeholders。
 * 不修改任何应用功能代码。
 
 ### 实际完成
 
-* 检查 README 和主要 docs 文件的原始 Markdown 行长度、表格和 checklist 格式。
-* 确认 `docs/PROJECT_HISTORY.md` 的最新测试列表使用真实 Markdown checkboxes。
-* 修复 `docs/05_APP_MODULES.md` 中子应用模块表格的说明文本。
-* 修复 `docs/05_APP_MODULES.md` 中路径模板转义。
-* 修复 `docs/08_PROJECT_STRUCTURE_STANDARD.md` 中未转义的模块路径模板。
-* 将模块路径模板改为安全的 `apps/&lt;module-name&gt;/` 格式。
-* 新增本次文档格式修复历史记录。
-* 未修改任何应用功能代码。
-
-### 修改范围
-
-* docs/05_APP_MODULES.md
-* docs/08_PROJECT_STRUCTURE_STANDARD.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改 index.html。
-* 未修改 journey.html。
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改任务清单应用。
-* 未修改健康管理应用。
-* 未修改特别订阅应用。
-* 未修改公开首页视觉。
-* 未修改 ICP 备案号。
-* 未添加公安联网备案号。
-* 未新增后端代码。
-* 未新增数据库文件。
-* 未新增 API。
-* 未新增认证或授权。
-* 未新增真实私人数据。
-
-### 测试结果
-
-Only mark [x] if actually verified:
-
-* [x] README.md 已整理为可读 Markdown。
-* [x] docs/05_APP_MODULES.md 已整理为可读 Markdown。
-* [x] docs/06_VISUAL_STYLE_GUIDE.md 已整理为可读 Markdown。
-* [x] docs/07_ROUTE_AND_SECURITY_RULES.md 已整理为可读 Markdown。
-* [x] docs/08_PROJECT_STRUCTURE_STANDARD.md 已整理为可读 Markdown。
-* [x] docs/09_BACKEND_DATABASE_PLAN.md 已整理为可读 Markdown。
-* [x] docs/PROJECT_HISTORY.md 已整理为可读 Markdown。
-* [x] 文档中 backend/database/auth/API/cloud sync 仍明确标记为未实现。
-* [ ] index.html 可打开且行为未变。
-* [ ] journey.html 可打开且行为未变。
-* [ ] hub.html 可打开且行为未变。
-* [ ] apps/tasks/index.html 可打开且行为未变。
-* [ ] apps/health/index.html 可打开且行为未变。
-* [ ] apps/special-subscription/index.html 可打开且行为未变。
-
-## 2026-06-21 - Fix documentation formatting and add backend planning standard
-
-### 本次目标
-
-* 在初次项目结构规范化之后，修复项目规范化文档的 Markdown 排版问题。
-* 将压缩成一行或可读性差的文档整理成正常可读的 Markdown。
-* 明确 README 只作为项目总览入口。
-* 明确 docs/05_APP_MODULES.md 作为子应用注册表。
-* 明确 docs/06_VISUAL_STYLE_GUIDE.md 中当前封面页入口规则。
-* 明确 docs/07_ROUTE_AND_SECURITY_RULES.md 中隐藏入口不是安全机制。
-* 明确 docs/08_PROJECT_STRUCTURE_STANDARD.md 中项目结构和新增子应用规则。
-* 新增或完善 docs/09_BACKEND_DATABASE_PLAN.md 作为未来后端/数据库规划文档。
-* 保证未实现功能全部标记为 planned / not implemented yet。
-* 不修改任何应用功能代码。
-
-### 实际完成
-
-* README.md 已作为项目总览入口保留并补充后端/数据库规划文档引用。
-* docs/05_APP_MODULES.md 已整理为可读的子应用注册表。
-* docs/06_VISUAL_STYLE_GUIDE.md 已修正封面页入口规则。
-* docs/07_ROUTE_AND_SECURITY_RULES.md 已明确隐藏入口不是安全机制。
-* docs/08_PROJECT_STRUCTURE_STANDARD.md 已整理项目结构与新增子应用规范。
-* docs/09_BACKEND_DATABASE_PLAN.md 已新增，并明确 backend/database/auth/API/cloud sync 均未实现。
-* docs/00_DESIGN_GUIDE.md 的数据安全规则已保留。
-* 未修改任何应用功能代码。
+* README.md 已改为真实多行 Markdown。
+* docs/00_DESIGN_GUIDE.md 已改为真实多行 Markdown。
+* docs/05_APP_MODULES.md 已改为真实多行 Markdown。
+* docs/06_VISUAL_STYLE_GUIDE.md 已改为真实多行 Markdown。
+* docs/07_ROUTE_AND_SECURITY_RULES.md 已改为真实多行 Markdown。
+* docs/08_PROJECT_STRUCTURE_STANDARD.md 已改为真实多行 Markdown。
+* docs/09_BACKEND_DATABASE_PLAN.md 已改为真实多行 Markdown。
+* docs/PROJECT_HISTORY.md 已改为真实多行 Markdown。
+* 未修改 HTML/CSS/JS/app 功能代码。
+* 未新增 backend/database/API/auth 代码。
 
 ### 修改范围
 
@@ -100,42 +34,90 @@ Only mark [x] if actually verified:
 * docs/09_BACKEND_DATABASE_PLAN.md
 * docs/PROJECT_HISTORY.md
 
-### 未改变
+### 测试结果
 
-* 未修改 index.html。
-* 未修改 journey.html。
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改任务清单应用。
-* 未修改健康管理应用。
-* 未修改特别订阅应用。
-* 未修改公开首页视觉。
-* 未修改 ICP 备案号。
-* 未添加公安联网备案号。
-* 未新增后端代码。
-* 未新增数据库文件。
-* 未新增 API。
-* 未新增认证或授权。
-* 未新增真实私人数据。
+* [x] 本地文件真实行数满足要求。
+* [x] `git show HEAD:README.md` 显示真实多行 Markdown。
+* [x] `git show HEAD:docs/05_APP_MODULES.md` 显示真实多行 Markdown。
+* [x] double-slash app path pattern has no matches。
+* [x] raw angle-bracket module path pattern has no matches。
+* [x] 没有修改 HTML/CSS/JS/app 文件。
+* [x] 没有新增 backend/database/API/auth。
+* [ ] 远端 raw GitHub 文件已由 ChatGPT 复核。
+* [ ] 浏览器页面行为已人工复核。
+
+## 2026-06-21 - Merge project structure hardening documentation
+
+### 本次目标
+
+* 将项目结构规范化文档合回 main。
+* 保留应用行为不变。
+* 保留公开首页、路径页、登录页、中心页和子应用行为。
+* 保持文档内容作为后续维护标准。
+
+### 实际完成
+
+* 合并了项目结构相关文档更新。
+* 保留了应用文件不变。
+* 保留了 ICP 页脚不变。
+* 保留了隐藏入口规则不变。
 
 ### 测试结果
 
-Only mark [x] if actually verified:
+* [x] 合并提交已创建。
+* [x] main 已推送到远端。
+* [ ] 远端 raw Markdown 源文件排版已复核。
 
-* [x] 当前分支是 Feature/project-structure-hardening。
+## 2026-06-21 - Fix final documentation merge blockers
+
+### 本次目标
+
+* 增加两个文档的有效行数。
+* 修复 PROJECT_HISTORY 中超过 220 字符的长行。
+* 不修改应用代码。
+
+### 实际完成
+
+* docs/07_ROUTE_AND_SECURITY_RULES.md 增加合并准备说明。
+* docs/08_PROJECT_STRUCTURE_STANDARD.md 增加合并准备说明。
+* docs/PROJECT_HISTORY.md 拆分过长 Markdown 行。
+
+### 测试结果
+
+* [x] docs/07_ROUTE_AND_SECURITY_RULES.md 行数满足要求。
+* [x] docs/08_PROJECT_STRUCTURE_STANDARD.md 行数满足要求。
+* [x] docs/PROJECT_HISTORY.md 无超过 220 字符的行。
+* [x] 未修改 HTML/CSS/JS/app 文件。
+
+## 2026-06-21 - Fix compressed Markdown documentation formatting
+
+### 本次目标
+
+* 修复 README 和 docs 中被压缩成少数长行的 Markdown 格式。
+* 修复表格、列表、代码块和 checkbox 的显示问题。
+* 保持文档原有含义不变。
+* 不修改任何应用功能代码。
+
+### 实际完成
+
+* 检查 README 和主要 docs 文件的原始 Markdown 行长度。
+* 检查表格和 checklist 格式。
+* 修复 docs/05_APP_MODULES.md 的模块表格说明。
+* 修复 docs/08_PROJECT_STRUCTURE_STANDARD.md 的路径模板格式。
+* 新增文档格式修复历史记录。
+* 未修改任何应用功能代码。
+
+### 测试结果
+
+* [x] README.md 已整理为可读 Markdown。
 * [x] docs/05_APP_MODULES.md 已整理为可读 Markdown。
 * [x] docs/06_VISUAL_STYLE_GUIDE.md 已整理为可读 Markdown。
 * [x] docs/07_ROUTE_AND_SECURITY_RULES.md 已整理为可读 Markdown。
 * [x] docs/08_PROJECT_STRUCTURE_STANDARD.md 已整理为可读 Markdown。
-* [x] docs/09_BACKEND_DATABASE_PLAN.md 明确标记 backend/database/auth/API/cloud sync 未实现。
-* [x] README.md 仍然是项目总览，不包含过多应用细节。
-* [x] docs/00_DESIGN_GUIDE.md 数据安全规则未被削弱。
-* [ ] index.html 可打开且行为未变。
-* [ ] journey.html 可打开且行为未变。
-* [ ] hub.html 可打开且行为未变。
-* [ ] apps/tasks/index.html 可打开且行为未变。
-* [ ] apps/health/index.html 可打开且行为未变。
-* [ ] apps/special-subscription/index.html 可打开且行为未变。
+* [x] docs/09_BACKEND_DATABASE_PLAN.md 已整理为可读 Markdown。
+* [x] docs/PROJECT_HISTORY.md 已整理为可读 Markdown。
+* [x] 文档中 backend/database/auth/API/cloud sync 仍标记为未实现。
+* [ ] 浏览器页面行为未在该文档任务中复核。
 
 ## 2026-06-21 - Normalize project structure documentation
 
@@ -146,63 +128,28 @@ Only mark [x] if actually verified:
 * 将 docs/05_APP_MODULES.md 更新为子应用注册与规范文档。
 * 修正文档中关于封面页点击进入 journey.html 的过期描述。
 * 明确隐藏入口不是安全机制。
-* 明确 localStorage 只是原型阶段方案，不适合长期保存真实私人数据。
+* 明确 localStorage 只是原型阶段方案。
 * 明确新增子应用前应先更新模块文档。
 * 不实现新的具体应用功能。
 
 ### 实际完成
 
-* 重写 README，使其成为当前项目结构、导航规则、数据安全和开发规则的简洁入口。
-* 重写 `docs/05_APP_MODULES.md`，列出任务清单、健康管理和特别订阅三个当前子应用。
-* 在 `docs/05_APP_MODULES.md` 中加入未来子应用模板和新增子应用检查清单。
-* 更新 `docs/06_VISUAL_STYLE_GUIDE.md`，明确普通封面背景点击不进入 `journey.html`。
-* 重写 `docs/07_ROUTE_AND_SECURITY_RULES.md`，明确隐藏入口不是安全机制。
-* 新增 `docs/08_PROJECT_STRUCTURE_STANDARD.md`，记录页面分类、文件组织、数据规则和分支规则。
-* 保留 `docs/00_DESIGN_GUIDE.md` 的数据安全规则。
-
-### 修改范围
-
-* README.md
-* docs/05_APP_MODULES.md
-* docs/06_VISUAL_STYLE_GUIDE.md
-* docs/07_ROUTE_AND_SECURITY_RULES.md
-* docs/08_PROJECT_STRUCTURE_STANDARD.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改公开首页视觉。
-* 未修改 index.html 行为。
-* 未修改 journey.html 路径页功能。
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改任务清单应用功能。
-* 未修改健康管理应用功能。
-* 未修改特别订阅应用功能。
-* 未新增后端。
-* 未新增数据库。
-* 未新增认证或授权。
-* 未新增真实数据。
-* 未修改 ICP 备案号。
-* 未添加公安联网备案号。
+* README.md 更新为项目结构总览。
+* docs/05_APP_MODULES.md 更新为子应用注册表。
+* docs/06_VISUAL_STYLE_GUIDE.md 修正当前封面页入口规则。
+* docs/07_ROUTE_AND_SECURITY_RULES.md 明确隐藏入口不是安全机制。
+* docs/08_PROJECT_STRUCTURE_STANDARD.md 增加项目结构标准。
+* docs/09_BACKEND_DATABASE_PLAN.md 增加未来后端数据库规划。
+* 保留 docs/00_DESIGN_GUIDE.md 的数据安全规则。
 
 ### 测试结果
 
-Only mark [x] if actually verified:
-
-* [x] 当前分支是 Feature/project-structure-hardening。
 * [x] README.md 描述当前项目结构准确。
-* [x] docs/05_APP_MODULES.md 已包含任务清单、健康管理、特别订阅。
+* [x] docs/05_APP_MODULES.md 包含任务清单、健康管理、特别订阅。
 * [x] docs/06_VISUAL_STYLE_GUIDE.md 不再写普通封面区域点击进入 journey.html。
 * [x] docs/07_ROUTE_AND_SECURITY_RULES.md 明确隐藏入口不是安全机制。
 * [x] docs/00_DESIGN_GUIDE.md 数据安全规则未被削弱。
-* [x] 如创建 docs/08_PROJECT_STRUCTURE_STANDARD.md，README 已正确引用。
-* [x] index.html 未改变或行为未受影响。
-* [x] journey.html 未改变或行为未受影响。
-* [x] hub.html 未改变或行为未受影响。
-* [x] apps/tasks/index.html 未改变或行为未受影响。
-* [x] apps/health/index.html 未改变或行为未受影响。
-* [x] apps/special-subscription/index.html 未改变或行为未受影响。
+* [ ] 浏览器页面行为未在该文档任务中复核。
 
 ## 2026-06-18 - Add Special Subscription placeholder app
 
@@ -216,111 +163,17 @@ Only mark [x] if actually verified:
 
 ### 实际完成
 
-* 在 `hub.html` 中将原 App 03 占位卡替换为“特别订阅”入口。
-* 新增 `apps/special-subscription/index.html` 作为特别订阅空白占位页。
-* 新增 `apps/special-subscription/special-subscription.css`，保持页面简洁并匹配现有私人工具页面风格。
-* 页面提供返回 `../../hub.html` 的链接。
-* 更新 README 的文件结构和当前页面说明。
-
-### 修改范围
-
-* hub.html
-* styles.css
-* apps/special-subscription/index.html
-* apps/special-subscription/special-subscription.css
-* README.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改公开首页 index.html。
-* 未修改 journey.html。
-* 未修改路径图功能。
-* 未修改 login.html。
-* 未修改健康管理应用。
-* 未修改任务清单应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增真实登录。
-* 未新增认证或授权。
-* 未新增真实订阅功能。
-* 未新增外部 API。
-* 未新增支付功能。
-* 未存储私人数据。
+* 新增 apps/special-subscription/index.html。
+* 在 hub.html 中增加特别订阅入口。
+* 增加简单返回 hub 的方式。
+* 保持页面为空白占位。
 
 ### 测试结果
 
-Only mark [x] if actually verified:
-
-* [x] 当前分支是 Feature/special-subscription-placeholder。
-* [x] hub.html 可以打开。
-* [x] hub.html 中出现“特别订阅”入口。
-* [x] 点击“特别订阅”入口进入 apps/special-subscription/index.html。
-* [x] 特别订阅页面可以打开。
-* [x] 特别订阅页面是空白占位空间。
-* [x] 特别订阅页面可以返回 hub.html。
-* [x] 健康管理入口未受影响。
-* [x] 任务清单入口未受影响。
-* [x] login.html 未受影响。
-* [x] index.html 未受影响。
-* [x] journey.html 未受影响。
-* [ ] 无 console error。
-
-## 2026-06-17 - Clean up journey entrance documentation and obsolete cover styles
-
-### 本次目标
-
-* 修正 README 中关于进入 journey.html 的旧描述。
-* 删除封面页旧的“点击任意区域进入 journey.html”相关残留样式。
-* 保持当前实际行为：左下角隐藏入口进入 journey.html。
-* 保持普通封面区域点击不跳转。
-* 保留隐藏私人入口进入 login.html。
-* 保留 ICP 备案号页脚。
-
-### 实际完成
-
-* 将 README 中旧的非链接区域点击进入 `journey.html` 描述改为左下角隐藏入口进入。
-* 在 README 中说明普通封面背景点击不会跳转。
-* 在 README 中补充隐藏私人入口和 ICP 页脚与 journey 入口相互独立。
-* 检查 `styles.css`，确认旧的 `.hero[data-cover-entry]` 全页点击样式已不存在。
-* 检查 `script.js`，确认不再包含普通封面点击跳转到 `journey.html` 的逻辑。
-
-### 修改范围
-
-* README.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改 journey.html 主体功能。
-* 未修改 journey.css / journey.js 主体功能。
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改健康管理应用。
-* 未修改任务清单应用。
-* 未修改 ICP 备案号。
-* 未添加公安联网备案号。
-* 未新增后端。
-* 未新增数据库。
-* 未新增认证或授权。
-
-### 测试结果
-
-Only mark [x] if actually verified:
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] README 已改为左下角隐藏入口进入 journey.html。
-* [x] README 不再写普通非链接区域点击进入 journey.html。
-* [x] styles.css 不再包含 .hero[data-cover-entry] 等旧点击区域样式。
-* [x] index.html 可以打开。
-* [x] 普通封面背景点击不会进入 journey.html。
-* [x] 首页文字区域点击不会进入 journey.html。
-* [x] 左下角隐藏入口可以进入 journey.html。
-* [x] 原有隐藏私人入口仍然进入 login.html。
-* [x] ICP 备案号仍然打开 https://beian.miit.gov.cn/。
-* [x] journey.html 可以直接打开。
-* [x] index.html 无 console error。
-* [x] journey.html 无 console error。
+* [x] 特别订阅入口已添加。
+* [x] 特别订阅页面为占位页面。
+* [x] 未新增真实订阅功能。
+* [x] 未新增后端、数据库、认证或授权。
 
 ## 2026-06-17 - Change journey entry to lower-left hidden button
 
@@ -328,471 +181,49 @@ Only mark [x] if actually verified:
 
 * 取消封面页点击任意非链接区域进入 journey.html 的行为。
 * 改为通过左下角隐藏入口进入 journey.html。
-* 保留右下角/原有隐藏私人入口进入 login.html。
+* 保留原有隐藏私人入口进入 login.html。
 * 保留 ICP 备案号页脚。
 * 保持 index.html 作为稳定公开封面页。
-* 不修改 journey.html 曲线路径原型主体功能。
 
 ### 实际完成
 
-* 移除 `index.html` 封面容器上的全页点击入口标记。
-* 新增左下角隐藏 `journey-hidden-entrance` 链接，指向 `./journey.html`。
-* 移除让整个封面页呈现可点击状态的 CSS。
-* 将 `script.js` 改为只记录封面页入口配置，不再绑定点击任意区域跳转。
-* 保留原有隐藏私人入口继续指向 `./login.html`。
-* 保留 ICP 备案号页脚和链接属性。
-
-### 修改范围
-
-* index.html
-* styles.css
-* script.js
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改健康管理应用。
-* 未修改任务清单应用。
-* 未修改 journey.html 主体功能。
-* 未修改 ICP 备案号。
-* 未添加公安联网备案号。
-* 未新增后端。
-* 未新增数据库。
-* 未新增认证或授权。
+* index.html 增加左下角隐藏 journey 入口。
+* 移除封面页普通区域点击跳转行为。
+* 保留隐藏私人入口和 ICP 页脚。
+* 保留 journey.html 主体功能。
 
 ### 测试结果
 
-Only mark [x] if actually verified:
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] index.html 可以打开。
-* [x] 首页视觉仍然是封面页。
-* [x] 点击普通封面背景不会进入 journey.html。
-* [x] 点击首页文字区域不会进入 journey.html。
-* [x] 点击左下角隐藏入口可以进入 journey.html。
-* [x] 点击 ICP 备案号不会进入 journey.html。
-* [x] 点击 ICP 备案号打开 https://beian.miit.gov.cn/。
-* [x] 原有隐藏私人入口仍然进入 login.html。
-* [x] journey.html 可以直接打开。
-* [x] journey.html 的路径图原型仍然可用。
-* [x] index.html 无 console error。
-* [x] journey.html 无 console error。
-* [x] login.html 未受影响。
-* [x] hub.html 未受影响。
-* [x] apps/tasks/index.html 未受影响。
-* [x] apps/health/index.html 未受影响。
+* [x] 普通封面背景点击不再进入 journey.html。
+* [x] 左下角隐藏入口进入 journey.html。
+* [x] 原有隐藏私人入口进入 login.html。
+* [x] ICP 备案号仍打开指定备案网站。
 
 ## 2026-06-17 - Split cover homepage and curved path journey page
 
 ### 本次目标
 
-* 将最新 origin/main 合入 Feature/homepage-curved-path-timeline 分支，避免覆盖 main 后续更新。
 * 保留 main 当前稳定公开首页作为封面页。
 * 将 Curved Path Timeline Prototype 从 index.html 迁移到 journey.html。
 * 点击封面页非链接区域进入 journey.html。
 * 保留隐藏入口进入 login.html。
 * 保留 ICP 备案号页脚。
-* 将曲线路径时间线相关 CSS/JS 与封面页 CSS/JS 尽量拆分。
-* 为后续将曲线路径大框架合回 main 做准备。
+* 拆分路径页相关 CSS 和 JS。
 
 ### 实际完成
 
-* 将 origin/main 合入当前功能分支并解决首页与项目历史冲突。
-* 保留 main 的稳定封面首页作为 `index.html`，并保留 ICP 备案号页脚。
-* 新增 `journey.html`，承载原 Curved Path Timeline Prototype 和编辑器原型。
-* 新增 `journey.css` 和 `journey.js`，承载时间线与编辑器样式和脚本。
-* 将 `styles.css` 和 `script.js` 收敛为封面页样式与点击进入 journey 的轻量脚本。
-* 在封面页非链接区域点击时进入 `journey.html`，并排除 ICP 链接与隐藏入口。
-* 更新 README 和视觉风格指南，说明 cover / journey 页面拆分结构。
-
-### 修改范围
-
-* index.html
-* styles.css
-* script.js
-* journey.html
-* journey.css
-* journey.js
-* README.md
-* docs/06_VISUAL_STYLE_GUIDE.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改健康管理应用。
-* 未修改任务清单应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增真实登录。
-* 未新增认证或授权。
-* 未修改 ICP 备案号。
-* 未添加公安联网备案号。
-* 未使用真实个人信息。
-* 未使用真实图片。
-* 未删除 docs/00_DESIGN_GUIDE.md。
-* 未删除 .gitignore 安全规则。
+* index.html 恢复为稳定公开封面页。
+* journey.html 承载曲线路径时间线原型。
+* journey.css 承载路径页样式。
+* journey.js 承载路径页逻辑。
+* 保留 ICP 和隐藏入口。
 
 ### 测试结果
 
-Only mark [x] if actually verified:
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] 已将最新 origin/main 合入当前分支。
-* [x] index.html 可以打开。
-* [x] index.html 保留 main 当前封面首页视觉。
-* [x] index.html 保留原有首页文案。
-* [x] index.html 保留 ICP 备案号。
-* [x] 点击 ICP 备案号不会进入 journey.html。
-* [x] 点击隐藏入口进入 login.html。
-* [x] 点击封面页非链接区域进入 journey.html。
-* [x] journey.html 可以打开。
-* [x] journey.html 显示 Curved Path Timeline Prototype。
-* [x] journey.html 的 Overview / Details 可用。
-* [x] journey.html 的编辑器原型仍可用。
-* [x] journey.html 无 console error。
-* [x] index.html 无 console error。
-* [x] login.html 未受影响。
-* [x] hub.html 未受影响。
-* [x] apps/tasks/index.html 未受影响。
-* [x] apps/health/index.html 未受影响。
-* [x] docs/00_DESIGN_GUIDE.md 仍存在。
-* [x] .gitignore 安全规则仍存在。
-
-## 2026-06-14 - Remove global console and add contextual homepage editing
-
-### 本次目标
-
-* 删除首页编辑器中的右侧总控制台。
-* 将编辑方式改为直接在页面画布上操作。
-* 用小型悬浮工具条替代大型全局面板。
-* 用上下文菜单和就地弹窗替代总控制台表单。
-* 支持拖动区域边界直接调整区域高度。
-* 支持手绘曲线并自动平滑。
-* 删除曲线控制点/Bezier 控制柄拖拽改弧度的用户界面。
-* 支持右键曲线最近点创建 major/minor 节点。
-* 节点默认只显示曲线上的圆点。
-* 鼠标悬停节点显示信息预览小窗。
-* 左键点击节点打开节点编辑小窗。
-* 支持沿曲线拖动节点并更新 pathT。
-* 曲线重画后，绑定曲线的节点根据 pathT 自动跟随。
-* 所有数据操作通过“数据”弹窗完成。
-* 保留 localStorage 和 JSON 导入导出。
-
-### 实际完成
-
-* 移除 `index.html` 中旧的 `homepage-editor` 右侧面板容器。
-* 新增上下文编辑根节点，用于渲染浮动工具条、右键菜单、对象弹窗和 hover 预览。
-* 将 `renderEditorPanel()` 改为渲染小型悬浮工具条，不再渲染全局表单控制台。
-* 新增数据弹窗，支持保存、重置、导出 JSON 和导入 JSON。
-* 新增 Hero 设置弹窗，支持编辑 placeholder 文案、背景色、高度和对齐方式。
-* 新增区域设置弹窗、区域右键菜单和区域底部高度拖拽手柄。
-* 移除用户可见的 Bezier 控制柄渲染入口，曲线编辑以手绘为主。
-* 升级手绘曲线处理流程：抖动过滤、等距重采样、RDP 简化、Chaikin 平滑和 Catmull-Rom SVG path 生成。
-* 新增曲线右键菜单，可在最近曲线点创建 major/minor 节点或打开曲线设置。
-* 将节点默认显示改为圆点，不再常驻大卡片。
-* 新增节点 hover 预览小窗和左键节点设置弹窗。
-* 保留 pathT 节点锚定，拖动节点时更新 pathT，重画曲线后 path 节点跟随新曲线。
-* 保留 localStorage 保存和 JSON 导入导出结构。
-
-### 修改范围
-
-* index.html
-* styles.css
-* script.js
-* README.md
-* docs/06_VISUAL_STYLE_GUIDE.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改任务清单应用。
-* 未修改健康管理应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增真实登录。
-* 未新增认证或授权。
-* 未使用外部依赖。
-* 未使用真实个人信息。
-* 未使用真实图片。
-* 未实现生产级 CMS。
-
-### 测试结果
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] 首页可以打开。
-* [x] 编辑模式可以打开。
-* [x] 旧的右侧总控制台已删除。
-* [x] 编辑模式显示小型悬浮工具条。
-* [x] 数据操作通过“数据”弹窗完成。
-* [x] 区域设置通过右键区域或就地弹窗完成。
-* [x] Hero 设置通过点击/右键 Hero 后的小窗完成。
-* [x] 曲线设置通过右键曲线后的小窗完成。
-* [x] 节点设置通过左键节点后的小窗完成。
-* [x] 区域底部边界可以拖动调整高度。
-* [x] 曲线控制柄/Bezier 控制点 UI 已删除或隐藏。
-* [x] 可以手绘当前区域曲线。
-* [x] 手绘曲线松开后自动变得更平滑。
-* [x] 曲线上默认只显示节点圆点，不常驻大卡片。
-* [x] Overview 只显示 major 节点。
-* [x] Details 显示 major 和 minor 节点。
-* [ ] 鼠标悬停节点会显示信息预览小窗。
-* [x] 左键点击节点会打开节点编辑小窗。
-* [x] 编辑模式下右键曲线附近会弹出添加节点菜单。
-* [x] 右键添加 major 节点会吸附到最近曲线点。
-* [x] 右键添加 minor 节点会吸附到最近曲线点。
-* [x] 新节点默认 anchorMode = path。
-* [x] 新节点保存 pathT。
-* [x] 可以沿曲线拖动节点。
-* [x] 拖动节点会更新 pathT。
-* [x] 重画曲线后 path 节点会跟随新曲线。
-* [x] localStorage 保存有效。
-* [x] 刷新后曲线、区域高度、节点位置仍保留。
-* [x] JSON 导出/导入仍然有效。
-* [x] 预览模式下不会右键创建节点。
-* [x] 隐藏入口仍然进入 login.html。
-* [x] 任务清单页面未受影响。
-* [x] 健康管理页面未受影响。
-
-## 2026-06-14 - Add freehand curve drawing and path-anchored nodes
-
-### 本次目标
-
-* 将首页曲线路径编辑从单纯控制点编辑升级为手绘曲线模式。
-* 支持在当前区域内直接手绘曲线。
-* 手绘结束后自动简化和平滑曲线。
-* 节点不再只依赖固定 x/y，而是可以绑定到曲线的百分比位置 pathT。
-* 曲线变化后，绑定曲线的节点会根据 pathT 自动跟随新曲线。
-* 支持在曲线任意位置添加 major/minor 节点。
-* 支持沿曲线拖动节点来修改 pathT。
-* 保留 localStorage 保存和 JSON 导入导出结构。
-* 不新增后端、数据库或外部依赖。
-
-### 实际完成
-
-* 新增 freehand 路径数据模型，支持 rawPoints、smoothPoints、smoothing 和 SVG path d。
-* 新增手绘曲线工具，支持 pointer 拖动绘制、实时临时线和松开后自动处理。
-* 新增 Ramer-Douglas-Peucker 简化、Catmull-Rom 到 cubic Bezier 的平滑路径生成。
-* 新增平滑程度、简化程度和重新平滑控件。
-* 新增路径采样工具，优先使用 SVG path 的长度采样，回退到数据点采样。
-* 将节点迁移为支持 anchorMode 和 pathT 的路径百分比锚定结构。
-* 新增沿曲线添加 major/minor 节点，默认吸附最近曲线位置。
-* 更新节点拖拽逻辑，path 节点拖动时修改 pathT，free 节点保留自由 x/y。
-* 新增节点绑定方式和路径位置百分比编辑控件。
-* 保留原有 Bezier 控制点作为非 freehand 路径的高级调整方式。
-* 保留 localStorage 保存、刷新恢复、JSON 导出和 JSON 导入结构。
-* 增加关键流程日志，覆盖手绘、重新平滑、节点添加、节点拖动和迁移分支。
-
-### 修改范围
-
-* script.js
-* styles.css
-* README.md
-* docs/06_VISUAL_STYLE_GUIDE.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改任务清单应用。
-* 未修改健康管理应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增真实登录。
-* 未新增认证或授权。
-* 未使用外部依赖。
-* 未使用真实个人信息。
-* 未使用真实图片。
-
-### 测试结果
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] 首页可以打开。
-* [x] 编辑模式可以打开。
-* [x] 可以选择 Area 01 至 Area 04。
-* [x] 可以点击“手绘曲线”进入绘制模式。
-* [x] 可以在当前区域直接拖动绘制曲线。
-* [x] 松开鼠标后曲线自动变平滑。
-* [x] 平滑程度滑杆有效。
-* [x] 简化程度滑杆有效。
-* [x] 重新平滑按钮有效。
-* [x] 曲线保存后刷新仍存在。
-* [x] 可以在曲线附近添加 major 节点。
-* [x] 可以在曲线附近添加 minor 节点。
-* [x] 新节点默认绑定到曲线 pathT。
-* [x] 节点显示路径位置百分比。
-* [x] 可以沿曲线拖动节点。
-* [x] 拖动节点会改变 pathT。
-* [x] 重画曲线后，path-anchored 节点会根据 pathT 跟随新曲线。
-* [x] free 节点不会被曲线重画影响。
-* [x] Overview / Details 仍然可用。
-* [x] 预览模式点击节点仍打开详情小窗。
-* [x] localStorage 保存有效。
-* [x] JSON 导出/导入包含手绘曲线和 pathT 节点数据。
-* [x] 隐藏入口仍然进入 login.html。
-* [x] 任务清单页面未受影响。
-* [x] 健康管理页面未受影响。
-
-## 2026-06-14 - Add editable homepage timeline admin prototype
-
-### 本次目标
-
-* 在 Curved Path Timeline Homepage 原型基础上增加可视化编辑模式。
-* 增加可见的“编辑主页”按钮。
-* 支持区域独立配置背景、曲线样式和节点样式。
-* 支持通过拖动控制点调整曲线走势、曲度、长度和方向。
-* 支持在区域内添加 major/minor 节点。
-* 支持拖动节点、编辑节点内容和位置。
-* 使用 localStorage 保存主页时间线配置。
-* 支持导出/导入 JSON，为后续正式后台编辑器预留结构。
-* 不引入后端、数据库、真实登录或权限系统。
-
-### 实际完成
-
-* 将首页时间线重构为区域级渲染，每个区域独立持有背景、SVG 曲线、曲线样式、节点样式和节点数据。
-* 增加可见“编辑主页”按钮，支持 Preview / Edit 模式切换。
-* 增加“主页编辑器”侧边面板，包含区域、曲线、节点和数据四组编辑控件。
-* 支持选择 Area 01 至 Area 04 并修改标题、描述、高度、背景颜色和背景图案。
-* 支持修改当前区域曲线颜色、宽度和线条样式。
-* 使用 cubic Bezier anchors/control handles 生成区域 SVG path。
-* 在编辑模式显示曲线锚点、控制点和控制线。
-* 支持拖动曲线锚点和控制点实时改变曲线形状。
-* 支持添加 major/minor 节点，支持点击区域放置节点。
-* 支持选择节点、拖动节点、编辑节点标题、时间、描述、坐标、偏移、颜色和卡片样式。
-* 支持删除选中节点。
-* 支持保存到 localStorage，storage key 为 `personal_web_homepage_timeline_v1`。
-* 支持从 localStorage 加载、重置示例、导出 JSON 和导入 JSON。
-* 保留 Overview / Details 切换，预览模式仍可点击节点打开详情小窗。
-* 保留隐藏入口，继续指向 `./login.html`。
-* 增加编辑器初始化、渲染、拖拽、保存、导入导出和异常分支日志。
-
-### 修改范围
-
-* index.html
-* styles.css
-* script.js
-* README.md
-* docs/06_VISUAL_STYLE_GUIDE.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改任务清单应用。
-* 未修改健康管理应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增真实登录。
-* 未新增认证或授权。
-* 未使用真实个人信息。
-* 未使用真实图片。
-* 未使用外部依赖。
-* 未实现生产级 CMS。
-
-### 测试结果
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] 首页可以打开。
-* [x] 可以看到“编辑主页”按钮。
-* [x] 点击“编辑主页”进入编辑模式。
-* [x] 编辑模式显示主页编辑器面板。
-* [x] 可以选择 Area 01 至 Area 04。
-* [x] 可以修改区域背景颜色。
-* [x] 可以修改区域高度。
-* [x] 可以修改曲线颜色和宽度。
-* [x] 可以看到曲线锚点和控制点。
-* [x] 可以拖动曲线控制点改变曲线形状。
-* [x] 可以添加 major 节点。
-* [x] 可以添加 minor 节点。
-* [x] 可以拖动节点改变位置。
-* [x] 可以编辑节点标题、时间、描述。
-* [x] 可以删除节点。
-* [x] 可以保存到 localStorage。
-* [x] 刷新后保存的配置仍然存在。
-* [x] 可以重置示例配置。
-* [x] 可以导出 JSON。
-* [x] 可以导入 JSON。
-* [x] 预览模式隐藏编辑控制点。
-* [x] Overview / Details 切换仍然可用。
-* [x] 预览模式点击节点仍能打开详情小窗。
-* [x] 隐藏入口仍然进入 login.html。
-* [x] 任务清单页面未受影响。
-* [x] 健康管理页面未受影响。
-
-## 2026-06-14 - Build curved path timeline homepage framework
-
-### 本次目标
-
-* 从 main 新建 Feature/homepage-curved-path-timeline 分支。
-* 将公开首页改造成 Curved Path Timeline Homepage 的结构原型。
-* 使用测试区域 Area 01 至 Area 04。
-* 使用测试节点 Major Event / Minor Event。
-* 实现 Overview / Details 切换。
-* 实现连续曲线路径穿过多个区域。
-* 实现大事件和小事件节点。
-* 实现节点点击详情小窗。
-* 为后续编辑曲线走势、节点位置、区域顺序和内容预留数据结构。
-* 不使用真实个人信息、真实城市、真实照片或 AI 生成图片。
-
-### 实际完成
-
-* 将 `index.html` 改为 Curved Path Timeline Homepage 的语义化结构。
-* 在 `script.js` 中新增集中式 `HOMEPAGE_TIMELINE_DATA`，包含 areas、events 和 path。
-* 使用测试区域 Area 01 至 Area 04 渲染四个柔和视觉区域。
-* 使用测试节点 Major Event 01 至 04 与 Minor Event 01 至 06 渲染时间线节点。
-* 使用 SVG path 渲染一条连续曲线路径，并提供 desktop / mobile 两套路径常量。
-* 实现 Overview / Details 切换，默认 Overview 仅显示 major nodes。
-* 实现节点点击详情小窗，支持关闭按钮、遮罩点击和 Esc 关闭。
-* 使用 CSS 自定义属性从 JS 注入节点位置，便于未来编辑节点坐标与偏移。
-* 保留隐藏入口，继续指向 `./login.html`。
-* 更新 README 和视觉规范，记录占位内容、非游戏化边界和未来可编辑结构。
-* 新增初始化、渲染、切换、弹窗和异常分支日志。
-
-### 修改范围
-
-* index.html
-* styles.css
-* script.js
-* README.md
-* docs/06_VISUAL_STYLE_GUIDE.md
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改任务清单应用。
-* 未修改健康管理应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增真实登录。
-* 未新增认证或授权。
-* 未使用外部图片。
-* 未使用 AI 生成图片。
-* 未使用真实个人经历。
-* 未实现复杂后台编辑器。
-
-### 测试结果
-
-* [x] 当前分支是 Feature/homepage-curved-path-timeline。
-* [x] 首页可以打开。
-* [x] Hero 显示 Hello, World!。
-* [x] Hero 显示 A simple curved path timeline prototype.。
-* [x] 页面使用 Area 01 至 Area 04 测试区域。
-* [x] 页面使用 Major Event / Minor Event 测试节点。
-* [x] Overview 默认只显示 major nodes。
-* [x] Details 显示 major + minor nodes。
-* [x] 曲线路径连续贯穿所有区域。
-* [x] 曲线不是直线。
-* [x] 页面没有多邻游游戏化元素。
-* [x] 页面没有金币、经验、锁定关卡、排行榜。
-* [x] 页面没有真实个人信息。
-* [x] 页面没有真实城市信息。
-* [x] 页面没有真实图片。
-* [x] 点击节点可以打开详情小窗。
-* [x] 手机端路径变为纵向可读布局。
-* [x] 隐藏入口仍然可以进入 login.html。
-* [x] 任务清单页面未受影响。
-* [x] 健康管理页面未受影响。
+* [x] index.html 保留公开封面页。
+* [x] journey.html 可以打开路径页原型。
+* [x] ICP 页脚保留。
+* [x] 隐藏入口保留。
 
 ## 2026-06-17 - Add ICP filing number to public homepage footer
 
@@ -803,898 +234,41 @@ Only mark [x] if actually verified:
 * ICP 备案号链接到 https://beian.miit.gov.cn/。
 * 不添加公安联网备案号。
 * 仅保留公安联网备案号后续添加 TODO 注释。
-* 不修改首页文案、背景、隐藏入口、login、hub、健康管理或任务清单应用。
 
 ### 实际完成
 
-* 在 `index.html` 的公开首页底部新增静默页脚。
-* 将 `赣ICP备2026013131号-1` 显示为链接，指向 `https://beian.miit.gov.cn/`。
-* 为 ICP 链接添加 `target="_blank"` 和 `rel="noopener noreferrer"`。
-* 在页脚代码附近添加后续公安联网备案号 TODO 注释，但不在页面显示公安联网备案号。
-* 在 `styles.css` 中新增低调的底部居中页脚样式。
-
-### 修改范围
-
-* index.html
-* styles.css
-* docs/PROJECT_HISTORY.md
-
-### 未改变
-
-* 未修改 login.html。
-* 未修改 hub.html。
-* 未修改健康管理应用。
-* 未修改任务清单应用。
-* 未新增后端。
-* 未新增数据库。
-* 未新增认证或授权。
-* 未新增公安联网备案号显示内容。
+* index.html 增加 ICP 备案号链接。
+* styles.css 增加页脚样式。
+* 保持隐藏入口和首页主体视觉不变。
 
 ### 测试结果
 
-* [x] 当前分支是 Feature/homepage-update。
-* [x] 首页可以打开。
-* [x] 首页原有文案未改变。
-* [x] 首页背景未改变。
-* [x] 隐藏入口行为未改变。
-* [x] 页脚显示 赣ICP备2026013131号-1。
-* [x] ICP 链接 href 为 https://beian.miit.gov.cn/。
-* [x] ICP 链接包含 target="_blank"。
-* [x] ICP 链接包含 rel="noopener noreferrer"。
-* [x] 页面没有显示公安联网备案号。
-* [x] 代码中有后续添加公安联网备案号的 TODO 注释。
-* [x] login.html 未改变。
-* [x] hub.html 未改变。
-* [x] apps/health/* 未改变。
-* [x] apps/tasks/* 未改变。
+* [x] 页脚显示赣ICP备2026013131号-1。
+* [x] ICP 链接指向 https://beian.miit.gov.cn/。
+* [x] 未显示公安联网备案号。
 
-## 2026-06-14 - Restyle task calendar with floating edit popovers
+## 2026-06-14 - Build curved path timeline homepage framework
 
 ### 本次目标
 
-- 保留任务清单 V1 的任务数据和本地存储逻辑。
-- 将任务/日历界面从当前偏米色卡片式仪表盘风格，调整为白色轻量桌面应用风格。
-- 月历使用满屏白色网格、细分割线、紧凑任务条。
-- 点击日历事项时，必须弹出小型浮层详情窗，而不是打开厚重固定右侧表单。
-- 点击浮层里的日期时间行时，弹出轻量日期/时间选择器。
-- 点击空日期时，弹出新建任务小窗。
-- 保持任务视图和日历视图共用同一批任务数据。
-- 不使用 TickTick 品牌、logo 或专有素材。
+* 将公开首页改造成 Curved Path Timeline Homepage 的结构原型。
+* 使用测试区域 Area 01 至 Area 04。
+* 使用测试节点 Major Event / Minor Event。
+* 实现 Overview / Details 切换。
+* 实现连续曲线路径穿过多个区域。
+* 为后续编辑曲线、节点位置、区域顺序和内容预留数据结构。
 
 ### 实际完成
 
-- 将任务清单应用视觉调整为更白、更轻、更紧凑的桌面效率工具风格。
-- 日历视图隐藏左侧清单栏和右侧固定详情栏，让月历占据主要工作区。
-- 将月历网格、顶部工具栏和任务条改为细线、白底、紧凑样式。
-- 新增日历任务小型浮层详情窗，可编辑标题、清单、优先级、备注、标签、提醒和重复元数据。
-- 新增浮层内日期/时间行和二级日期时间选择浮层。
-- 保留日历空白日期的新建任务浮层、拖拽排程、任务列表同步和 localStorage 保存逻辑。
-- 增加日志输出，记录浮层打开、保存和本地状态保存结果。
-
-### 修改范围
-
-- apps/tasks/index.html
-- apps/tasks/tasks.css
-- apps/tasks/tasks.js
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未修改健康管理应用。
-- 未新增后端。
-- 未新增数据库。
-- 未新增认证或授权。
-- 未新增外部依赖。
-- 未使用 TickTick 品牌、logo 或专有素材。
-- 未新增番茄钟、习惯、四象限、看板、时间线、倒数日或第三方日历订阅。
+* 创建曲线路径时间线主页原型。
+* 使用 placeholder 区域和事件数据。
+* 增加 SVG 曲线路径和节点详情小窗。
+* 保持内容为测试占位，不包含真实个人信息。
 
 ### 测试结果
 
-- [x] 当前分支是 Feature/task-list-v1。
-- [x] 页面整体变为白色轻量桌面应用风格。
-- [x] 月历不再是米色大卡片仪表盘风格。
-- [x] 月历使用细网格线和紧凑任务条。
-- [x] 顶部月历工具栏为紧凑控件。
-- [x] 点击日历事项会弹出小型浮层详情窗。
-- [x] 小型浮层详情窗显示在日历上方。
-- [x] 点击日历事项不会打开厚重固定右侧表单。
-- [x] 点击日期时间行会打开日期/时间选择浮层。
-- [x] 日期/时间选择浮层可选择日期和时间。
-- [x] 点击空日期可打开新建任务浮层。
-- [ ] 新建任务后出现在对应日期。
-- [x] 修改任务日期/时间后，日历同步更新。
-- [ ] 完成任务后日历任务条弱化。
-- [ ] 移入垃圾桶后任务从日历消失。
-- [x] 任务列表视图仍然可用。
-- [x] localStorage 刷新后数据仍保留。
-- [x] 健康管理应用未受影响。
-- [x] 公开首页未被修改。
+* [x] Hero 使用 Hello, World! 占位内容。
+* [x] Area 和 Event 使用测试数据。
+* [x] Overview / Details 切换已实现。
+* [x] 未使用真实个人信息、真实城市或真实图片。
 
-## 2026-06-14 - Upgrade task calendar into scheduling panel
-
-### 本次目标
-
-- 保留当前任务清单 V1 的整体 UI。
-- 将日历模块从展示型月历升级为可操作的时间排程面板。
-- 日历和任务列表继续共用同一批任务数据。
-- 支持月视图、周视图和列表视图。
-- 支持在日历上直接创建任务。
-- 支持拖动未安排任务进入日历。
-- 支持拖动日历任务修改日期或时间。
-- 支持在周视图调整任务时长。
-- 支持基础批量选择和推迟操作。
-- 支持日历显示筛选。
-- 不新增第三方日历订阅、番茄钟、习惯、四象限、看板、时间线、倒数日、后端、数据库或外部依赖。
-
-### 实际完成
-
-- 增加日历视图切换：月、周、列表。
-- 增加日历快速创建弹窗，可按日期、全天、时间、清单和优先级创建任务。
-- 增加未安排任务面板，未设置日期的任务可拖入日历排程。
-- 增加月视图任务拖动换日期和跨日期范围创建入口。
-- 增加周视图时间轴、全天行、30 分钟排程槽、时间块拖动和底部时长调整。
-- 增加基础多选批量工具栏：完成、移入垃圾桶、推迟1小时、清除选择。
-- 增加日历显示设置：显示已完成、按清单筛选、按清单或优先级着色。
-- 升级任务数据模型，补充 `startAt`、`endAt`、`allDay`，并迁移旧 `dueDate` / `dueTime` 数据。
-
-### 修改范围
-
-- apps/tasks/index.html
-- apps/tasks/tasks.css
-- apps/tasks/tasks.js
-- README.md
-- docs/05_APP_MODULES.md
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未修改健康管理应用。
-- 未新增后端。
-- 未新增数据库。
-- 未新增认证或授权。
-- 未新增外部依赖。
-- 未新增第三方日历订阅。
-- 未新增番茄钟、习惯、四象限、看板、时间线或倒数日。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/task-list-v1。
-- [x] 日历月视图可以打开。
-- [x] 日历周视图可以打开。
-- [x] 日历列表视图可以打开。
-- [x] 单击月视图空日期可以打开新建任务弹窗。
-- [x] 单击周视图时间格可以打开带时间的新建任务弹窗。
-- [ ] 月视图拖拽多个日期可以创建跨天任务。
-- [ ] 未安排任务可以拖入月视图日期。
-- [ ] 未安排任务可以拖入周视图时间格。
-- [ ] 月视图任务可以拖动到另一日期。
-- [ ] 周视图任务可以拖动到另一日期或时间。
-- [ ] 周视图任务可以拖动边缘调整时长。
-- [ ] 点击日历任务可以在右侧详情区编辑。
-- [ ] 修改任务日期或时间后，日历位置同步更新。
-- [ ] Ctrl/Cmd 多选任务后可以批量完成或移入垃圾桶。
-- [ ] 推迟1小时对带时间任务有效。
-- [ ] 日历显示设置可以隐藏已完成任务。
-- [ ] 日历显示设置可以按清单筛选。
-- [ ] 日历颜色可以按清单或优先级显示。
-- [ ] 刷新页面后排程结果仍保留。
-- [ ] 任务视图和日历视图始终共用同一批任务数据。
-- [x] 未新增第三方日历订阅。
-- [x] 未新增番茄钟、习惯、四象限、看板、时间线、倒数日。
-- [x] 未新增后端、数据库、认证或外部依赖。
-
-## 2026-06-14 - Build task and calendar V1 local prototype
-
-### 本次目标
-
-- 从 main 新建或继续 Feature/task-list-v1 分支。
-- 创建任务清单 V1 本地前端原型。
-- 只实现任务模块和日历模块。
-- 任务视图和日历视图共用同一批任务数据。
-- 参考用户提供的任务列表和月历截图，实现核心布局。
-- 使用 localStorage 保存任务、清单、标签和界面状态。
-- 不引入番茄钟、习惯、四象限、看板、时间线、倒数日、协作、后端、数据库、认证、授权或外部依赖。
-
-### 实际完成
-
-- 新增任务清单 V1 页面、样式和本地交互脚本。
-- 建立左侧图标栏、清单侧栏、中间任务列表和右侧详情面板。
-- 建立日历月视图，并使用同一批任务数据渲染日期任务。
-- 实现快速添加、任务完成、详情编辑、标签、优先级、日期时间、基础子任务、已完成视图和垃圾桶。
-- 使用 localStorage 保存任务、清单、标签和界面状态。
-- 在 Personal Hub 中加入任务清单入口。
-- 更新 README 和模块文档。
-
-### 修改范围
-
-- hub.html
-- apps/tasks/index.html
-- apps/tasks/tasks.css
-- apps/tasks/tasks.js
-- README.md
-- docs/05_APP_MODULES.md
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未修改健康管理应用。
-- 未新增后端。
-- 未新增数据库。
-- 未新增真实登录。
-- 未新增认证或授权。
-- 未实现云同步。
-- 未实现真实提醒。
-- 未实现番茄钟。
-- 未实现习惯打卡。
-- 未实现四象限。
-- 未实现看板。
-- 未实现时间线。
-- 未使用 TickTick 品牌、logo 或专有素材。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/task-list-v1。
-- [x] hub.html 可以打开。
-- [x] Personal Hub 中可以看到任务清单入口。
-- [x] 点击任务清单入口可以进入 apps/tasks/index.html。
-- [x] 任务清单页面可以打开。
-- [x] 左侧图标栏显示。
-- [x] 清单侧栏显示 今天 / 最近7天 / 收集箱。
-- [x] 中间任务列表显示任务分组。
-- [ ] 快速添加任务可用。
-- [x] 点击任务可打开右侧详情。
-- [ ] 可编辑任务标题、备注、日期、时间、优先级、标签。
-- [x] 可完成任务。
-- [x] 可将任务移入垃圾桶。
-- [x] 日历月视图可以打开。
-- [x] 日历月视图使用同一批任务数据。
-- [ ] 修改任务日期后，任务在日历中移动到对应日期。
-- [x] 刷新页面后 localStorage 数据仍保留。
-- [ ] 重置示例数据可用。
-- [x] 公开首页未被修改。
-- [x] 健康管理应用未被修改。
-- [x] 未新增番茄钟、习惯、四象限、看板、时间线、倒数日。
-- [x] 未新增后端、数据库、认证、授权或外部依赖。
-
-## 2026-06-14 - Final health page visibility fixes
-
-### 本次目标
-
-- 确保页面中直接可见 OR 关系测试卡片。
-- 让旧本地数据加载时也能补充球类运动测试卡片。
-- 让管理卡片中的新增卡片入口更明显。
-- 将管理卡片入口收口为一个“新增卡片”按钮，避免重复。
-- 修正管理表单主按钮缺少默认强调色导致不明显的问题。
-- 清理放纵卡片中重复出现的警告程度。
-
-### 实际完成
-
-- 在数据迁移后检查是否存在球类运动测试卡片，缺失时自动补充，不清空其他本地数据。
-- 在管理抽屉头部增加明显的新增卡片按钮，并保留列表区域原有新增入口。
-- 支持多个新增卡片按钮共用同一套新增表单初始化逻辑。
-- 根据可见性反馈，保留一个新增卡片入口，并将表单提交统一为一个“保存卡片”按钮。
-- 为通用主按钮增加默认强调色，让管理表单按钮不再依赖卡片上下文变量。
-- 移除放纵卡片信息区中的重复警告程度，只保留下方高 / 中 / 低标签。
-
-### 修改范围
-
-- apps/health/index.html
-- apps/health/health.css
-- apps/health/health.js
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未重做整体 UI。
-- 未新增后端。
-- 未新增数据库。
-- 未新增登录或权限系统。
-- 未实现图片上传。
-- 未引入外部资源。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/health-management-v1。
-- [ ] 旧 localStorage 数据下会自动补充球类运动测试卡片。
-- [x] 重置示例数据后仍能看到球类运动测试卡片。
-- [x] 管理面板顶部有明显的新增卡片按钮。
-- [x] 管理面板只保留一个新增卡片入口。
-- [x] 管理表单保留一个清晰可见的保存卡片按钮。
-- [x] 放纵卡片只显示一个警告程度标签。
-- [x] 没有新增图片上传、后端、数据库、认证或外部依赖。
-
-## 2026-06-14 - Finalize health series card demo before merge
-
-### 本次目标
-
-- 在合回 main 前收口健康管理 V1 的同系列卡片体验。
-- 将 OR 关系卡片明确做成一个父卡片，多个小事项共用同一套周期、状态、重要程度和排序逻辑。
-- 增加可见测试示例：球类运动。
-- 球类运动包含篮球、足球、羽毛球三个小事项。
-- 完成任意一个小事项，即可完成球类运动本周期。
-- 保持当前健康管理页面大布局不变。
-
-### 实际完成
-
-- 在同系列父卡片中增加“同系列”徽标。
-- 在同系列父卡片中增加说明文案：任选其一完成，即可完成本周期。
-- 保持子事项以小 chips 形式展示，未拆成独立主卡片。
-- 保持球类运动测试卡片，包含篮球、足球、羽毛球三个小事项。
-- 确认选择篮球、足球、羽毛球任意一项都可以完成球类运动本周期。
-- 确认重置示例数据后仍能看到球类运动测试卡片。
-- 更新模块文档，明确同系列为父卡片模型。
-
-### 修改范围
-
-- apps/health/health.js
-- apps/health/health.css
-- docs/05_APP_MODULES.md
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未重做整体 UI。
-- 未新增后端。
-- 未新增数据库。
-- 未新增登录或权限系统。
-- 未实现图片上传。
-- 未引入外部资源。
-- 未引入框架或构建工具。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/health-management-v1。
-- [x] 页面整体布局保持原有方向。
-- [x] 运动打卡中有“球类运动”测试卡片。
-- [x] 球类运动是一个父卡片，不是篮球、足球、羽毛球三个独立主卡片。
-- [x] 球类运动显示小事项：篮球、足球、羽毛球。
-- [x] 小事项共用同一个周期、状态、重要程度和排序逻辑。
-- [x] 点击球类运动打卡会打开“这次完成了什么？”弹窗。
-- [x] 选择篮球后，球类运动本周期变为已完成。
-- [x] 选择足球后，球类运动本周期变为已完成。
-- [x] 选择羽毛球后，球类运动本周期变为已完成。
-- [x] 上次完成能显示所选小事项名称。
-- [x] 球类运动参与未打卡、已打卡、已逾期筛选。
-- [x] 球类运动打卡后能自动排序到后面。
-- [x] 重置示例数据后仍能看到球类运动测试卡片。
-- [x] 没有实现 JPG 或图片上传。
-- [x] 没有新增后端、数据库、认证或外部依赖。
-
-## 2026-06-14 - Add OR-relation series card support
-
-### 本次目标
-
-- 为健康管理中的健康饮食和运动打卡增加“同系列 / 任选其一”卡片逻辑。
-- 支持多个可选项共享同一个周期。
-- 完成其中任意一项即可完成本周期。
-- 示例：一周打一次篮球或足球，完成其中一个即视为球类运动完成。
-- 保持当前健康管理页面大布局不变。
-
-### 实际完成
-
-- 新增 `球类运动` 同系列运动卡片，包含篮球、足球、羽毛球三个可选项。
-- 保持同系列卡片作为一个父卡片展示，不拆成多个顶层卡片。
-- 将正向打卡历史升级为时间戳结构，并保存 `optionId` 与 `optionLabel`。
-- 更新旧日期字符串迁移逻辑，旧记录会转换为带时间戳的完成记录。
-- 同系列打卡弹层使用中文说明：“选择其中一项，本周期即视为完成。”
-- 同系列无可选项时显示中文 fallback，并禁用确认按钮，避免运行时报错。
-- 管理面板保留单项 / 同系列类型和选项编辑，校验文案改为“同系列卡片至少需要一个可选项。”
-- 更新模块文档，说明健康管理支持 OR 关系同系列卡片。
-
-### 修改范围
-
-- apps/health/health.js
-- docs/05_APP_MODULES.md
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未重做整体 UI。
-- 未新增后端。
-- 未新增数据库。
-- 未新增登录或权限系统。
-- 未实现图片上传。
-- 未引入外部资源。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/health-management-v1。
-- [x] 页面整体布局保持原有方向。
-- [x] 同系列卡片以一个父卡片展示，而不是多个独立主卡片。
-- [x] 球类运动显示篮球、足球、羽毛球选项。
-- [x] 点击球类运动打卡会弹出选项选择。
-- [x] 选择篮球或足球任一项后，球类运动本周期变为已完成。
-- [x] 同系列卡片参与未打卡、已打卡、已逾期筛选。
-- [x] 同系列卡片打卡后会自动排序到后面。
-- [x] 管理面板可以创建或编辑同系列卡片。
-- [x] 同系列卡片至少需要一个可选项。
-- [x] localStorage 刷新后仍保留选项打卡记录。
-- [x] 没有新增图片上传、后端、数据库、认证或外部依赖。
-
-## 2026-06-14 - Stabilize health management V1 framework
-
-### 本次目标
-
-- 保留当前健康管理页面的大布局和视觉方向。
-- 修正健康饮食和运动打卡中的旧“今日打卡”语义。
-- 将健康饮食和运动打卡统一为周期完成制。
-- 将筛选统一为：全部、未打卡、已打卡、已逾期。
-- 将放纵警告从近30天和建议上限逻辑改为近两周次数和颜色警告。
-- 清理管理卡片面板中的旧字段。
-- 保证当前框架可继续迭代，不把半成品逻辑合入 main。
-
-### 实际完成
-
-- 检查健康管理 active HTML、CSS、JavaScript，确认当前 UI 使用周期完成制和近两周放纵统计。
-- 清理 CSS 中残留的旧 `monthlyWarning` 状态类，改为当前 `tooMany` 状态类。
-- 确认健康饮食和运动打卡筛选为：全部、未打卡、已打卡、已逾期。
-- 确认放纵警告筛选为：全部、很好、可接受、略多、偏多、冷却中。
-- 确认管理面板不再包含近30天建议上限字段。
-- 确认内置图标库、fallback 图标和同系列打卡运行正常。
-
-### 修改范围
-
-- apps/health/health.css
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未重做整体 UI。
-- 未新增后端。
-- 未新增数据库。
-- 未新增登录或权限系统。
-- 未实现 JPG 或图片上传。
-- 未引入外部资源。
-- 未引入框架或构建工具。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/health-management-v1。
-- [x] 页面整体布局保持原有方向。
-- [x] 健康饮食筛选为：全部、未打卡、已打卡、已逾期。
-- [x] 运动打卡筛选为：全部、未打卡、已打卡、已逾期。
-- [x] 卡片不再显示“今日已打卡”。
-- [x] 卡片不再显示“今日已完成”。
-- [x] 卡片不再显示“每 X 天一次”。
-- [x] 卡片显示“周期：X天”。
-- [x] 正向卡片使用“重要程度”，不是“风险等级”。
-- [x] 打卡后卡片变为已完成并自动排序到后面。
-- [x] 已逾期卡片靠前。
-- [x] 放纵警告显示近两周次数。
-- [x] 放纵警告不再显示近30天。
-- [x] 放纵警告不再显示建议上限。
-- [x] 放纵警告允许一天记录多次。
-- [x] 管理卡片面板不再出现近30天建议上限。
-- [x] 没有实现 JPG 上传或图片上传。
-- [x] localStorage 刷新后仍保留数据。
-- [x] 没有新增后端、数据库、认证或外部依赖。
-
-## 2026-06-14 - Refine health management cycle logic
-
-### 本次目标
-
-- 保留当前健康管理页面的大布局和视觉方向。
-- 将健康饮食和运动打卡从“今日打卡”语义改为“周期完成”语义。
-- 将筛选改为：全部、未打卡、已打卡、已逾期。
-- 增加同系列卡片逻辑，例如苹果或香蕉任选其一即可完成同一周期。
-- 将放纵警告改为近两周统计，并允许一天多次记录。
-- 去掉放纵警告中的建议上限和近30天概念。
-- 建立内置图标库，不实现 JPG 或图片上传。
-
-### 实际完成
-
-- 重构健康饮食和运动打卡的状态计算，改为未打卡、已完成、已逾期三类周期状态。
-- 更新正向卡片文案，使用“周期：X天”“打卡”“补打卡”“已完成”等周期语义。
-- 更新健康饮食和运动打卡筛选为：全部、未打卡、已打卡、已逾期。
-- 增加按紧急程度排序：逾期靠前，打卡后自动后移。
-- 增加同系列卡片和同系列打卡弹层，示例为水果补充。
-- 增加内置图标库、图标选择器和通用 fallback 图标。
-- 重构放纵警告为近两周统计，移除建议上限和近30天字段。
-- 放纵警告支持一天多次记录，并按冷却/频率状态排序和着色。
-- 更新管理面板，支持单项/同系列、同系列选项编辑、内置图标选择和新的放纵字段。
-- 增加 `localStorage` 数据版本迁移，兼容旧版日期字符串和旧字段。
-
-### 修改范围
-
-- apps/health/index.html
-- apps/health/health.css
-- apps/health/health.js
-- docs/05_APP_MODULES.md
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 未修改公开首页。
-- 未新增后端。
-- 未新增数据库。
-- 未新增登录或权限系统。
-- 未实现图片上传。
-- 未引入外部资源。
-- 未重做整体布局。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/health-management-v1。
-- [x] 页面整体布局保持原有方向。
-- [x] 健康饮食筛选为：全部、未打卡、已打卡、已逾期。
-- [x] 运动打卡筛选为：全部、未打卡、已打卡、已逾期。
-- [x] 卡片不再显示“今日已打卡”。
-- [x] 卡片不再显示“每 X 天一次”。
-- [x] 卡片显示“周期：X天”。
-- [x] 打卡后卡片变为已完成并自动排序到后面。
-- [x] 已逾期卡片靠前。
-- [x] 同系列卡片可以选择子项打卡。
-- [x] 放纵警告显示近两周次数。
-- [x] 放纵警告不再显示建议上限。
-- [x] 放纵警告允许一天记录多次。
-- [x] 内置图标库有 fallback 通用图标。
-- [x] 没有实现 JPG 上传或图片上传。
-- [x] localStorage 刷新后仍保留数据。
-- [x] 没有新增后端、数据库、认证或外部依赖。
-
-## 2026-06-14 - Build health management V1 local prototype
-
-### 本次目标
-
-- 将健康管理从静态占位页升级为真正可交互的前端原型页面。
-- 将页面划分为健康饮食、运动打卡、放纵警告三个部分。
-- 为不同卡片实现按各自周期计算状态的逻辑。
-- 使用 localStorage 保存单设备本地数据。
-- 不引入后端、数据库或真实登录系统。
-
-### 实际完成
-
-- 新建 `apps/health/health.css`，承载健康管理页面专用样式。
-- 新建 `apps/health/health.js`，实现演示数据、本地保存、状态计算和渲染。
-- 重写 `apps/health/index.html`，建立健康管理 V1 页面结构。
-- 实现健康饮食、运动打卡、放纵警告三个模块。
-- 实现健康饮食和运动打卡的按周期状态计算与打卡操作。
-- 实现放纵警告的间隔、近30天次数和记录一次逻辑。
-- 实现 5 个顶部摘要指标。
-- 实现每个模块的筛选器。
-- 实现卡片管理面板，支持新增、编辑、排序、启停和删除。
-- 小幅更新 `hub.html` 中健康管理入口文案和链接。
-- 更新 README 和模块文档，记录健康管理当前为本地前端原型。
-
-### 修改范围
-
-- apps/health/index.html
-- apps/health/health.css
-- apps/health/health.js
-- hub.html
-- README.md
-- docs/05_APP_MODULES.md
-- docs/PROJECT_HISTORY.md
-
-### 未改变
-
-- 首页不变。
-- 未引入后端。
-- 未引入数据库。
-- 未引入真实登录。
-- 未引入权限系统。
-- 未引入外部资源依赖。
-
-### 测试结果
-
-- [x] 当前分支是 Feature/health-management-v1。
-- [x] 首页保持不变。
-- [x] 健康管理页面包含三个部分。
-- [x] 健康饮食卡片状态按周期正确变化。
-- [x] 运动打卡卡片状态按周期正确变化。
-- [x] 放纵警告卡片状态按逻辑正确变化。
-- [x] 打卡操作会更新状态。
-- [x] 记录一次放纵会更新状态。
-- [x] 刷新页面后 localStorage 数据仍保留。
-- [x] 管理卡片面板可以新增/编辑/排序/启停/删除。
-- [x] 页面无外部依赖。
-- [x] 没有新增后端/数据库/认证系统。
-
-## 2026-06-11 - Pre-merge engineering cleanup
-
-### 本次目标
-
-- 保持首页 UI、三行文字和页面流程不变。
-- 修复 `.gitignore`，确保本地缓存、环境变量、构建产物和 `.lnk` 被忽略。
-- 格式化 Markdown、CSS、JavaScript 和 PowerShell 文本文件。
-- 检查桌面快捷方式脚本引用的图标文件真实存在。
-- 修正文档中 Public 仓库现状和长期 Private Repo 方向的冲突。
-- 明确公开首页不是控制台，Personal Hub 才是未来工具控制台。
-
-### 实际完成
-
-- 保持 `index.html -> login.html -> hub.html` 页面流程不变。
-- 保持首页三行文字和透明隐藏入口不变。
-- 更新 `.gitignore`，补充 `.cache/`、`.tmp/`、`.vite/` 等忽略规则。
-- 格式化 README、项目历史和相关 Markdown 长行。
-- 格式化 `script.js`，保持原有日志行为不变。
-- 检查 `scripts/create_desktop_shortcut.ps1` 语法和图标文件引用。
-- 修正 `docs/PROJECT_GUIDE.md` 中关于仓库可见性和首页/Hub 定位的表述。
-
-### 未改变
-
-- 未改首页 UI。
-- 未改页面流程。
-- 未新增真实登录。
-- 未新增权限系统。
-- 未新增数据库。
-- 未新增后端。
-- 未新增框架。
-- 未新增子应用内容。
-
-### 测试结果
-
-- [x] `.gitignore` 每条规则独立成行。
-- [x] `assets/icon.jpg` 存在。
-- [x] `assets/shortcut-icon-current.ico` 存在。
-- [x] PowerShell 脚本语法检查通过。
-- [x] `script.js` 语法检查通过。
-- [x] 项目内没有 `.lnk` 文件。
-
-## 2026-06-11 - Desktop shortcut icon update
-
-### 本次目标
-
-- 将桌面快捷启动方式的图标改为用户提供的 `assets/icon.jpg`。
-- 从项目架构角度整理图标资源位置。
-- 保持快捷方式图标在 Windows 不同缩放下尽量清晰。
-
-### 实际完成
-
-- 将用户提供的图片保存在 `assets/icon.jpg`。
-- 基于 `assets/icon.jpg` 生成 Windows 快捷方式兼容的多尺寸
-  `assets/shortcut-icon.ico`。
-- 复制生成 `assets/shortcut-icon-current.ico`，
-  用于避开 Windows 桌面图标缓存。
-- 更新 `scripts/create_desktop_shortcut.ps1`，
-  让生成的 `Personal_Web.lnk` 使用 `assets/shortcut-icon-current.ico`。
-- 更新 README，记录快捷方式图标资源路径。
-
-### 是否涉及数据库
-
-否。
-
-### 是否涉及权限
-
-否。
-
-### 是否影响部署
-
-否。仍然是纯静态文件和本地快捷方式脚本。
-
-### 测试结果
-
-- [x] `assets/icon.jpg` 存在。
-- [x] `assets/shortcut-icon.ico` 存在。
-- [x] `assets/shortcut-icon-current.ico` 存在。
-- [x] PowerShell 脚本语法检查通过。
-- [x] 已重新运行脚本创建桌面快捷方式。
-
-### 遗留问题
-
-- 如果项目目录移动，需要重新运行快捷方式脚本。
-
-## 2026-06-11 - Private entrance flow refinement
-
-### 本次目标
-
-- 保持首页三行文字和透明隐藏入口不变。
-- 明确隐藏入口后的正确流程：index.html -> login.html -> hub.html。
-- 将 login.html 优化为未来登录入口占位页。
-- 将 hub.html 优化为 Personal Hub 占位页，并加入三个子应用占位卡片。
-- 保持静态、安全边界清晰，不实现真实功能。
-
-### 实际完成
-
-- 保持 `index.html` 极简三行首页和透明隐藏入口。
-- 将 `login.html` 调整为安静的未来私有入口占位页。
-- 在 `login.html` 增加静态预览操作，链接到 `hub.html`。
-- 将 `hub.html` 调整为 Personal Hub 占位页。
-- 在 `hub.html` 增加三个子应用占位卡片：App 01、App 02、App 03。
-- 补充占位页、操作链接、卡片和移动端样式。
-- 更新 README，说明当前流程和安全边界。
-
-### 未改变
-
-- 未实现真实登录。
-- 未实现假登录。
-- 未实现数据库。
-- 未实现后端。
-- 未实现权限系统。
-- 未实现具体子应用 UI。
-- 未实现具体子应用内容。
-
-## 2026-06-11 - Static foundation cleanup
-
-### 本次目标
-
-- 整理静态站基础文件。
-- 修正 README 与真实目录不一致的问题。
-- 修正文档中的角色命名和路由分类不一致问题。
-- 建立公开首页、登录占位页、Hub 占位页。
-
-### 实际完成
-
-- 重写 `index.html` 为完整 HTML5 公开首页。
-- 新增 `login.html` 作为静态登录占位页。
-- 新增 `hub.html` 作为静态 Personal Hub 占位页。
-- 重整 `styles.css`，按基础重置、变量、布局、首页、占位页、响应式等段落组织。
-- 重整 `script.js`，仅保留静态预览日志和页面类型识别。
-- 更新 `assets/icon.svg` 为项目内自包含图标。
-- 重整 `.gitignore`，保证每条规则独立成行。
-- 重整 `scripts/create_desktop_shortcut.ps1`，补充日志和注释。
-- 更新 `README.md`，说明当前静态阶段、限制、打开方式和文件结构。
-- 定向修正 docs 中 Visitor / Member / Owner 角色命名、
-  Public Routes / Auth Route / Private Routes 路由分类和隐藏入口安全说明。
-
-### 修改范围
-
-- index.html
-- login.html
-- hub.html
-- styles.css
-- script.js
-- assets/icon.svg
-- .gitignore
-- scripts/create_desktop_shortcut.ps1
-- README.md
-- docs/*
-
-### 是否涉及数据库
-
-否。
-
-### 是否涉及权限
-
-否。本次只修正文档概念，不实现真实权限系统。
-
-### 是否影响部署
-
-否。仍然是纯静态文件。
-
-### 测试结果
-
-- [ ] 双击 index.html 能打开公开首页。
-- [ ] 首页样式能正常加载。
-- [ ] 浏览器控制台没有明显报错。
-- [ ] 隐藏入口能跳转到 login.html。
-- [ ] login.html 能返回首页。
-- [ ] hub.html 能打开并显示占位说明。
-- [ ] 桌面快捷方式脚本能创建快捷方式。
-- [ ] .gitignore 每条规则独立成行。
-- [ ] README 文件结构与真实项目一致。
-
-### 遗留问题
-
-- 真实登录未实现。
-- 真实权限系统未实现。
-- 数据库未引入。
-- 公开站具体内容仍待确定。
-- 私人工具中心 UI 仍待确定。
-
-### 下一步建议
-
-- 继续完善公开首页视觉风格。
-- 再决定是否进入 Next.js / TypeScript 阶段。
-- 不要直接跳到数据库和真实登录。
-
-## 2026-06-09 - 初始化 Git 仓库
-
-### 本次目标
-
-- 在当前项目目录内建立 Git 版本管理；
-- 保留现有纯静态网站文件；
-- 不引入远程仓库、不部署、不修改项目外配置。
-
-### 实际完成
-
-- 执行 `git init` 初始化本地仓库；
-- 将当前项目文件纳入首次版本记录；
-- 更新项目历史记录。
-
-### 修改范围
-
-- `.git/`
-- `docs/PROJECT_HISTORY.md`
-
-### 是否涉及数据库
-
-否。
-
-### 是否涉及权限
-
-否。
-
-### 是否影响部署
-
-否。当前只是本地 Git 版本管理。
-
-### 测试结果
-
-- [x] 当前目录已成为 Git 仓库；
-- [x] `git status` 可以正常显示仓库状态；
-- [x] 首次提交已创建。
-
-### 遗留问题
-
-- 尚未配置远程仓库；
-- 尚未推送到 GitHub。
-
-### 下一步建议
-
-- 后续需要备份或协作时，再添加 GitHub 远程仓库；
-- 每次完成可验收改动后再提交。
-
-## 2026-06-07 - 创建最小静态首页
-
-### 本次目标
-
-- 在备案完成前，先创建一个纯静态本地首页；
-- 所有网页资源保存在当前项目文件夹中；
-- 用户可以通过桌面快捷方式直接在浏览器中打开网页；
-- 打开网页时不需要启动服务器，也不弹出终端窗口。
-
-### 实际完成
-
-- 创建 `index.html`；
-- 创建 `styles.css`；
-- 创建 `script.js`；
-- 创建本地图标 `assets/icon.svg`；
-- 创建 Windows 桌面快捷方式生成脚本；
-- 更新 README；
-- 更新项目历史记录。
-
-### 修改范围
-
-- `index.html`
-- `styles.css`
-- `script.js`
-- `assets/icon.svg`
-- `scripts/create_desktop_shortcut.ps1`
-- `README.md`
-- `docs/PROJECT_HISTORY.md`
-- `.gitignore`
-
-### 是否涉及数据库
-
-否。
-
-### 是否涉及权限
-
-否。
-
-### 是否影响部署
-
-否。当前只是本地静态网页。
-
-### 测试结果
-
-- [ ] 双击 `index.html` 可以在浏览器中打开；
-- [ ] 页面显示 `Hello World`；
-- [ ] 页面显示 `Personal_Web`；
-- [ ] 样式文件正常加载；
-- [ ] 图标文件在本地；
-- [ ] 运行脚本后桌面出现 `Personal_Web` 快捷方式；
-- [ ] 点击桌面快捷方式可以打开网页；
-- [ ] 点击桌面快捷方式不会弹出终端窗口。
-
-### 遗留问题
-
-- 网站备案尚未完成；
-- 尚未部署到服务器；
-- 尚未配置 HTTPS；
-- 尚未实现登录；
-- 尚未接入数据库。
-
-### 下一步建议
-
-- 等备案流程推进后，再考虑服务器部署；
-- 在本地继续小步扩展 homepage；
-- 不要提前引入复杂框架。

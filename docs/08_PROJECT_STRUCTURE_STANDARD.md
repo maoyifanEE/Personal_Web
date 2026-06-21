@@ -1,88 +1,120 @@
-# Project Structure Standard
+﻿# Project Structure Standard
 
 ## Purpose
 
-This document defines how `Personal_Web` should stay organized as more pages and
-child apps are added.
+This document defines how `Personal_Web` should stay organized as more pages, child apps, and future backend plans are added.
 
-It is a structure standard only. It does not implement backend, database,
-authentication, authorization, or API code.
+It is a structure standard.
+
+It does not implement backend code.
+
+It does not implement database code.
+
+It does not implement authentication.
+
+It does not implement authorization.
 
 ## Page Categories
 
-### Public Pages
+* Public pages.
+* Static private placeholders.
+* Child apps.
+* Prototype pages.
+* Future backend/API areas.
 
-- `index.html`
-- `journey.html` while it remains a public/static prototype
+Public pages are available without private access control.
 
-### Static Private Placeholders
+Static private placeholders are visually private but not secure.
 
-- `login.html`
-- `hub.html`
+Child apps live under `apps/` and are linked from the hub.
 
-These pages are visually private, but not secure until real backend
-authentication and authorization exist.
+Prototype pages may include local-only editor behavior.
 
-### Child Apps
+Future backend/API areas must be planned before implementation.
 
-- `apps/tasks/`
-- `apps/health/`
-- `apps/special-subscription/`
+## Root Page Rules
 
-### Prototype Pages
+* Root pages stay in the project root.
+* Root pages currently include `index.html`, `journey.html`, `login.html`, and `hub.html`.
+* Root CSS and JavaScript should remain focused on root pages.
+* Journey-specific CSS and JavaScript should stay in `journey.css` and `journey.js`.
+* Root pages should not import child app logic.
 
-Prototype pages are static pages or local browser prototypes without
-backend/database/auth.
+## Child App Rules
 
-### Future Backend/API
+* Child apps live under `apps/module-name/`.
+* Each child app should have `apps/module-name/index.html`.
+* Each child app may own CSS only when styling is needed.
+* Each child app may own JavaScript only when behavior is needed.
+* Child apps should include a return link to `../../hub.html`.
+* Do not mix app logic across apps.
+* Do not make one child app depend on another child app local files.
+* Shared CSS or JavaScript should be introduced only intentionally.
+* Do not store real private data in child app static files.
 
-Backend/API work is not implemented yet. It must be designed separately before
-server code is added.
+## Documentation Rules
 
-## File Organization Rules
-
-- Root pages stay in the project root.
-- Child apps live under `apps/&lt;module-name&gt;/`.
-- Each child app owns its own `index.html`.
-- Each child app may own CSS/JS only when needed.
-- Do not mix app logic across apps.
-- Shared CSS/JS should be introduced only intentionally.
-- Do not place real private data, secrets, database files, uploads, logs, or
-  backups in the repository.
+* README should remain a concise project overview.
+* `docs/00_DESIGN_GUIDE.md` owns data and deployment boundaries.
+* `docs/05_APP_MODULES.md` owns the child app registry.
+* `docs/06_VISUAL_STYLE_GUIDE.md` owns visual and navigation style rules.
+* `docs/07_ROUTE_AND_SECURITY_RULES.md` owns route and security boundaries.
+* `docs/09_BACKEND_DATABASE_PLAN.md` owns future backend planning.
+* `docs/PROJECT_HISTORY.md` records completed project changes.
+* Markdown source files must use real newline characters.
+* Tables must have one row per source line.
+* Checklist items must have one item per source line.
 
 ## New Child App Checklist
 
-- [ ] Update `docs/05_APP_MODULES.md`.
-- [ ] Create `apps/&lt;module-name&gt;/index.html`.
-- [ ] Add app-local CSS only if needed.
-- [ ] Add app-local JS only if needed.
-- [ ] Add a `hub.html` entry.
-- [ ] Add a return link to `../../hub.html`.
-- [ ] Add manual test notes.
-- [ ] Do not add real data.
-- [ ] Do not add backend/database/auth unless explicitly requested.
+* [ ] Update `docs/05_APP_MODULES.md`.
+* [ ] Create `apps/module-name/index.html`.
+* [ ] Add app-local CSS only if needed.
+* [ ] Add app-local JS only if needed.
+* [ ] Add return link to `../../hub.html`.
+* [ ] Add `hub.html` entry.
+* [ ] Add manual test checklist.
+* [ ] Do not add real data.
+* [ ] Do not add backend/database/auth unless explicitly requested.
+* [ ] Do not modify unrelated child apps.
 
 ## Data Rules
 
-- Prototype `localStorage` is allowed only for demos.
-- Real private data must not be committed.
-- Real private data should eventually live in backend/API and server-side
-  database.
-- Secrets and production configs must not be committed.
-- GitHub stores code, structure, styles, docs, and clearly fake sample data.
-- GitHub must not store real private data or secrets.
+* `localStorage` is allowed for prototypes only.
+* Real private data must not be committed.
+* Real private data should eventually live in backend/API and server-side database.
+* Secrets and production configs must not be committed.
+* Database files must not be committed.
+* Uploads must not be committed.
+* Logs must not be committed.
+* Backups must not be committed.
 
 ## Branch Rules
 
-- Use `Feature/xxx` for new features.
-- Use `BugFix/xxx` for fixes.
-- Do not work directly on `main`.
-- Do not merge or push unless explicitly instructed.
+* Use `Feature/xxx` for new features.
+* Use `BugFix/xxx` for fixes.
+* Do not work directly on `main` unless explicitly instructed.
+* Do not merge unless explicitly instructed.
+* Do not push unless explicitly instructed.
+* Do not delete existing branches unless explicitly instructed.
 
 ## Merge Readiness Notes
 
-- Structure-only changes should not modify app behavior.
-- Documentation changes should remain separate from feature implementation.
-- Child app additions must update the app registry first.
-- Backend and database structure must not be introduced casually.
-- Manual review should confirm that only intended documentation files changed.
+* Structure-only changes should not modify app behavior.
+* Documentation changes should remain separate from feature implementation.
+* Child app additions must update the app registry first.
+* Backend and database structure must not be introduced casually.
+* Manual review should confirm that only intended documentation files changed.
+
+## Manual Structure Review Checklist
+
+* [ ] Root pages remain in the project root.
+* [ ] Child apps remain under `apps/`.
+* [ ] App-specific files stay inside the app folder.
+* [ ] Documentation files are readable raw Markdown.
+* [ ] No real private data is committed.
+* [ ] No backend code is introduced without request.
+* [ ] No database files are introduced without request.
+* [ ] No unrelated app behavior changes are included.
+* [ ] Branch name matches the task type.
+* [ ] Commit scope matches the documented task.
