@@ -13,11 +13,11 @@ static prototypes, but they are not secure production apps yet.
 
 ## Current Modules
 
-| Module               | Chinese name | Path                                   | Status                 | Storage                                        | Backend         | Notes                                                              |
-| -------------------- | ------------ | -------------------------------------- | ---------------------- | ---------------------------------------------- | --------------- | ------------------------------------------------------------------ |
-| Task List            | 任务清单     | `apps/tasks/index.html`                | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Real sync requires future backend, database, and authentication.   |
-| Health Management    | 健康管理     | `apps/health/index.html`               | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Health-related data is sensitive; do not commit real private data. |
-| Special Subscription | 特别订阅     | `apps/special-subscription/index.html` | Blank placeholder      | None                                           | Not implemented | No real subscription, payment, API, or backend logic yet.          |
+| Module | Chinese name | Path | Status | Storage | Backend | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype | Not implemented | Real sync requires future backend, database, and authentication. |
+| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype | Not implemented | Health data is sensitive; do not commit real private data. |
+| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not implemented | No subscription, payment, API, or backend logic yet. |
 
 ## Module Details
 
