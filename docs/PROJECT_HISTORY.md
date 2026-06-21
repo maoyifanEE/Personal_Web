@@ -36,7 +36,7 @@
 * [x] Broad broken question-mark scan passes.
 * [x] Forbidden storage pattern scan passes.
 * [x] JavaScript syntax checks pass.
-* [ ] Interactive browser behavior was manually verified.
+* [ ] Interactive browser behavior was not manually verified in the Codex environment.
 
 ## 2026-06-21 - Add visitor message UI prototype
 
