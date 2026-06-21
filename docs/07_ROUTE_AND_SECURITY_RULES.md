@@ -74,3 +74,11 @@ The following items are **planned / not implemented yet**:
 - server-side permission checks
 
 Frontend hiding and visual navigation are not enough.
+
+## Merge Readiness Notes
+
+- This document defines current security boundaries only.
+- Static placeholders must not be treated as real protection.
+- Real private data must wait for backend authentication and authorization.
+- Future security implementation must use a dedicated branch.
+- Manual verification should confirm that no current route claims real protection.

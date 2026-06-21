@@ -78,3 +78,11 @@ server code is added.
 - Use `BugFix/xxx` for fixes.
 - Do not work directly on `main`.
 - Do not merge or push unless explicitly instructed.
+
+## Merge Readiness Notes
+
+- Structure-only changes should not modify app behavior.
+- Documentation changes should remain separate from feature implementation.
+- Child app additions must update the app registry first.
+- Backend and database structure must not be introduced casually.
+- Manual review should confirm that only intended documentation files changed.

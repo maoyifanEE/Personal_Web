@@ -13,8 +13,10 @@
 
 * 检查 README 和主要 docs 文件的原始 Markdown 行长度、表格和 checklist 格式。
 * 确认 `docs/PROJECT_HISTORY.md` 的最新测试列表使用真实 Markdown checkboxes。
-* 修复 `docs/05_APP_MODULES.md` 中子应用模块表格的说明文本和路径模板转义。
-* 修复 `docs/08_PROJECT_STRUCTURE_STANDARD.md` 中未转义的模块路径模板，改为安全的 `apps/&lt;module-name&gt;/` 格式。
+* 修复 `docs/05_APP_MODULES.md` 中子应用模块表格的说明文本。
+* 修复 `docs/05_APP_MODULES.md` 中路径模板转义。
+* 修复 `docs/08_PROJECT_STRUCTURE_STANDARD.md` 中未转义的模块路径模板。
+* 将模块路径模板改为安全的 `apps/&lt;module-name&gt;/` 格式。
 * 新增本次文档格式修复历史记录。
 * 未修改任何应用功能代码。
 
