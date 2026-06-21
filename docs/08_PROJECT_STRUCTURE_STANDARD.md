@@ -42,7 +42,7 @@ server code is added.
 ## File Organization Rules
 
 - Root pages stay in the project root.
-- Child apps live under `apps/<module-name>/`.
+- Child apps live under `apps/&lt;module-name&gt;/`.
 - Each child app owns its own `index.html`.
 - Each child app may own CSS/JS only when needed.
 - Do not mix app logic across apps.
@@ -53,7 +53,7 @@ server code is added.
 ## New Child App Checklist
 
 - [ ] Update `docs/05_APP_MODULES.md`.
-- [ ] Create `apps/<module-name>/index.html`.
+- [ ] Create `apps/&lt;module-name&gt;/index.html`.
 - [ ] Add app-local CSS only if needed.
 - [ ] Add app-local JS only if needed.
 - [ ] Add a `hub.html` entry.
@@ -78,3 +78,11 @@ server code is added.
 - Use `BugFix/xxx` for fixes.
 - Do not work directly on `main`.
 - Do not merge or push unless explicitly instructed.
+
+## Merge Readiness Notes
+
+- Structure-only changes should not modify app behavior.
+- Documentation changes should remain separate from feature implementation.
+- Child app additions must update the app registry first.
+- Backend and database structure must not be introduced casually.
+- Manual review should confirm that only intended documentation files changed.

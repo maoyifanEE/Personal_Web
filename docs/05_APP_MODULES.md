@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document is the child app registry and module standard for
+This document is the authoritative child app registry and module standard for
 `Personal_Web`.
 
 Update this document before adding a new child app or changing an existing child
@@ -15,9 +15,9 @@ static prototypes, but they are not secure production apps yet.
 
 | Module | Chinese name | Path | Status | Storage | Backend | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Real sync requires future backend, database, and authentication. |
-| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Health-related data is sensitive; do not commit real private data. |
-| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not implemented | No real subscription, payment, API, or backend logic yet. |
+| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype | Not implemented | Real sync requires future backend, database, and authentication. |
+| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype | Not implemented | Health data is sensitive; do not commit real private data. |
+| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not implemented | No subscription, payment, API, or backend logic yet. |
 
 ## Module Details
 
@@ -69,8 +69,8 @@ static prototypes, but they are not secure production apps yet.
 
 ## Future / Proposed Modules
 
-These are ideas only. They are **not implemented** and must not be documented as
-existing behavior.
+These are ideas only. They are **planned only / not implemented** and must not
+be documented as existing behavior.
 
 - Exercise Tracker
 - Korean Learning
@@ -78,16 +78,14 @@ existing behavior.
 
 ## Child App Development Rules
 
-- Add or update this document before creating a new child app.
+- Update this document before creating or changing a child app.
 - Child apps live under `apps/&lt;module-name&gt;/`.
-- Each child app should have its own `index.html`.
-- CSS and JS should be app-local unless shared styles are intentionally
-  introduced.
+- Each child app should have `apps/&lt;module-name&gt;/index.html`.
+- CSS/JS should be app-local unless shared files are intentionally introduced.
 - Each child app should include a return link to `../../hub.html`.
-- Do not mix one app's logic into another app's files.
+- Do not mix one app's logic into another app.
 - Do not store real private data in static files.
-- Do not add backend/database/auth inside a child app branch unless explicitly
-  requested.
+- Do not casually add backend/database/auth in app feature branches.
 - Data model changes must be documented before implementation.
 - Future server sync must follow `docs/00_DESIGN_GUIDE.md`.
 - Route and access expectations must follow
@@ -119,8 +117,8 @@ existing behavior.
 - [ ] Create `apps/&lt;module-name&gt;/index.html`.
 - [ ] Add app-local CSS only if needed.
 - [ ] Add app-local JS only if needed.
-- [ ] Add a `hub.html` entry.
-- [ ] Add a return link to `../../hub.html`.
-- [ ] Add manual test notes.
+- [ ] Add return link to `../../hub.html`.
+- [ ] Add `hub.html` entry.
+- [ ] Add manual test checklist.
 - [ ] Do not add real data.
 - [ ] Do not add backend/database/auth unless explicitly requested.
