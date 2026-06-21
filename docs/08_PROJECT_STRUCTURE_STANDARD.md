@@ -1,66 +1,78 @@
 # Project Structure Standard
 
+## Purpose
+
 This document defines how `Personal_Web` should stay organized as more pages and
 child apps are added.
 
-## 1. Page Categories
+It is a structure standard only. It does not implement backend, database,
+authentication, authorization, or API code.
 
-Public pages:
+## Page Categories
+
+### Public Pages
 
 - `index.html`
 - `journey.html` while it remains a public/static prototype
 
-Static private placeholders:
+### Static Private Placeholders
 
 - `login.html`
 - `hub.html`
 
-Child apps:
+These pages are visually private, but not secure until real backend
+authentication and authorization exist.
+
+### Child Apps
 
 - `apps/tasks/`
 - `apps/health/`
 - `apps/special-subscription/`
 
-Prototype pages:
+### Prototype Pages
 
-- Static pages or local browser prototypes without backend/database/auth.
+Prototype pages are static pages or local browser prototypes without
+backend/database/auth.
 
-Future backend/API:
+### Future Backend/API
 
-- Not implemented yet.
-- Must be designed separately before adding server code.
+Backend/API work is not implemented yet. It must be designed separately before
+server code is added.
 
-## 2. File Organization Rules
+## File Organization Rules
 
 - Root pages stay in the project root.
 - Child apps live under `apps/<module-name>/`.
-- Each child app owns its `index.html`.
-- Each child app owns CSS/JS only when needed.
-- Shared styles should be introduced only when duplication becomes a real
-  maintenance problem.
-- Do not mix one app's logic into another app's files.
+- Each child app owns its own `index.html`.
+- Each child app may own CSS/JS only when needed.
+- Do not mix app logic across apps.
+- Shared CSS/JS should be introduced only intentionally.
 - Do not place real private data, secrets, database files, uploads, logs, or
   backups in the repository.
 
-## 3. New Child App Checklist
+## New Child App Checklist
 
-- Add or update the module in `docs/05_APP_MODULES.md` first.
-- Create `apps/<module-name>/index.html`.
-- Add CSS/JS only if needed.
-- Add a `hub.html` entry.
-- Add a return link to `../../hub.html`.
-- Add manual test notes.
-- Do not add real data.
-- Do not add backend/auth/database unless explicitly requested.
+- [ ] Update `docs/05_APP_MODULES.md`.
+- [ ] Create `apps/<module-name>/index.html`.
+- [ ] Add app-local CSS only if needed.
+- [ ] Add app-local JS only if needed.
+- [ ] Add a `hub.html` entry.
+- [ ] Add a return link to `../../hub.html`.
+- [ ] Add manual test notes.
+- [ ] Do not add real data.
+- [ ] Do not add backend/database/auth unless explicitly requested.
 
-## 4. Data Rules
+## Data Rules
 
 - Prototype `localStorage` is allowed only for demos.
-- Real private data must move to backend/API and server-side database later.
+- Real private data must not be committed.
+- Real private data should eventually live in backend/API and server-side
+  database.
+- Secrets and production configs must not be committed.
 - GitHub stores code, structure, styles, docs, and clearly fake sample data.
 - GitHub must not store real private data or secrets.
 
-## 5. Branch Rules
+## Branch Rules
 
 - Use `Feature/xxx` for new features.
 - Use `BugFix/xxx` for fixes.

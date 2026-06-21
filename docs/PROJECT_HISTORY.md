@@ -1,5 +1,79 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-21 - Fix documentation formatting and add backend planning standard
+
+### 本次目标
+
+* 修复项目规范化文档的 Markdown 排版问题。
+* 将压缩成一行的文档整理成正常可读的 Markdown。
+* 明确 README 只作为项目总览入口。
+* 明确 docs/05_APP_MODULES.md 作为子应用注册表。
+* 明确 docs/06_VISUAL_STYLE_GUIDE.md 中当前封面页入口规则。
+* 明确 docs/07_ROUTE_AND_SECURITY_RULES.md 中隐藏入口不是安全机制。
+* 明确 docs/08_PROJECT_STRUCTURE_STANDARD.md 中项目结构和新增子应用规则。
+* 新增或完善未来后端/数据库规划文档。
+* 保证未实现功能全部标记为 planned / not implemented yet。
+* 不修改任何应用功能代码。
+
+### 实际完成
+
+* 整理 README，使其保持项目总览入口定位，并补充后端/数据库规划文档引用。
+* 将 `docs/05_APP_MODULES.md` 整理为可读的子应用注册表、规则和模板。
+* 将 `docs/06_VISUAL_STYLE_GUIDE.md` 整理为可读的视觉与导航规则文档。
+* 将 `docs/07_ROUTE_AND_SECURITY_RULES.md` 整理为路由分类、安全边界和未来安全模型文档。
+* 将 `docs/08_PROJECT_STRUCTURE_STANDARD.md` 整理为项目结构标准和新增子应用检查清单。
+* 重建 `docs/00_DESIGN_GUIDE.md` 的中文内容，保留代码/部署/数据归属规则和必需总结句。
+* 新增 `docs/09_BACKEND_DATABASE_PLAN.md`，明确 backend/database/auth/API/cloud sync 均未实现。
+* 修正本次相关文档中的乱码中文模块名。
+
+### 修改范围
+
+* README.md
+* docs/00_DESIGN_GUIDE.md
+* docs/05_APP_MODULES.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/07_ROUTE_AND_SECURITY_RULES.md
+* docs/08_PROJECT_STRUCTURE_STANDARD.md
+* docs/09_BACKEND_DATABASE_PLAN.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 index.html。
+* 未修改 journey.html。
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改公开首页视觉。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未新增后端代码。
+* 未新增数据库文件。
+* 未新增 API。
+* 未新增认证或授权。
+* 未新增真实私人数据。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/project-structure-hardening。
+* [x] docs/05_APP_MODULES.md 已整理为可读 Markdown。
+* [x] docs/06_VISUAL_STYLE_GUIDE.md 已整理为可读 Markdown。
+* [x] docs/07_ROUTE_AND_SECURITY_RULES.md 已整理为可读 Markdown。
+* [x] docs/08_PROJECT_STRUCTURE_STANDARD.md 已整理为可读 Markdown。
+* [x] docs/09_BACKEND_DATABASE_PLAN.md 明确标记 backend/database/auth 未实现。
+* [x] README.md 仍然是项目总览，不包含过多应用细节。
+* [x] docs/00_DESIGN_GUIDE.md 数据安全规则未被削弱。
+* [x] index.html 可打开且行为未变。
+* [x] journey.html 可打开且行为未变。
+* [x] hub.html 可打开且行为未变。
+* [x] apps/tasks/index.html 可打开且行为未变。
+* [x] apps/health/index.html 可打开且行为未变。
+* [x] apps/special-subscription/index.html 可打开且行为未变。
+
 ## 2026-06-21 - Normalize project structure documentation
 
 ### 本次目标

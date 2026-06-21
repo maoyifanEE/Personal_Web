@@ -1,39 +1,25 @@
 # Route and Security Rules
 
+## Purpose
+
 This document records route categories and current security limits.
 
-Current stage: static front-end preview. There is no backend, no database, no
-real login, no authentication, and no authorization yet.
+Current stage: **static front-end preview**. There is no backend, no database,
+no real login, no authentication, and no authorization yet.
 
-## 1. Public Routes
+## Current Route Categories
 
-Public pages can be opened directly:
+| Category | Route | Current status | Security status |
+| --- | --- | --- | --- |
+| Public cover | `/` / `index.html` | Public cover homepage | Public page |
+| Public/static prototype | `journey.html` | Curved Path Timeline prototype with placeholder data | Public page for now; editor is not secure admin |
+| Login placeholder | `login.html` | Static login placeholder | Not real authentication |
+| Private hub placeholder | `hub.html` | Static Personal Hub placeholder | Not protected; direct URL access is possible |
+| Child app prototype | `apps/tasks/index.html` | Task List prototype | Not protected; no real backend sync |
+| Child app prototype | `apps/health/index.html` | Health Management prototype | Not protected; health data is sensitive |
+| Child app placeholder | `apps/special-subscription/index.html` | Special Subscription blank placeholder | Not protected; no subscription/payment logic |
 
-- `/` / `index.html`
-- `journey.html`
-
-`index.html` is the public cover homepage. `journey.html` is currently a
-public/static curved path timeline prototype with placeholder data only.
-
-## 2. Login Placeholder
-
-- `login.html`
-
-This page is only a static login placeholder. It does not authenticate anyone
-and must not be treated as secure.
-
-## 3. Private Placeholder Routes
-
-- `hub.html`
-- `apps/tasks/index.html`
-- `apps/health/index.html`
-- `apps/special-subscription/index.html`
-
-These pages are private-tool placeholders or child app prototypes, but direct
-URL access is still possible until real backend authentication and authorization
-exist.
-
-## 4. Hidden Entrance Rule
+## Important Security Boundary
 
 Hidden buttons and hidden links are visual navigation devices only.
 
@@ -50,25 +36,41 @@ Current hidden entrances:
 - Hidden lower-left journey entrance: opens `journey.html`.
 - Hidden private entrance: opens `login.html`.
 
-Do not rely on hidden entrances to protect data.
+Important limits:
 
-## 5. Data Rule
+- `login.html` is a static placeholder.
+- `hub.html` and child app pages can still be opened directly by URL.
+- Do not rely on hidden entrances to protect data.
+- Do not store real private data until real authentication, backend, and
+  database support exist.
 
-Do not store real private data until real security exists.
+## Data Rule
 
 Static files, sample data, local JSON, Markdown, HTML, CSS, and JavaScript must
-not contain real private data, secrets, database files, uploads, logs, backups,
-or production-only config.
+not contain:
 
-## 6. Future Security Principle
+- real private data
+- secrets
+- database files
+- uploads
+- logs
+- backups
+- production-only configuration
 
-Long-term private features require:
+Prototype `localStorage` can be used for demos, but it is not secure long-term
+private data storage.
+
+## Future Required Security Model
+
+The following items are **planned / not implemented yet**:
 
 - real authentication
-- real authorization
+- server-side session or token handling
+- authorization checks
+- protected private routes
+- protected APIs
+- user-specific data isolation
+- secure server-side database
 - server-side permission checks
-- protected routes
-- backend/API design
-- server-side database ownership for real private data
 
 Frontend hiding and visual navigation are not enough.

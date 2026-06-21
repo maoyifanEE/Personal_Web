@@ -4,35 +4,21 @@ Personal_Web is a long-term personal website and personal tools project.
 
 Current stage: **static front-end preview**.
 
-There is no backend, no database, no real login, no authentication, no
-authorization, and no cloud sync yet. Private pages and child apps are currently
-static/local prototypes, not secure production tools.
+The project currently has no backend, no database, no real login,
+no authentication, no authorization, and no cloud sync. Private pages and child
+apps are static/local prototypes, not secure production tools.
 
 ## Current Pages
 
-### Public Pages
-
-- `index.html`: public cover homepage.
-  - Contains the ICP filing footer.
-  - Contains a hidden lower-left entrance to `journey.html`.
-  - Contains a separate hidden private entrance to `login.html`.
-  - Normal cover background clicks do not navigate.
-- `journey.html`: Curved Path Timeline prototype.
-  - Uses placeholder data only.
-  - Includes a local editor prototype.
-  - This is not a secure admin page.
-
-### Hidden / Private Placeholders
-
-- `login.html`: static login placeholder. It does not authenticate anyone.
-- `hub.html`: static Personal Hub placeholder. It is not protected by real
-  authorization and links to child app prototypes.
-
-### Child Apps
-
-- `apps/tasks/index.html`: 任务清单 local/static prototype.
-- `apps/health/index.html`: 健康管理 local/static prototype.
-- `apps/special-subscription/index.html`: 特别订阅 blank placeholder.
+| Page | Category | Current status |
+| --- | --- | --- |
+| `index.html` | Public cover homepage | Contains ICP footer, hidden journey entrance, and hidden private entrance. Normal cover background clicks do not navigate. |
+| `journey.html` | Public/static prototype | Curved Path Timeline prototype with placeholder data and a local editor prototype. Not a secure admin page. |
+| `login.html` | Hidden/private placeholder | Static login placeholder. It does not authenticate anyone. |
+| `hub.html` | Hidden/private placeholder | Static Personal Hub placeholder. It is not protected by real authorization. |
+| `apps/tasks/index.html` | Child app prototype | 任务清单 static/local prototype. |
+| `apps/health/index.html` | Child app prototype | 健康管理 static/local prototype. |
+| `apps/special-subscription/index.html` | Child app placeholder | 特别订阅 blank placeholder. |
 
 Detailed child app status and development rules live in
 `docs/05_APP_MODULES.md`.
@@ -42,7 +28,8 @@ Detailed child app status and development rules live in
 - The ICP footer opens `https://beian.miit.gov.cn/`.
 - The hidden lower-left journey entrance opens `journey.html`.
 - The hidden private entrance opens `login.html`.
-- `hub.html` links to child apps.
+- Normal cover background clicks do not open `journey.html`.
+- `hub.html` links to child app prototypes.
 - Hidden entrances are visual navigation devices only. They are not security.
 
 ## Data Safety
@@ -52,9 +39,10 @@ Detailed child app status and development rules live in
   must never be committed.
 - Current `localStorage` usage is prototype-only. It is not long-term private
   data storage.
+- Future backend/database/auth work is planned, not implemented.
 - Before adding data-related behavior, read `docs/00_DESIGN_GUIDE.md`.
-- Route and security expectations are documented in
-  `docs/07_ROUTE_AND_SECURITY_RULES.md`.
+- Before route/auth/security work, read `docs/07_ROUTE_AND_SECURITY_RULES.md`.
+- Before backend/database work, read `docs/09_BACKEND_DATABASE_PLAN.md`.
 
 ## Development Rules
 
@@ -118,4 +106,5 @@ Personal_Web/
 - `docs/06_VISUAL_STYLE_GUIDE.md`: visual and navigation style rules.
 - `docs/07_ROUTE_AND_SECURITY_RULES.md`: route and security rules.
 - `docs/08_PROJECT_STRUCTURE_STANDARD.md`: project structure standard.
+- `docs/09_BACKEND_DATABASE_PLAN.md`: planned backend/database boundary.
 - `docs/PROJECT_HISTORY.md`: project change history.
