@@ -1,5 +1,66 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-21 - Fix compressed Markdown documentation formatting
+
+### 本次目标
+
+* 修复 README 和 docs 中被压缩成少数长行的 Markdown 格式。
+* 修复表格、列表、代码块和 checkbox 的显示问题。
+* 保持文档原有含义不变。
+* 不修改任何应用功能代码。
+
+### 实际完成
+
+* 检查 README 和主要 docs 文件的原始 Markdown 行长度、表格和 checklist 格式。
+* 确认 `docs/PROJECT_HISTORY.md` 的最新测试列表使用真实 Markdown checkboxes。
+* 修复 `docs/05_APP_MODULES.md` 中子应用模块表格的说明文本和路径模板转义。
+* 修复 `docs/08_PROJECT_STRUCTURE_STANDARD.md` 中未转义的模块路径模板，改为安全的 `apps/&lt;module-name&gt;/` 格式。
+* 新增本次文档格式修复历史记录。
+* 未修改任何应用功能代码。
+
+### 修改范围
+
+* docs/05_APP_MODULES.md
+* docs/08_PROJECT_STRUCTURE_STANDARD.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改 index.html。
+* 未修改 journey.html。
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改公开首页视觉。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+* 未新增后端代码。
+* 未新增数据库文件。
+* 未新增 API。
+* 未新增认证或授权。
+* 未新增真实私人数据。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] README.md 已整理为可读 Markdown。
+* [x] docs/05_APP_MODULES.md 已整理为可读 Markdown。
+* [x] docs/06_VISUAL_STYLE_GUIDE.md 已整理为可读 Markdown。
+* [x] docs/07_ROUTE_AND_SECURITY_RULES.md 已整理为可读 Markdown。
+* [x] docs/08_PROJECT_STRUCTURE_STANDARD.md 已整理为可读 Markdown。
+* [x] docs/09_BACKEND_DATABASE_PLAN.md 已整理为可读 Markdown。
+* [x] docs/PROJECT_HISTORY.md 已整理为可读 Markdown。
+* [x] 文档中 backend/database/auth/API/cloud sync 仍明确标记为未实现。
+* [ ] index.html 可打开且行为未变。
+* [ ] journey.html 可打开且行为未变。
+* [ ] hub.html 可打开且行为未变。
+* [ ] apps/tasks/index.html 可打开且行为未变。
+* [ ] apps/health/index.html 可打开且行为未变。
+* [ ] apps/special-subscription/index.html 可打开且行为未变。
+
 ## 2026-06-21 - Fix documentation formatting and add backend planning standard
 
 ### 本次目标
