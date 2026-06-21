@@ -1,5 +1,72 @@
 # Personal_Web 项目历史记录
 
+## 2026-06-21 - Normalize project structure documentation
+
+### 本次目标
+
+* 统一当前项目结构说明。
+* 明确 index.html、journey.html、login.html、hub.html 和各子应用的职责。
+* 将 docs/05_APP_MODULES.md 更新为子应用注册与规范文档。
+* 修正文档中关于封面页点击进入 journey.html 的过期描述。
+* 明确隐藏入口不是安全机制。
+* 明确 localStorage 只是原型阶段方案，不适合长期保存真实私人数据。
+* 明确新增子应用前应先更新模块文档。
+* 不实现新的具体应用功能。
+
+### 实际完成
+
+* 重写 README，使其成为当前项目结构、导航规则、数据安全和开发规则的简洁入口。
+* 重写 `docs/05_APP_MODULES.md`，列出任务清单、健康管理和特别订阅三个当前子应用。
+* 在 `docs/05_APP_MODULES.md` 中加入未来子应用模板和新增子应用检查清单。
+* 更新 `docs/06_VISUAL_STYLE_GUIDE.md`，明确普通封面背景点击不进入 `journey.html`。
+* 重写 `docs/07_ROUTE_AND_SECURITY_RULES.md`，明确隐藏入口不是安全机制。
+* 新增 `docs/08_PROJECT_STRUCTURE_STANDARD.md`，记录页面分类、文件组织、数据规则和分支规则。
+* 保留 `docs/00_DESIGN_GUIDE.md` 的数据安全规则。
+
+### 修改范围
+
+* README.md
+* docs/05_APP_MODULES.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/07_ROUTE_AND_SECURITY_RULES.md
+* docs/08_PROJECT_STRUCTURE_STANDARD.md
+* docs/PROJECT_HISTORY.md
+
+### 未改变
+
+* 未修改公开首页视觉。
+* 未修改 index.html 行为。
+* 未修改 journey.html 路径页功能。
+* 未修改 login.html。
+* 未修改 hub.html。
+* 未修改任务清单应用功能。
+* 未修改健康管理应用功能。
+* 未修改特别订阅应用功能。
+* 未新增后端。
+* 未新增数据库。
+* 未新增认证或授权。
+* 未新增真实数据。
+* 未修改 ICP 备案号。
+* 未添加公安联网备案号。
+
+### 测试结果
+
+Only mark [x] if actually verified:
+
+* [x] 当前分支是 Feature/project-structure-hardening。
+* [x] README.md 描述当前项目结构准确。
+* [x] docs/05_APP_MODULES.md 已包含任务清单、健康管理、特别订阅。
+* [x] docs/06_VISUAL_STYLE_GUIDE.md 不再写普通封面区域点击进入 journey.html。
+* [x] docs/07_ROUTE_AND_SECURITY_RULES.md 明确隐藏入口不是安全机制。
+* [x] docs/00_DESIGN_GUIDE.md 数据安全规则未被削弱。
+* [x] 如创建 docs/08_PROJECT_STRUCTURE_STANDARD.md，README 已正确引用。
+* [x] index.html 未改变或行为未受影响。
+* [x] journey.html 未改变或行为未受影响。
+* [x] hub.html 未改变或行为未受影响。
+* [x] apps/tasks/index.html 未改变或行为未受影响。
+* [x] apps/health/index.html 未改变或行为未受影响。
+* [x] apps/special-subscription/index.html 未改变或行为未受影响。
+
 ## 2026-06-18 - Add Special Subscription placeholder app
 
 ### 本次目标

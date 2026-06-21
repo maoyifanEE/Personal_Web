@@ -23,7 +23,21 @@ Recommended direction:
 - Real HTML/CSS/SVG elements
 - Hidden entrance naturally integrated into the page
 
-## Public Homepage / Curved Path Timeline
+## Public Cover Page
+
+`index.html` is the public cover page. It should remain minimal, quiet, and
+visitor-facing.
+
+Rules:
+
+- The approved English hero text must not change unless explicitly requested.
+- The ICP filing footer is subtle, visible, and separate from hidden entrances.
+- A hidden lower-left journey entrance opens `journey.html`.
+- A separate hidden private entrance opens `login.html`.
+- Normal cover background clicks must not feel like or behave like a large
+  button.
+
+## Journey / Curved Path Timeline Prototype
 
 Homepage concept: **Curved Path Timeline Homepage**.
 
@@ -59,7 +73,7 @@ Visual direction:
 
 ## Homepage Editor Prototype
 
-The homepage curve, areas, and nodes are data-driven in `journey.js`.
+The journey curve, areas, and nodes are data-driven in `journey.js`.
 
 Editor prototype rules:
 
@@ -101,7 +115,8 @@ Structure rules:
 
 - The cover page keeps the ICP filing footer.
 - The hidden entrance to `login.html` remains separate from the journey page.
-- Clicking non-link cover areas may enter `journey.html`.
+- Normal cover background clicks do not enter `journey.html`.
+- The hidden lower-left journey entrance opens `journey.html`.
 - ICP footer links, hidden entrance links, and future buttons must not trigger
   journey navigation.
 - The journey page must use placeholder content only.
@@ -121,6 +136,15 @@ Recommended direction:
 - Consistent spacing
 - Desktop and mobile usability
 - No real private data in the static prototype
+
+Child app UI direction:
+
+- Child app user-facing UI should default to Simplified Chinese.
+- Child apps should feel consistent with the project, but each app may own its
+  CSS when needed.
+- Placeholder apps should stay quiet and mostly empty until requirements are
+  defined.
+- Prototype editors and hidden entrances are not security mechanisms.
 
 ## 4. Page Language
 

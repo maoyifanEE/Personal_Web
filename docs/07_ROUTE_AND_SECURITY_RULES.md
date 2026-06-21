@@ -1,66 +1,74 @@
 # Route and Security Rules
 
+This document records route categories and current security limits.
+
+Current stage: static front-end preview. There is no backend, no database, no
+real login, no authentication, and no authorization yet.
+
 ## 1. Public Routes
 
-公开路由可以被所有人访问，例如：
+Public pages can be opened directly:
 
-- /
-- /about, TBD
-- /works, TBD
-- /articles, TBD
+- `/` / `index.html`
+- `journey.html`
 
-## 2. Auth Route
+`index.html` is the public cover homepage. `journey.html` is currently a
+public/static curved path timeline prototype with placeholder data only.
 
-登录路由可以在未登录时访问，但不能暴露私人数据。
+## 2. Login Placeholder
 
-- /login
+- `login.html`
 
-当前静态阶段对应 `login.html`，它只是登录占位页，不实现真实登录、认证或权限控制。
+This page is only a static login placeholder. It does not authenticate anyone
+and must not be treated as secure.
 
-## 3. Private Routes
+## 3. Private Placeholder Routes
 
-私有路由必须登录后访问，例如：
+- `hub.html`
+- `apps/tasks/index.html`
+- `apps/health/index.html`
+- `apps/special-subscription/index.html`
 
-- /hub
-- /hub/apps
-- /hub/settings
-- /hub/admin
+These pages are private-tool placeholders or child app prototypes, but direct
+URL access is still possible until real backend authentication and authorization
+exist.
 
-注意：这些路由只是初步规划，不代表现在要实现。
+## 4. Hidden Entrance Rule
 
-当前静态阶段对应 `hub.html`，它只是私人工具中心占位页，没有真实登录保护或权限校验能力。
+Hidden buttons and hidden links are visual navigation devices only.
 
-## 4. Current Static Placeholders
+They are not:
 
-- `index.html` 是公开首页。
-- `login.html` 是登录占位页。
-- `hub.html` 是私人工具中心占位页。
-- None of them provide real security yet.
+- access control
+- authentication
+- authorization
+- route protection
+- private data protection
 
-## 5. Hidden Entrance Rule
+Current hidden entrances:
 
-隐藏入口的作用是：
+- Hidden lower-left journey entrance: opens `journey.html`.
+- Hidden private entrance: opens `login.html`.
 
-从公开主页进入登录页。
+Do not rely on hidden entrances to protect data.
 
-隐藏入口的作用不是：
+## 5. Data Rule
 
-- 防止别人访问登录页
-- 替代登录系统
-- 替代权限系统
-- 保护私人数据
+Do not store real private data until real security exists.
 
-隐藏入口只是视觉设计元素，不是安全机制。
+Static files, sample data, local JSON, Markdown, HTML, CSS, and JavaScript must
+not contain real private data, secrets, database files, uploads, logs, backups,
+or production-only config.
 
-未来安全必须依赖真实认证、授权、服务端检查和路由保护。
+## 6. Future Security Principle
 
-## 6. Security Principle
+Long-term private features require:
 
-长期必须满足：
+- real authentication
+- real authorization
+- server-side permission checks
+- protected routes
+- backend/API design
+- server-side database ownership for real private data
 
-- 所有私人页面必须登录。
-- 所有私人数据必须校验权限。
-- Owner 管理功能只能 Owner 访问。
-- Member 不能通过手动输入 URL 绕过权限。
-- 前端显示和后端权限必须分开考虑。
-- 不能只靠隐藏按钮保护数据。
+Frontend hiding and visual navigation are not enough.

@@ -1,113 +1,112 @@
 # App Modules
 
-## 1. Module Principle
+This document is the child app registry and module standard for `Personal_Web`.
 
-每个子应用必须模块化，不应该和主页、登录页、其他子应用混在一起。
+Current project stage: static front-end preview. Child apps may be local/static
+prototypes, but they are not secure production apps yet.
 
-每个子应用应该有自己的：
+## Current Child Apps
 
-- 页面
-- 路由
-- 数据
-- 权限配置
-- 测试
-- 文档说明
+### Task List
 
-当前静态阶段允许建立静态页面或本地前端原型。
-`hub.html` 作为 Personal Hub 入口页，
-不得暗示已经具备真实登录、权限保护、数据库或后端能力。
+- Chinese display name: 任务清单
+- English/internal name: Task List
+- Path: `apps/tasks/index.html`
+- Status: static/local front-end prototype
+- Visibility: private hub child app placeholder
+- Data: browser/local prototype data only
+- Backend: none
+- Database: none
+- Authentication required: future yes, current no
+- Real private data: not recommended until backend/auth exists
+- Notes: current prototype may use `localStorage`; this is not cloud sync and is
+  not long-term private data storage.
+- Manual test URL: `http://127.0.0.1:4173/apps/tasks/index.html`
 
-## 2. Initial App Ideas
+### Health Management
 
-| App Name | Purpose | Status | Permission Required | Notes |
-| --- | --- | --- | --- | --- |
-| 任务清单 | 待办事项、日期任务、清单、标签、优先级和基础月历视图 | V1 local front-end prototype | Future Yes | 当前使用 localStorage 保存单设备数据 |
-| Health Management | 健康饮食、运动打卡、放纵警告 | Local front-end prototype | Future Yes | 当前使用 localStorage 保存单设备数据 |
-| Exercise Tracker | 运动打卡 | Planned | Yes | 具体功能后续确定 |
-| Korean Learning | 韩语学习 | Planned | Yes | 具体功能后续确定 |
-| Project Manager | 项目管理 | Planned | Yes | 具体功能后续确定 |
+- Chinese display name: 健康管理
+- English/internal name: Health Management
+- Path: `apps/health/index.html`
+- Status: static/local front-end prototype
+- Visibility: private hub child app placeholder
+- Data sensitivity: health-related, sensitive
+- Backend: none
+- Database: none
+- Authentication required: future yes, current no
+- Real private data: do not commit; long-term real use requires backend/auth
+- Notes: current prototype may use `localStorage`; do not treat it as secure or
+  synced health storage.
+- Manual test URL: `http://127.0.0.1:4173/apps/health/index.html`
 
-## 3. 任务清单 V1
+### Special Subscription
 
-当前任务清单页面位于：
+- Chinese display name: 特别订阅
+- English/internal name: Special Subscription
+- Path: `apps/special-subscription/index.html`
+- Status: blank placeholder
+- Visibility: private hub child app placeholder
+- Data: none
+- Backend: none
+- Database: none
+- Authentication required: future yes, current no
+- Subscription/payment logic: none
+- Purpose: reserved for future special subscription management after
+  requirements are defined
+- Manual test URL:
+  `http://127.0.0.1:4173/apps/special-subscription/index.html`
 
-```text
-apps/tasks/index.html
-```
+## Future / Proposed Modules
 
-当前状态：
+These are ideas only. They are not implemented apps and should not be documented
+as existing behavior.
 
-- 已从空白占位升级为本机前端原型。
-- 包含任务视图和日历排程面板。
-- 任务视图和日历视图共用同一批 `tasks[]` 数据。
-- 支持智能清单：今天、最近7天、收集箱。
-- 支持用户清单、标签、优先级、到期日期、到期时间。
-- 支持基础子任务、已完成任务、垃圾桶。
-- 日历模块支持月视图、周视图和列表视图。
-- 日历模块支持在日历上直接创建任务、拖动排程、未安排任务拖入日历、周视图时长调整、基础批量操作和显示筛选。
-- 使用 `localStorage` 保存单设备本地数据。
-- 提醒和重复只保存元数据，不触发真实提醒，也不生成未来重复任务。
+- Exercise Tracker
+- Korean Learning
+- Project Manager
 
-明确不包含：
+## Child App Development Rules
 
-- 后端
-- 数据库
-- 账号登录
-- 云同步
-- 协作
-- 真实通知
-- 外部日历订阅
-- 番茄钟
-- 习惯打卡
-- 四象限
-- 看板
-- 时间线
-- 倒数日
-- 高级重复任务引擎
+- Each child app must live under `apps/<module-name>/`.
+- Each child app should have its own `index.html`.
+- Each child app should use its own CSS file if styling is needed.
+- Each child app should use its own JS file only if behavior is needed.
+- Child apps should include a return link to `../../hub.html`.
+- Child apps should not depend on unrelated app CSS/JS.
+- Do not store real private data in static files.
+- Do not add backend/database/auth casually inside a child app branch.
+- Any data model change must be documented before implementation.
+- Any future server sync must follow `docs/00_DESIGN_GUIDE.md`.
+- Route and access expectations must follow
+  `docs/07_ROUTE_AND_SECURITY_RULES.md`.
+- Project file organization should follow
+  `docs/08_PROJECT_STRUCTURE_STANDARD.md`.
 
-相关文件：
+## Future Child App Template
 
-- `apps/tasks/index.html`
-- `apps/tasks/tasks.css`
-- `apps/tasks/tasks.js`
+### Module name
 
-## 4. Health Management V1
+- Chinese display name:
+- English/internal name:
+- Path:
+- Status:
+- Visibility:
+- Data sensitivity:
+- Storage:
+- Backend required:
+- Authentication required:
+- Main purpose:
+- Current limitations:
+- Do not implement yet:
+- Manual test URL:
 
-当前健康管理页面位于：
+## New Child App Checklist
 
-```text
-apps/health/index.html
-```
-
-当前状态：
-
-- 已从静态占位升级为本机前端原型。
-- 包含健康饮食、运动打卡、放纵警告三个模块。
-- 健康饮食和运动打卡使用周期完成逻辑，不是每日清单。
-- 支持同系列卡片，例如水果补充任选一个选项即可完成同一周期。
-- 支持 OR 关系同系列父卡片，例如球类运动包含篮球、足球、羽毛球，完成任意一项即可完成同一个周期。
-- 放纵警告使用近两周次数和建议间隔计算状态。
-- 使用内置图标库，并在缺少匹配图标时显示通用 fallback 图标。
-- 使用 `localStorage` 保存单设备本地数据。
-- 不包含后端、数据库、真实登录或权限系统。
-- 不应该录入真实敏感健康数据。
-
-相关文件：
-
-- `apps/health/index.html`
-- `apps/health/health.css`
-- `apps/health/health.js`
-
-## 5. Future Module Rule
-
-以后新增子应用时，必须先更新本文件，再写代码。
-
-新增子应用至少要补充：
-
-- 应用名称
-- 应用用途
-- 是否公开
-- 是否需要登录
-- 谁能访问
-- 当前开发状态
-- 数据是否需要长期保存
+- Add or update the module entry in this document first.
+- Create `apps/<module-name>/index.html`.
+- Add CSS/JS only if needed.
+- Add a `hub.html` entry.
+- Add a return link to `../../hub.html`.
+- Add manual test notes.
+- Do not add real data.
+- Do not add backend/auth/database unless explicitly requested.
