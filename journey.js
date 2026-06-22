@@ -2,6 +2,7 @@ const STORAGE_KEY = "personal_web_homepage_timeline_v1";
 const SVG_WIDTH = 1000;
 const DEFAULT_SMOOTHING = {
   enabled: true,
+  engine: "custom",
   strength: 0.78,
   simplification: 0.62,
   algorithmPriority: 0.88,
@@ -13,8 +14,15 @@ const DEFAULT_SMOOTHING = {
   fitTolerance: 60,
   maxDeviation: 100,
   handleScale: 0.36,
-  curvaturePenalty: 0.5
+  curvaturePenalty: 0.5,
+  paperSimplifyTolerance: 6,
+  paperSmoothType: "continuous",
+  paperSmoothFactor: 0.5
 };
+const CURVE_ENGINES = [
+  { value: "custom", label: "当前自研算法" },
+  { value: "paperjs", label: "Paper.js 平滑引擎" }
+];
 const TUNING_SLIDERS = [
   {
     key: "strength",
@@ -22,6 +30,7 @@ const TUNING_SLIDERS = [
     min: 0,
     max: 1,
     step: 0.01,
+    engines: ["custom"],
     hint: "低值更贴近手绘，高值更丝滑。"
   },
   {
@@ -30,6 +39,7 @@ const TUNING_SLIDERS = [
     min: 0,
     max: 1,
     step: 0.01,
+    engines: ["custom"],
     hint: "低值保留更多细节，高值移除更多小弯。"
   },
   {
@@ -38,6 +48,7 @@ const TUNING_SLIDERS = [
     min: 0,
     max: 1,
     step: 0.01,
+    engines: ["custom"],
     hint: "高值更偏设计曲线，但仍保留整体形状。"
   },
   {
@@ -64,6 +75,7 @@ const TUNING_SLIDERS = [
     min: 4,
     max: 24,
     step: 1,
+    engines: ["custom"],
     hint: "低值路线更简单，高值更保形。"
   },
   {
@@ -72,6 +84,7 @@ const TUNING_SLIDERS = [
     min: 0,
     max: 1,
     step: 0.01,
+    engines: ["custom"],
     hint: "控制区域内部控制柄方向连续性。"
   },
   {
@@ -89,6 +102,7 @@ const TUNING_SLIDERS = [
     max: 160,
     step: 1,
     unit: "px",
+    engines: ["custom"],
     hint: "低值更贴近引导点，高值更平滑。"
   },
   {
@@ -106,6 +120,7 @@ const TUNING_SLIDERS = [
     min: 0.15,
     max: 0.65,
     step: 0.01,
+    engines: ["custom"],
     hint: "低值更紧，高值更舒展。"
   },
   {
@@ -114,7 +129,27 @@ const TUNING_SLIDERS = [
     min: 0,
     max: 1,
     step: 0.01,
+    engines: ["custom"],
     hint: "高值会压制突然弯折和曲率尖峰。"
+  },
+  {
+    key: "paperSimplifyTolerance",
+    label: "Paper 简化容差",
+    min: 0.5,
+    max: 40,
+    step: 0.5,
+    unit: "px",
+    engines: ["paperjs"],
+    hint: "低值更贴近原线，高值更平滑但可能更改形状。"
+  },
+  {
+    key: "paperSmoothFactor",
+    label: "Paper 平滑系数",
+    min: 0,
+    max: 1,
+    step: 0.05,
+    engines: ["paperjs"],
+    hint: "控制 Paper.js 平滑强度；部分平滑方式影响较小。"
   }
 ];
 const CURVE_TUNING_PRESETS = {
@@ -620,6 +655,7 @@ const distanceBetweenPoints = (first, second) =>
 const normalizeSmoothing = (smoothing = {}) => ({
   ...DEFAULT_SMOOTHING,
   ...smoothing,
+  engine: smoothing.engine === "paperjs" ? "paperjs" : "custom",
   strength: clamp(Number(smoothing.strength ?? DEFAULT_SMOOTHING.strength), 0, 1),
   simplification: clamp(Number(smoothing.simplification ?? DEFAULT_SMOOTHING.simplification), 0, 1),
   algorithmPriority: clamp(Number(smoothing.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority), 0, 1),
@@ -665,6 +701,19 @@ const normalizeSmoothing = (smoothing = {}) => ({
   ),
   curvaturePenalty: clamp(
     Number(smoothing.curvaturePenalty ?? DEFAULT_SMOOTHING.curvaturePenalty),
+    0,
+    1
+  ),
+  paperSimplifyTolerance: clamp(
+    Number(smoothing.paperSimplifyTolerance ?? DEFAULT_SMOOTHING.paperSimplifyTolerance),
+    0.5,
+    40
+  ),
+  paperSmoothType: ["continuous", "geometric", "catmull-rom", "asymmetric"].includes(smoothing.paperSmoothType)
+    ? smoothing.paperSmoothType
+    : DEFAULT_SMOOTHING.paperSmoothType,
+  paperSmoothFactor: clamp(
+    Number(smoothing.paperSmoothFactor ?? DEFAULT_SMOOTHING.paperSmoothFactor),
     0,
     1
   )
@@ -1481,6 +1530,201 @@ const sampleBezierSegments = (segments, stepsPerSegment = 28) => {
   return samples.map(normalizePoint);
 };
 
+const getPaperJs = () =>
+  typeof window !== "undefined" && window.paper ? window.paper : null;
+
+const isPaperJsAvailable = () =>
+  !!getPaperJs() && typeof getPaperJs().PaperScope === "function";
+
+const ensurePaperJsLoaded = () =>
+  new Promise((resolve) => {
+    if (isPaperJsAvailable()) {
+      logHomepage("Paper.js curve engine is available from local script.", {
+        version: getPaperJs().version || "unknown"
+      });
+      resolve(true);
+      return;
+    }
+
+    if (typeof XMLHttpRequest !== "function") {
+      logHomepage("Paper.js local fallback loader is unavailable in this browser.");
+      resolve(false);
+      return;
+    }
+
+    const request = new XMLHttpRequest();
+    request.open("GET", "./vendor/paperjs/paper-full.js", true);
+    request.onload = () => {
+      if (request.status < 200 || request.status >= 300) {
+        logHomepage("Paper.js local vendor file could not be loaded.", {
+          status: request.status
+        });
+        resolve(false);
+        return;
+      }
+
+      try {
+        const paperFactory = new Function(
+          "window",
+          "document",
+          "self",
+          "var module = undefined; var define = undefined; var exports = undefined;" +
+            request.responseText +
+            "\nreturn typeof paper !== 'undefined' ? paper : window.paper;"
+        );
+        window.paper = paperFactory(window, document, window);
+        logHomepage("Paper.js curve engine loaded through local fallback.", {
+          available: isPaperJsAvailable(),
+          version: getPaperJs()?.version || "unknown"
+        });
+        resolve(isPaperJsAvailable());
+      } catch (error) {
+        logHomepage("Paper.js local fallback execution failed.", {
+          error: error.message
+        });
+        resolve(false);
+      }
+    };
+    request.onerror = () => {
+      logHomepage("Paper.js local vendor request failed.");
+      resolve(false);
+    };
+    request.send();
+  });
+
+const paperSegmentToPoint = (segment) => normalizePoint({
+  x: segment.point.x,
+  y: segment.point.y
+});
+
+const paperPathToBezierSegments = (path) => {
+  const segments = [];
+  for (let index = 0; index < path.segments.length - 1; index += 1) {
+    const current = path.segments[index];
+    const next = path.segments[index + 1];
+    const p0 = paperSegmentToPoint(current);
+    const p1 = paperSegmentToPoint(next);
+    segments.push({
+      p0,
+      cp1: normalizePoint({
+        x: current.point.x + current.handleOut.x,
+        y: current.point.y + current.handleOut.y
+      }, p0),
+      cp2: normalizePoint({
+        x: next.point.x + next.handleIn.x,
+        y: next.point.y + next.handleIn.y
+      }, p1),
+      p1
+    });
+  }
+  return segments;
+};
+
+const samplePaperPath = (path, steps = 180) => {
+  if (!path.length) {
+    return path.segments.map(paperSegmentToPoint);
+  }
+  return Array.from({ length: steps + 1 }, (_, index) => {
+    const point = path.getPointAt((path.length * index) / steps);
+    return normalizePoint({ x: point.x, y: point.y });
+  });
+};
+
+const generatePaperJsPath = (points, smoothing) => {
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
+  if (!isPaperJsAvailable()) {
+    return {
+      unavailable: true,
+      diagnostics: {
+        engine: "paperjs",
+        warning: "Paper.js is unavailable. Falling back to the custom curve engine."
+      }
+    };
+  }
+
+  const paper = getPaperJs();
+  const scope = new paper.PaperScope();
+  const canvas = document.createElement("canvas");
+  canvas.width = SVG_WIDTH;
+  canvas.height = Math.max(...points.map((point) => point.y), 1);
+  scope.setup(canvas);
+
+  const path = new scope.Path({ insert: false });
+  points.forEach((point) => path.add(new scope.Point(point.x, point.y)));
+  path.closed = false;
+
+  const startPoint = normalizePoint(points[0]);
+  const endPoint = normalizePoint(points[points.length - 1]);
+  const paperSegmentCountBeforeSimplify = path.segments.length;
+  path.simplify(normalizedSmoothing.paperSimplifyTolerance);
+
+  if (path.segments.length < 2) {
+    path.remove();
+    scope.project.clear();
+    return {
+      unavailable: true,
+      diagnostics: {
+        engine: "paperjs",
+        warning: "Paper.js simplified the path too aggressively. Falling back to the custom curve engine."
+      }
+    };
+  }
+
+  path.firstSegment.point = new scope.Point(startPoint.x, startPoint.y);
+  path.lastSegment.point = new scope.Point(endPoint.x, endPoint.y);
+  const paperSegmentCountAfterSimplify = path.segments.length;
+  path.smooth({
+    type: normalizedSmoothing.paperSmoothType,
+    factor: normalizedSmoothing.paperSmoothFactor
+  });
+  path.firstSegment.point = new scope.Point(startPoint.x, startPoint.y);
+  path.lastSegment.point = new scope.Point(endPoint.x, endPoint.y);
+
+  const bezierSegments = paperPathToBezierSegments(path);
+  const finalSplinePoints = samplePaperPath(path);
+  const finalSvgPath = path.pathData;
+  const deviationStats = getDeviationStats(points, finalSplinePoints);
+  const curvatureStats = getCurvatureStats(finalSplinePoints);
+  const shapePreservationWarning =
+    deviationStats.averageRawToFinalDeviation > Math.max(45, normalizedSmoothing.maxDeviation * 0.45) ||
+    deviationStats.maxRawToFinalDeviation > normalizedSmoothing.maxDeviation;
+
+  path.remove();
+  scope.project.clear();
+
+  return {
+    paperInputPoints: points,
+    paperSegmentCountBeforeSimplify,
+    paperSegmentCountAfterSimplify,
+    designerWaypoints: bezierSegments.map((segment) => segment.p0).concat(bezierSegments.at(-1)?.p1 || []),
+    shapeLandmarks: bezierSegments.map((segment) => segment.p0).concat(bezierSegments.at(-1)?.p1 || []),
+    tangentVectors: [],
+    bezierSegments,
+    fittedBezierSegments: bezierSegments,
+    finalSplinePoints,
+    finalSvgPath,
+    diagnostics: {
+      engine: "paperjs",
+      fittingModel: "paperjs-simplify-smooth",
+      paperSimplifyTolerance: normalizedSmoothing.paperSimplifyTolerance,
+      paperSmoothType: normalizedSmoothing.paperSmoothType,
+      paperSmoothFactor: normalizedSmoothing.paperSmoothFactor,
+      inputPointCount: points.length,
+      paperSegmentCountBeforeSimplify,
+      paperSegmentCountAfterSimplify,
+      simplifiedSegmentCount: paperSegmentCountAfterSimplify,
+      finalPathData: finalSvgPath,
+      finalSamplePointCount: finalSplinePoints.length,
+      maxTurnAngleDeg: getMaxTurnAngle(finalSplinePoints),
+      ...curvatureStats,
+      ...deviationStats,
+      shapePreservationWarning,
+      smoothnessQualityPass: curvatureStats.curvatureSpikeCount <= 3 && !shapePreservationWarning
+    },
+    d: finalSvgPath
+  };
+};
+
 const fitBoundedBezierPath = (points, smoothing) => {
   const {
     designerWaypoints,
@@ -2197,7 +2441,12 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
   );
   const intentionSpacing = Math.max(8, normalizedSmoothing.resampleSpacing + priority * 6);
   const resampled = resamplePointsByDistance(jitterFiltered, intentionSpacing);
-  const boundedFit = fitBoundedBezierPath(resampled, normalizedSmoothing);
+  const paperFit = normalizedSmoothing.engine === "paperjs"
+    ? generatePaperJsPath(resampled, normalizedSmoothing)
+    : null;
+  const boundedFit = paperFit?.unavailable
+    ? fitBoundedBezierPath(resampled, { ...normalizedSmoothing, engine: "custom" })
+    : paperFit || fitBoundedBezierPath(resampled, normalizedSmoothing);
   const designerWaypoints = boundedFit.designerWaypoints;
   const shapeLandmarks = boundedFit.shapeLandmarks;
   const tangentVectors = boundedFit.tangentVectors;
@@ -2214,11 +2463,13 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
     guideAnchorCount: designerWaypoints.length,
     finalSplinePointCount: finalSplinePoints.length,
     maxAnchors: normalizedSmoothing.maxAnchors,
-    fittingModel: "designer-route-bezier"
+    engine: paperFit?.unavailable ? "custom" : normalizedSmoothing.engine,
+    paperWarning: paperFit?.diagnostics?.warning || null,
+    fittingModel: boundedFit.diagnostics?.fittingModel || "designer-route-bezier"
   };
 
   if (options.log) {
-    logHomepage("Fitted designer-route Bezier curve from freehand guide.", {
+    logHomepage("Generated journey curve from freehand guide.", {
       ...diagnostics,
       smoothing: normalizedSmoothing
     });
@@ -2228,6 +2479,9 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
     rawPoints: sourcePoints,
     filteredPoints: jitterFiltered,
     resampledPoints: resampled,
+    paperInputPoints: boundedFit.paperInputPoints || [],
+    paperSegmentCountBeforeSimplify: boundedFit.paperSegmentCountBeforeSimplify || 0,
+    paperSegmentCountAfterSimplify: boundedFit.paperSegmentCountAfterSimplify || 0,
     guideAnchors: designerWaypoints,
     designerWaypoints,
     shapeLandmarks,
@@ -2264,6 +2518,9 @@ const setCurveDebugData = (area, processed, boundaryDiagnostics = []) => {
     rawPointerPoints: processed.rawPoints || [],
     filteredPoints: processed.filteredPoints || [],
     resampledPoints: processed.resampledPoints || [],
+    paperInputPoints: processed.paperInputPoints || [],
+    paperSegmentCountBeforeSimplify: processed.paperSegmentCountBeforeSimplify || 0,
+    paperSegmentCountAfterSimplify: processed.paperSegmentCountAfterSimplify || 0,
     guideAnchors: processed.guideAnchors || [],
     designerWaypoints: processed.designerWaypoints || processed.shapeLandmarks || processed.guideAnchors || [],
     shapeLandmarks: processed.shapeLandmarks || processed.guideAnchors || [],
@@ -2273,6 +2530,7 @@ const setCurveDebugData = (area, processed, boundaryDiagnostics = []) => {
     alignedAnchors: processed.alignedAnchors || processed.guideAnchors || [],
     finalSplinePoints: processed.finalSplinePoints || processed.smoothPoints || [],
     finalSvgPath: processed.finalSvgPath || processed.d || "",
+    engine: normalizeSmoothing(area.path.smoothing).engine,
     smoothingSettings: normalizeSmoothing(area.path.smoothing),
     boundaryDiagnostics,
     diagnostics: processed.diagnostics || area.path.globalFitDiagnostics || {}
@@ -2286,6 +2544,9 @@ const applyProcessedFreehandPath = (area, processed, boundaryDiagnostics = []) =
   area.path.rawPoints = processed.rawPoints || [];
   area.path.filteredPoints = processed.filteredPoints || [];
   area.path.resampledPoints = processed.resampledPoints || [];
+  area.path.paperInputPoints = processed.paperInputPoints || [];
+  area.path.paperSegmentCountBeforeSimplify = processed.paperSegmentCountBeforeSimplify || 0;
+  area.path.paperSegmentCountAfterSimplify = processed.paperSegmentCountAfterSimplify || 0;
   area.path.guideAnchors = processed.guideAnchors || [];
   area.path.designerWaypoints = processed.designerWaypoints || processed.shapeLandmarks || processed.guideAnchors || [];
   area.path.shapeLandmarks = processed.shapeLandmarks || processed.guideAnchors || [];
@@ -3764,6 +4025,9 @@ const getCurveDebugExport = () => {
     rawPointerPoints: area.path.rawPoints || [],
     filteredPoints: area.path.filteredPoints || [],
     resampledPoints: area.path.resampledPoints || [],
+    paperInputPoints: area.path.paperInputPoints || [],
+    paperSegmentCountBeforeSimplify: area.path.paperSegmentCountBeforeSimplify || 0,
+    paperSegmentCountAfterSimplify: area.path.paperSegmentCountAfterSimplify || 0,
     guideAnchors: area.path.guideAnchors || [],
     designerWaypoints: area.path.designerWaypoints || area.path.shapeLandmarks || area.path.guideAnchors || [],
     shapeLandmarks: area.path.shapeLandmarks || area.path.guideAnchors || [],
@@ -3773,6 +4037,7 @@ const getCurveDebugExport = () => {
     alignedAnchors: area.path.alignedAnchors || [],
     finalSplinePoints: area.path.finalSplinePoints || area.path.smoothPoints || [],
     finalSvgPath: area.path.finalSvgPath || area.path.d || "",
+    engine: normalizeSmoothing(area.path.smoothing).engine,
     smoothingSettings: normalizeSmoothing(area.path.smoothing),
     boundaryDiagnostics: area.path.boundaryDiagnostics || []
   };
@@ -3788,9 +4053,20 @@ const getCurveDebugExport = () => {
     globalFinalSamples: globalCurveDebugData?.globalFinalSamples || [],
     perAreaFinalPaths: globalCurveDebugData?.perAreaFinalPaths || {},
     perAreaDiagnostics: globalCurveDebugData?.perAreaDiagnostics || {},
+    engine: debugData.engine || debugData.smoothingSettings?.engine || "custom",
     rawPointerPoints: debugData.rawPointerPoints,
     filteredPoints: debugData.filteredPoints,
     resampledPoints: debugData.resampledPoints,
+    paperInputPoints: debugData.paperInputPoints?.length
+      ? debugData.paperInputPoints
+      : area.path.paperInputPoints || [],
+    paperSimplifyTolerance: debugData.smoothingSettings?.paperSimplifyTolerance,
+    paperSmoothType: debugData.smoothingSettings?.paperSmoothType,
+    paperSmoothFactor: debugData.smoothingSettings?.paperSmoothFactor,
+    paperSegmentCountBeforeSimplify:
+      debugData.paperSegmentCountBeforeSimplify || area.path.paperSegmentCountBeforeSimplify || 0,
+    paperSegmentCountAfterSimplify:
+      debugData.paperSegmentCountAfterSimplify || area.path.paperSegmentCountAfterSimplify || 0,
     guideAnchors: debugData.guideAnchors,
     designerWaypoints: debugData.designerWaypoints,
     shapeLandmarks: debugData.shapeLandmarks,
@@ -3974,8 +4250,11 @@ const renderContextPopover = () => {
   const popover = document.createElement("section");
   popover.className = "context-popover";
   popover.dataset.popoverType = uiState.popover.type;
-  popover.style.left = `${Math.min(window.innerWidth - 340, Math.max(12, uiState.popover.x))}px`;
-  popover.style.top = `${Math.min(window.innerHeight - 220, Math.max(72, uiState.popover.y))}px`;
+  const expectedWidth = uiState.popover.type === "curve" ? 520 : 330;
+  const maxLeft = Math.max(12, window.innerWidth - expectedWidth - 12);
+  const maxTop = Math.max(72, window.innerHeight - 220);
+  popover.style.left = `${Math.min(maxLeft, Math.max(12, uiState.popover.x))}px`;
+  popover.style.top = `${Math.min(maxTop, Math.max(72, uiState.popover.y))}px`;
   popover.setAttribute("role", "dialog");
 
   const renderers = {
@@ -4088,9 +4367,15 @@ const renderTuningMetrics = () => {
 
 const renderTuningSlider = (slider, smoothing) => {
   const value = smoothing[slider.key];
+  const activeForEngine = !slider.engines || slider.engines.includes(smoothing.engine);
+  const engineNote = activeForEngine
+    ? ""
+    : smoothing.engine === "paperjs"
+      ? "（仅自研算法）"
+      : "（仅 Paper.js）";
   return `
     <label class="journey-tuning-row" title="${escapeHtml(slider.hint)}">
-      <span class="journey-tuning-label">${slider.label}</span>
+      <span class="journey-tuning-label">${slider.label}${engineNote}</span>
       <input
         class="journey-tuning-slider"
         type="range"
@@ -4099,6 +4384,7 @@ const renderTuningSlider = (slider, smoothing) => {
         step="${slider.step}"
         data-path-smoothing-field="${slider.key}"
         value="${value}"
+        ${activeForEngine ? "" : "disabled"}
       >
       <span class="journey-tuning-value" data-smoothing-value="${slider.key}">
         ${formatTuningValue(value, slider)}
@@ -4106,6 +4392,39 @@ const renderTuningSlider = (slider, smoothing) => {
       <small>${slider.hint}</small>
     </label>
   `;
+};
+
+const renderCurveEngineControl = (smoothing) => `
+  <label class="journey-tuning-scope">
+    曲线引擎
+    <select data-curve-engine>
+      ${CURVE_ENGINES.map((engine) => `
+        <option value="${engine.value}" ${smoothing.engine === engine.value ? "selected" : ""}>${engine.label}</option>
+      `).join("")}
+    </select>
+  </label>
+`;
+
+const renderPaperSmoothTypeControl = (smoothing) => `
+  <label class="journey-tuning-scope">
+    Paper 平滑方式
+    <select data-paper-smooth-type ${smoothing.engine === "paperjs" ? "" : "disabled"}>
+      ${["continuous", "geometric", "catmull-rom", "asymmetric"].map((type) => `
+        <option value="${type}" ${smoothing.paperSmoothType === type ? "selected" : ""}>${type}</option>
+      `).join("")}
+    </select>
+    <small>Paper.js 会先按容差简化手绘点，再自动调整控制柄。容差越低越贴近原线，容差越高越平滑但可能更改形状。</small>
+  </label>
+`;
+
+const renderPaperEngineStatus = (smoothing) => {
+  if (smoothing.engine !== "paperjs") {
+    return "";
+  }
+
+  return isPaperJsAvailable()
+    ? `<p class="journey-tuning-status">Paper.js 已加载：${escapeHtml(getPaperJs().version || "unknown")}</p>`
+    : `<p class="journey-tuning-status journey-tuning-status--warning">Paper.js 尚未加载，当前会自动回退到自研算法。请确认本地 vendor 文件可访问。</p>`;
 };
 
 const renderCurvePopoverContent = () => {
@@ -4124,6 +4443,9 @@ const renderCurvePopoverContent = () => {
         当前区域：<strong>${escapeHtml(area.title)}</strong>。
         手绘线条只表示大方向。你可以通过下面的滑块调节“保留原始形状”和“视觉丝滑程度”的平衡。
       </p>
+      ${renderCurveEngineControl(smoothing)}
+      ${renderPaperSmoothTypeControl(smoothing)}
+      ${renderPaperEngineStatus(smoothing)}
       <label class="journey-tuning-scope">
         应用范围
         <select data-curve-tuning-scope>
@@ -4216,6 +4538,12 @@ const bindContextPopoverEvents = (popover) => {
   popover.querySelectorAll("[data-path-smoothing-field]").forEach((field) => {
     field.addEventListener("input", () => updatePathSmoothingField(field));
     field.addEventListener("change", () => updatePathSmoothingField(field, { rerenderPanel: true }));
+  });
+  popover.querySelector("[data-curve-engine]")?.addEventListener("change", (event) => {
+    updatePathSmoothingSelect("engine", event.target.value);
+  });
+  popover.querySelector("[data-paper-smooth-type]")?.addEventListener("change", (event) => {
+    updatePathSmoothingSelect("paperSmoothType", event.target.value);
   });
   popover.querySelector("[data-curve-tuning-scope]")?.addEventListener("change", (event) => {
     uiState.tuningScope = event.target.value === "all" ? "all" : "current";
@@ -4728,6 +5056,32 @@ const updatePathSmoothingField = (field, options = {}) => {
   });
 };
 
+const updatePathSmoothingSelect = (key, value) => {
+  const targetAreas = getCurveTuningTargetAreas();
+  targetAreas.forEach((area) => {
+    applySmoothingSettingsToArea(area, { [key]: value });
+  });
+
+  markDirty(`path smoothing ${key} changed`);
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(
+    key === "engine" && value === "paperjs" && !isPaperJsAvailable()
+      ? "Paper.js 尚未加载，当前会自动回退到自研算法。"
+      : key === "engine" && value === "paperjs"
+      ? "已切换到 Paper.js 平滑引擎。"
+      : "曲线引擎设置已更新。"
+    ,
+    key === "engine" && value === "paperjs" && !isPaperJsAvailable()
+  );
+  logHomepage("Updated curve smoothing select setting.", {
+    field: key,
+    value,
+    scope: uiState.tuningScope,
+    areaIds: targetAreas.map((area) => area.id)
+  });
+};
+
 const applyCurveTuningPreset = (presetKey) => {
   const preset = CURVE_TUNING_PRESETS[presetKey];
   if (!preset) {
@@ -5061,9 +5415,10 @@ const initializeHomepageTimeline = () => {
   });
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   logHomepage("Static script loaded.", {
     page: document.body.dataset.page || "unknown"
   });
+  await ensurePaperJsLoaded();
   initializeHomepageTimeline();
 });

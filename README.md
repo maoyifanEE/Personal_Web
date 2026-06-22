@@ -39,6 +39,7 @@ The fitting uses a few route waypoints, one tangent direction per waypoint, and 
 The quality gates keep broad shape landmarks while limiting raw-to-final deviation and curvature spikes.
 Adjacent journey areas align endpoints and adjust only local boundary handles so the timeline reads as one continuous path without destroying each area's shape.
 The journey editor includes curve tuning sliders, presets, and compact metrics so smoothing values can be calibrated visually in the browser.
+The journey editor can optionally use a local Paper.js smoothing engine for visual comparison; Paper.js is loaded only on `journey.html`.
 The journey editor can show and export front-end curve debug data for raw points, designer waypoints, tangent vectors, Bezier segments, final samples, per-area metrics, and boundary diagnostics.
 
 ## Navigation Behavior

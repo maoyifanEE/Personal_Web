@@ -46,6 +46,10 @@ It should also prevent old navigation behavior from returning by accident.
 * Curve smoothness should be tunable in the editor with sliders rather than repeated hardcoded parameter changes.
 * Tuning sliders should balance shape preservation and visual smoothness, and every active slider should affect the generated path.
 * Curve presets should help compare conservative, balanced, smooth, and detail-preserving route styles quickly.
+* The curve engine can be switched between the current custom algorithm and the local Paper.js smoothing engine.
+* Paper.js mode should use simplify tolerance and smoothing type controls for visual comparison.
+* Paper.js mode must be loaded from local project files, not a CDN.
+* The final curve engine choice should be based on visual acceptance in the browser, not documentation claims.
 * The tuning panel may show compact diagnostics for deviation, turn angle, curvature spikes, and quality pass status.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
 * Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.

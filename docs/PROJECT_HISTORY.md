@@ -1,5 +1,82 @@
 # Project History
 
+## 2026-06-22 - Add optional Paper.js journey curve engine
+
+### 本次目标
+
+* 继续在 `Feature/homepage-update` 分支上优化 journey 曲线调试能力。
+* 保留当前自研曲线算法和已有调参滑块。
+* 新增可选的 Paper.js 平滑引擎，用于和自研算法做浏览器内视觉对比。
+* 使用本地 vendor 文件加载 Paper.js，不使用 CDN。
+* Paper.js 模式通过 simplify tolerance 和 smooth type 调整曲线。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* `journey.html` 已加载本地 `vendor/paperjs/paper-full.js`。
+* 新增 `vendor/paperjs/LICENSE.txt`，保留 Paper.js MIT license。
+* `area.path.smoothing.engine` 支持 `custom` 和 `paperjs`。
+* 曲线调参面板新增 `曲线引擎` 选择器。
+* Paper.js 模式新增 `Paper 简化容差`、`Paper 平滑方式` 和 `Paper 平滑系数` 控制。
+* Paper.js 引擎会将过滤 / 重采样后的点转换为 Paper Path，执行 `simplify()` 和 `smooth()`，再导出 SVG path data。
+* Paper.js 不可用时会回退到自研算法并记录 warning。
+* debug export 已包含 engine 和 Paper.js 相关诊断字段。
+* 曲线调参弹层已限制在浏览器视口内，避免导出按钮被挤到屏幕外。
+* README、视觉规范和项目结构标准已补充本地 Paper.js vendor 说明。
+
+### 修改范围
+
+* `journey.html`
+* `journey.css`
+* `journey.js`
+* `vendor/paperjs/paper-full.js`
+* `vendor/paperjs/LICENSE.txt`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/08_PROJECT_STRUCTURE_STANDARD.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改留言原型应用。
+* 未修改特别订阅应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 本地分支已拉取远端工作分支。
+* [x] `origin/main` 没有需要合入的新提交。
+* [x] `node --check journey.js` 通过。
+* [x] 变更项目文件 LF / CR / 长行检查通过。
+* [x] Paper.js vendor 文件存在且非空。
+* [x] Paper.js license 文件存在且非空。
+* [x] 破损问号占位符检查已执行。
+* [x] `git diff --stat` 已检查。
+* [x] `journey.html` 已在浏览器中打开。
+* [x] normal Overview view 已确认保持干净。
+* [x] 编辑器已在浏览器中打开。
+* [x] 曲线引擎选择器已在浏览器中验证。
+* [x] Paper.js 平滑引擎已在浏览器中验证可切换。
+* [x] Paper 简化容差滑块已在浏览器中验证会改变曲线。
+* [x] Paper 平滑方式选择器已在浏览器中验证会改变曲线。
+* [x] Paper 平滑系数滑块已在浏览器中验证。
+* [ ] 选中的 engine 已验证可保存并在 reload 后保留。
+* [x] custom engine 已验证仍可使用。
+* [x] debug export 已验证包含 Paper.js diagnostics。
+* [ ] mobile width 已验证。
+
 ## 2026-06-22 - Add journey curve tuning sliders
 
 ### 本次目标
