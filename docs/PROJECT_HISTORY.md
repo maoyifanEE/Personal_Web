@@ -1,5 +1,70 @@
 # Project History
 
+## 2026-06-21 - Refactor journey curves to global approximating spline fitting
+
+### 本次目标
+
+* 在 `Feature/homepage-update` 分支继续优化 journey 曲线。
+* 修复上一版仍然过度穿过 guide anchors、局部弯折明显的问题。
+* 将 per-area 局部拟合改为全局 approximating spline / fairing 路线。
+* 让手绘路径只作为 rough guide，而不是最终可见路线的强制插值点。
+* 同时改善相邻区域的 endpoint continuity 和 tangent continuity。
+* 扩展 debug export，加入全局控制点、全局采样、per-area diagnostics 和 debug metrics。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* 将各 area 的 rough path 转换到 cumulative global Y 坐标。
+* 从全局 rough route 中插入起点、终点和 area boundary hard constraints。
+* 使用更少的 global control points，并通过 fairing 让最终路线近似手绘意图而非逐点穿过。
+* 将 global final samples 按 area 边界拆回本地 SVG path。
+* `boundaryDiagnostics` 增加 `tangentImprovementDeg`。
+* per-area diagnostics 增加 turn angle、curvature spike 和 raw-to-final deviation 指标。
+* debug overlay 增加原始手绘、引导锚点、最终拟合曲线、边界切线的独立开关。
+* debug JSON export 增加 global route / global control / global final samples / per-area diagnostics。
+
+### 修改范围
+
+* `journey.js`
+* `journey.css`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `login.html`。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改留言原型应用。
+* 未新增 server-side logging。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 本地分支已同步远端工作分支。
+* [x] `node --check journey.js` 通过。
+* [x] 变更文件 LF / CR / 长行检查通过。
+* [x] 破损问号占位符检查已执行。
+* [x] `git diff --stat` 已检查。
+* [ ] `journey.html` 已在浏览器中打开。
+* [ ] 编辑器已在浏览器中打开。
+* [ ] 手绘粗糙曲线已在浏览器中验证生成更平滑路径。
+* [ ] debug overlay 独立开关已在浏览器中验证。
+* [ ] 曲线调试 JSON 导出已在浏览器中验证。
+* [ ] 相邻区域 endpoint/tangent continuity 已在浏览器中验证。
+
 ## 2026-06-21 - Add journey curve spline fitting and debug export
 
 ### 本次目标
