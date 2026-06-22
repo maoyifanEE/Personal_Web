@@ -1,5 +1,68 @@
 # Project History
 
+## 2026-06-21 - Replace failed global journey fairing with bounded local fitting
+
+### 本次目标
+
+* 继续在 `Feature/homepage-update` 分支修复 journey 曲线生成。
+* 停用会把局部 S 形手绘路线拉成对角线的 global fairing 主流程。
+* 改为每个区域内的 bounded local cubic Bezier fitting。
+* 保留起点、终点、极值点和主要转折等形状关键点。
+* 用 raw-to-final deviation 阈值限制最终曲线偏离手绘意图。
+* 相邻区域只做局部端点和边界控制柄调整。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* `processRawFreehandPoints` 改为从手绘或旧 Bezier 采样点生成 bounded local Bezier 曲线。
+* 新增 shape landmarks、fitted Bezier segments、raw-to-final deviation 和 shape preservation diagnostics。
+* `alignAdjacentAreaPaths` 不再调用 global approximating fairing 作为主生成器。
+* 相邻区域边界现在对齐全局视觉端点，并仅尝试调整边界附近控制柄。
+* 如果边界切线优化会超过形状偏差阈值，会保留局部形状并记录限制标记。
+* debug overlay / export 可继续查看原始点、重采样点、形状关键点、最终曲线和边界诊断。
+* README 和视觉规范已更新为 bounded local Bezier fitting 说明。
+
+### 修改范围
+
+* `journey.js`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `login.html`。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改留言原型应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 本地分支已同步远端工作分支。
+* [x] `origin/main` 没有需要合入的新提交。
+* [x] `node --check journey.js` 通过。
+* [x] 变更文件 LF / CR / 长行检查通过。
+* [x] 破损问号占位符检查已执行。
+* [x] `git diff --stat` 已检查。
+* [x] S 形 rough stroke 诊断探针已运行。
+* [x] `journey.html` 已在浏览器中打开。
+* [x] 编辑器已在浏览器中打开。
+* [x] 手绘 S 形或 loop-like 曲线已在浏览器中验证。
+* [x] debug overlay 已在浏览器中验证。
+* [ ] debug JSON 导出已在浏览器中验证。
+
 ## 2026-06-21 - Refactor journey curves to global approximating spline fitting
 
 ### 本次目标
