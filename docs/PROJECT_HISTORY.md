@@ -1,5 +1,68 @@
 # Project History
 
+## 2026-06-22 - Improve journey route visual smoothness with designer Bezier handles
+
+### 本次目标
+
+* 继续在 `Feature/homepage-update` 分支优化 journey 曲线视觉质量。
+* 修复上一版 bounded local fitting 仍像多段圆角折线的问题。
+* 改用 designer-route Bezier model：少量设计点、每个点一个切线方向、内部控制柄成对连续。
+* 让最终曲线更像设计好的丝滑时间线，而不是独立 fitted segments 拼接。
+* 增加内部 join tangent mismatch、curvature spike 和 smoothness quality gate 诊断。
+* 保持 normal preview 干净，不显示 raw dashed line、密集 debug 点或 tangent marks。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* `processRawFreehandPoints` 现在生成 `designerWaypoints`、`tangentVectors` 和 `bezierSegments`。
+* 设计点默认压缩到少量 meaningful waypoints，并移除近共线或过近的冗余点。
+* 每个 waypoint 计算一个平滑切线方向，内部 Bezier join 使用同一方向生成成对控制柄。
+* diagnostics 新增 `maxInternalJoinTangentMismatchDeg`、`internalJoinTangentMismatches`、`handleClampCount`、`redundantWaypointRemovalCount` 和 `smoothnessQualityPass`。
+* debug export 保留旧字段兼容，同时新增 designer-route 字段。
+* README 和视觉规范已更新为 designer-route Bezier 说明。
+
+### 修改范围
+
+* `journey.js`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `login.html`。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改留言原型应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 本地分支已同步远端工作分支。
+* [x] `origin/main` 没有需要合入的新提交。
+* [x] `node --check journey.js` 通过。
+* [x] 变更文件 LF / CR / 长行检查通过。
+* [x] 破损问号占位符检查已执行。
+* [x] `git diff --stat` 已检查。
+* [x] S 形 rough stroke 诊断探针已运行。
+* [x] normal Overview view 已确认无 debug clutter。
+* [x] 编辑器已在浏览器中打开。
+* [x] debug mode 已在浏览器中切换验证。
+* [x] 手绘 S 形曲线已在浏览器中验证。
+* [ ] debug JSON 导出已在浏览器中验证。
+* [ ] mobile width 已验证。
+
 ## 2026-06-21 - Replace failed global journey fairing with bounded local fitting
 
 ### 本次目标

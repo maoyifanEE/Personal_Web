@@ -34,10 +34,11 @@ The repository must not contain real private data, secrets, production database 
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 
 The journey prototype includes editable curve paths.
-Hand-drawn strokes are treated as rough direction input, then converted with bounded local Bezier fitting.
-The fitting keeps broad shape landmarks and limits raw-to-final deviation so rough S-shaped gestures do not collapse into unrelated diagonal routes.
+Hand-drawn strokes are treated as rough direction input, then converted into a designer-route Bezier curve.
+The fitting uses a few route waypoints, one tangent direction per waypoint, and paired handles to keep internal joins visually continuous.
+The quality gates keep broad shape landmarks while limiting raw-to-final deviation and curvature spikes.
 Adjacent journey areas align endpoints and adjust only local boundary handles so the timeline reads as one continuous path without destroying each area's shape.
-The journey editor can show and export front-end curve debug data for raw points, shape landmarks, fitted Bezier segments, final samples, per-area metrics, and boundary diagnostics.
+The journey editor can show and export front-end curve debug data for raw points, designer waypoints, tangent vectors, Bezier segments, final samples, per-area metrics, and boundary diagnostics.
 
 ## Navigation Behavior
 

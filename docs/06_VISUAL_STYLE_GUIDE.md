@@ -35,14 +35,17 @@ It should also prevent old navigation behavior from returning by accident.
 * The Overview and Details switch is part of the prototype.
 * Freehand curve editing and path-anchored nodes are prototype editor features.
 * Hand-drawn curve input should be treated as rough direction, not exact final geometry.
-* The final journey route should be generated with bounded local Bezier fitting.
+* The final journey route should be generated with a designer-route Bezier model.
+* The algorithm should use a small number of route waypoints with one tangent direction per waypoint.
+* Internal Bezier joins should be G1/C1-continuous so the route does not look like stitched rounded segments.
 * The algorithm should preserve broad shape landmarks such as major turns, extrema, and start/end direction.
 * Smoothness and visual polish may reduce hand jitter, but must not collapse an S-shaped or looping gesture into a different route.
 * Adjacent journey areas should align endpoints and adjust only local boundary handles.
 * Boundary tangent smoothing must not destroy the shape of either neighboring area.
 * Vertically offset journey areas should still connect smoothly at their shared boundary without a visible kink.
-* Debug metrics should evaluate endpoint gaps, tangent improvement, turn angles, curvature spikes, and raw-to-final deviation.
-* The curve debug overlay and debug JSON export may be used to inspect raw points, resampled points, shape landmarks, fitted Bezier segments, final curve samples, and boundary diagnostics.
+* Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
+* Debug metrics should evaluate endpoint gaps, tangent improvement, internal join mismatch, curvature spikes, and raw-to-final deviation.
+* The curve debug overlay and debug JSON export may be used to inspect raw points, resampled points, designer waypoints, tangent vectors, Bezier segments, final curve samples, and boundary diagnostics.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.

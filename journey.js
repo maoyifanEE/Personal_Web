@@ -950,6 +950,231 @@ const extractShapeLandmarks = (points, smoothing) => {
     .map((index) => points[index]);
 };
 
+const getPointSequenceIndexes = (points, selectedPoints) =>
+  selectedPoints
+    .map((selected) => points.findIndex((point) => distanceBetweenPoints(point, selected) <= 1))
+    .filter((index) => index >= 0)
+    .sort((first, second) => first - second);
+
+const getTriangleDistance = (point, start, end) => {
+  const lineLength = distanceBetweenPoints(start, end);
+  if (!lineLength) {
+    return distanceBetweenPoints(point, start);
+  }
+
+  return Math.abs(
+    (end.y - start.y) * point.x -
+    (end.x - start.x) * point.y +
+    end.x * start.y -
+    end.y * start.x
+  ) / lineLength;
+};
+
+const removeRedundantWaypoints = (waypoints, minDistance = 72, maxAngle = 14, minCount = 5) => {
+  if (waypoints.length <= 2) {
+    return { waypoints, removed: 0 };
+  }
+
+  const reduced = [waypoints[0]];
+  let removed = 0;
+
+  for (let index = 1; index < waypoints.length - 1; index += 1) {
+    const previous = reduced[reduced.length - 1];
+    const current = waypoints[index];
+    const next = waypoints[index + 1];
+    const tooClose =
+      distanceBetweenPoints(previous, current) < minDistance ||
+      distanceBetweenPoints(current, next) < minDistance;
+    const extremelyClose =
+      distanceBetweenPoints(previous, current) < minDistance * 0.42 ||
+      distanceBetweenPoints(current, next) < minDistance * 0.42;
+    const nearlyCollinear = getDirectionTurnAngle([previous, current, next], 1) < maxAngle;
+
+    if (
+      extremelyClose ||
+      (tooClose && nearlyCollinear && reduced.length + (waypoints.length - index) > minCount)
+    ) {
+      removed += 1;
+      continue;
+    }
+
+    reduced.push(current);
+  }
+
+  reduced.push(waypoints[waypoints.length - 1]);
+  return { waypoints: reduced, removed };
+};
+
+const extractDesignerWaypoints = (points, smoothing) => {
+  if (points.length <= 2) {
+    return {
+      designerWaypoints: points.map(normalizePoint),
+      redundantWaypointRemovalCount: 0
+    };
+  }
+
+  const shapeLandmarks = extractShapeLandmarks(points, smoothing);
+  const landmarkIndexes = new Set(getPointSequenceIndexes(points, shapeLandmarks));
+  const targetCount = Math.max(5, Math.min(7, Math.round(7 - smoothing.algorithmPriority * 1.5)));
+
+  while (landmarkIndexes.size > targetCount) {
+    const indexes = [...landmarkIndexes].sort((first, second) => first - second);
+    const removable = indexes
+      .slice(1, -1)
+      .map((index) => {
+        const position = indexes.indexOf(index);
+        const previous = points[indexes[position - 1]];
+        const current = points[index];
+        const next = points[indexes[position + 1]];
+        return {
+          index,
+          score: getTriangleDistance(current, previous, next) +
+            getDirectionTurnAngle([previous, current, next], 1) * 1.2
+        };
+      })
+      .sort((first, second) => first.score - second.score);
+
+    if (!removable.length) {
+      break;
+    }
+    landmarkIndexes.delete(removable[0].index);
+  }
+
+  let waypoints = [...landmarkIndexes]
+    .sort((first, second) => first - second)
+    .map((index) => normalizePoint(points[index]));
+  const reduced = removeRedundantWaypoints(waypoints, 56 + smoothing.algorithmPriority * 34, 12, 5);
+  waypoints = reduced.waypoints;
+
+  return {
+    designerWaypoints: waypoints,
+    shapeLandmarks: waypoints,
+    redundantWaypointRemovalCount: reduced.removed
+  };
+};
+
+const smoothTangentVectors = (vectors, passes = 2) => {
+  let smoothed = vectors.map((vector) => getUnitVector(vector));
+  for (let pass = 0; pass < passes; pass += 1) {
+    smoothed = smoothed.map((vector, index) => {
+      if (index === 0 || index === smoothed.length - 1) {
+        return vector;
+      }
+      return getUnitVector({
+        x: vector.x * 0.5 + smoothed[index - 1].x * 0.25 + smoothed[index + 1].x * 0.25,
+        y: vector.y * 0.5 + smoothed[index - 1].y * 0.25 + smoothed[index + 1].y * 0.25
+      }, vector);
+    });
+  }
+  return smoothed;
+};
+
+const getDesignerTangents = (waypoints, points, smoothing) => {
+  if (waypoints.length < 2) {
+    return [];
+  }
+
+  const tangents = waypoints.map((point, index) => {
+    if (index === 0) {
+      return estimateEndpointTangent(points, false);
+    }
+    if (index === waypoints.length - 1) {
+      return estimateEndpointTangent(points, true);
+    }
+
+    const broad = getUnitVector({
+      x: waypoints[index + 1].x - waypoints[index - 1].x,
+      y: waypoints[index + 1].y - waypoints[index - 1].y
+    });
+    const rawNearest = findNearestPoint(points, point)?.point || point;
+    const rawIndex = points.findIndex((item) => distanceBetweenPoints(item, rawNearest) <= 1);
+    const local = rawIndex > 0 && rawIndex < points.length - 1
+      ? getUnitVector({
+        x: points[Math.min(points.length - 1, rawIndex + 2)].x - points[Math.max(0, rawIndex - 2)].x,
+        y: points[Math.min(points.length - 1, rawIndex + 2)].y - points[Math.max(0, rawIndex - 2)].y
+      }, broad)
+      : broad;
+    const broadWeight = 0.68 + smoothing.algorithmPriority * 0.2;
+    return getUnitVector({
+      x: broad.x * broadWeight + local.x * (1 - broadWeight),
+      y: broad.y * broadWeight + local.y * (1 - broadWeight)
+    }, broad);
+  });
+
+  return smoothTangentVectors(tangents, Math.round(1 + smoothing.strength * 2));
+};
+
+const getBoundedHandleLength = (point, tangent, length, direction, height) => {
+  let bounded = length;
+  const margin = 72;
+  const vector = {
+    x: tangent.x * direction,
+    y: tangent.y * direction
+  };
+
+  if (vector.x > 0) {
+    bounded = Math.min(bounded, (SVG_WIDTH + margin - point.x) / vector.x);
+  } else if (vector.x < 0) {
+    bounded = Math.min(bounded, (point.x + margin) / Math.abs(vector.x));
+  }
+
+  if (vector.y > 0) {
+    bounded = Math.min(bounded, (height + margin - point.y) / vector.y);
+  } else if (vector.y < 0) {
+    bounded = Math.min(bounded, (point.y + margin) / Math.abs(vector.y));
+  }
+
+  return Math.max(18, Math.min(length, bounded - 2));
+};
+
+const buildDesignerBezierSegments = (waypoints, tangentVectors, smoothing, height) => {
+  const segments = [];
+  let handleClampCount = 0;
+  const baseHandleScale = 0.28 + smoothing.strength * 0.12 + smoothing.algorithmPriority * 0.06;
+
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    const p0 = waypoints[index];
+    const p1 = waypoints[index + 1];
+    const chordLength = distanceBetweenPoints(p0, p1);
+    const previousChord = index > 0 ? distanceBetweenPoints(waypoints[index - 1], p0) : chordLength;
+    const nextChord = index < waypoints.length - 2 ? distanceBetweenPoints(p1, waypoints[index + 2]) : chordLength;
+    const outLimit = Math.min(chordLength * 0.48, previousChord * 0.42, 190);
+    const inLimit = Math.min(chordLength * 0.48, nextChord * 0.42, 190);
+    const targetOutLength = clamp(chordLength * baseHandleScale, 26, outLimit);
+    const targetInLength = clamp(chordLength * baseHandleScale, 26, inLimit);
+    const outLength = getBoundedHandleLength(p0, tangentVectors[index], targetOutLength, 1, height);
+    const inLength = getBoundedHandleLength(p1, tangentVectors[index + 1], targetInLength, -1, height);
+    if (outLength < targetOutLength || inLength < targetInLength || targetOutLength === outLimit || targetInLength === inLimit) {
+      handleClampCount += 1;
+    }
+
+    segments.push({
+      p0,
+      cp1: {
+        x: Math.round(p0.x + tangentVectors[index].x * outLength),
+        y: Math.round(p0.y + tangentVectors[index].y * outLength)
+      },
+      cp2: {
+        x: Math.round(p1.x - tangentVectors[index + 1].x * inLength),
+        y: Math.round(p1.y - tangentVectors[index + 1].y * inLength)
+      },
+      p1
+    });
+  }
+
+  return { segments, handleClampCount };
+};
+
+const getInternalJoinTangentMismatches = (segments) => {
+  const mismatches = [];
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const incoming = getBezierSegmentTangent(segments[index], "end");
+    const outgoing = getBezierSegmentTangent(segments[index + 1], "start");
+    mismatches.push(getTangentAngleDifference(incoming, outgoing) || 0);
+  }
+  return mismatches;
+};
+
 const buildPathDFromBezierSegments = (segments) => {
   if (!segments.length) {
     return "";
@@ -964,7 +1189,7 @@ const buildPathDFromBezierSegments = (segments) => {
   }, "");
 };
 
-const sampleBezierSegments = (segments, stepsPerSegment = 18) => {
+const sampleBezierSegments = (segments, stepsPerSegment = 28) => {
   if (!segments.length) {
     return [];
   }
@@ -977,52 +1202,57 @@ const sampleBezierSegments = (segments, stepsPerSegment = 18) => {
 };
 
 const fitBoundedBezierPath = (points, smoothing) => {
-  const shapeLandmarks = extractShapeLandmarks(points, smoothing);
-  const landmarkIndexes = shapeLandmarks
-    .map((landmark) => points.findIndex((point) => distanceBetweenPoints(point, landmark) <= 1))
-    .filter((index) => index >= 0)
-    .sort((first, second) => first - second);
-  const maxSegments = Math.max(8, Math.min(28, shapeLandmarks.length * 3));
-  const tolerance = 30 + (1 - smoothing.algorithmPriority) * 28 + (1 - smoothing.simplification) * 20;
-  const segments = [];
-
-  for (let index = 0; index < landmarkIndexes.length - 1; index += 1) {
-    const start = landmarkIndexes[index];
-    const end = landmarkIndexes[index + 1];
-    if (end <= start) {
-      continue;
-    }
-    fitBezierSegmentsRecursive(
-      points.slice(start, end + 1),
-      tolerance,
-      maxSegments,
-      segments
-    );
-  }
-
-  if (!segments.length) {
-    fitBezierSegmentsRecursive(points, tolerance, maxSegments, segments);
-  }
+  const {
+    designerWaypoints,
+    shapeLandmarks,
+    redundantWaypointRemovalCount
+  } = extractDesignerWaypoints(points, smoothing);
+  const tangentVectors = getDesignerTangents(designerWaypoints, points, smoothing);
+  const localHeight = Math.max(...points.map((point) => point.y), ...designerWaypoints.map((point) => point.y), 1);
+  const { segments, handleClampCount } = buildDesignerBezierSegments(
+    designerWaypoints,
+    tangentVectors,
+    smoothing,
+    localHeight
+  );
 
   const finalSplinePoints = sampleBezierSegments(segments);
   const deviationStats = getDeviationStats(points, finalSplinePoints);
   const curvatureStats = getCurvatureStats(finalSplinePoints);
+  const internalJoinTangentMismatches = getInternalJoinTangentMismatches(segments);
+  const maxInternalJoinTangentMismatchDeg = internalJoinTangentMismatches.length
+    ? Math.max(...internalJoinTangentMismatches)
+    : 0;
   const shapePreservationWarning =
     deviationStats.averageRawToFinalDeviation > 45 ||
     deviationStats.maxRawToFinalDeviation > 120;
+  const smoothnessQualityPass =
+    maxInternalJoinTangentMismatchDeg <= 8 &&
+    curvatureStats.curvatureSpikeCount <= 3 &&
+    !shapePreservationWarning;
 
   return {
+    designerWaypoints,
     shapeLandmarks,
+    tangentVectors,
+    bezierSegments: segments,
     fittedBezierSegments: segments,
     finalSplinePoints,
     finalSvgPath: buildPathDFromBezierSegments(segments),
     diagnostics: {
+      fittingModel: "designer-route-bezier",
+      designerWaypointCount: designerWaypoints.length,
       shapeLandmarkCount: shapeLandmarks.length,
       fittedBezierSegmentCount: segments.length,
       finalSamplePointCount: finalSplinePoints.length,
       maxTurnAngleDeg: getMaxTurnAngle(finalSplinePoints),
+      maxInternalJoinTangentMismatchDeg,
+      internalJoinTangentMismatches,
+      handleClampCount,
+      redundantWaypointRemovalCount,
       ...curvatureStats,
       ...deviationStats,
+      smoothnessQualityPass,
       shapePreservationWarning
     }
   };
@@ -1074,16 +1304,29 @@ const updateAreaDiagnosticsFromSegments = (area) => {
   area.path.d = finalSvgPath;
   area.path.globalFitDiagnostics = {
     ...(area.path.globalFitDiagnostics || {}),
+    fittingModel: "designer-route-bezier",
     areaId: area.id,
     rawPointCount: rawPoints.length,
     filteredPointCount: area.path.filteredPoints?.length || 0,
     resampledPointCount: area.path.resampledPoints?.length || 0,
+    designerWaypointCount: area.path.designerWaypoints?.length || area.path.shapeLandmarks?.length || 0,
     shapeLandmarkCount: area.path.shapeLandmarks?.length || 0,
     fittedBezierSegmentCount: area.path.fittedBezierSegments?.length || 0,
     finalSamplePointCount: finalSplinePoints.length,
     maxTurnAngleDeg: getMaxTurnAngle(finalSplinePoints),
+    maxInternalJoinTangentMismatchDeg: Math.max(
+      0,
+      ...getInternalJoinTangentMismatches(area.path.fittedBezierSegments || [])
+    ),
+    internalJoinTangentMismatches: getInternalJoinTangentMismatches(area.path.fittedBezierSegments || []),
+    handleClampCount: area.path.globalFitDiagnostics?.handleClampCount || 0,
+    redundantWaypointRemovalCount: area.path.globalFitDiagnostics?.redundantWaypointRemovalCount || 0,
     ...curvatureStats,
     ...deviationStats,
+    smoothnessQualityPass:
+      Math.max(0, ...getInternalJoinTangentMismatches(area.path.fittedBezierSegments || [])) <= 8 &&
+      curvatureStats.curvatureSpikeCount <= 3 &&
+      !shapePreservationWarning,
     shapePreservationWarning
   };
 };
@@ -1162,7 +1405,9 @@ const updateBoundarySegmentEndpoints = (previousArea, nextArea, sharedX) => {
   const nextAccepted = canAcceptBoundaryHandleUpdate(nextArea, candidateNext);
 
   previousArea.path.fittedBezierSegments = previousAccepted ? candidatePrevious : previousSegments;
+  previousArea.path.bezierSegments = previousArea.path.fittedBezierSegments;
   nextArea.path.fittedBezierSegments = nextAccepted ? candidateNext : nextSegments;
+  nextArea.path.bezierSegments = nextArea.path.fittedBezierSegments;
 
   return {
     previousSegments: previousArea.path.fittedBezierSegments,
@@ -1420,7 +1665,7 @@ const getCurvatureStats = (points) => {
 
   return {
     maxCurvatureEstimate: angleChanges.length ? Math.max(...angleChanges) : 0,
-    curvatureSpikeCount: angleChanges.filter((angle) => angle > 24).length
+    curvatureSpikeCount: angleChanges.filter((angle) => angle > 36).length
   };
 };
 
@@ -1671,7 +1916,10 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
   const intentionSpacing = Math.max(12, normalizedSmoothing.resampleSpacing + priority * 8);
   const resampled = resamplePointsByDistance(jitterFiltered, intentionSpacing);
   const boundedFit = fitBoundedBezierPath(resampled, normalizedSmoothing);
+  const designerWaypoints = boundedFit.designerWaypoints;
   const shapeLandmarks = boundedFit.shapeLandmarks;
+  const tangentVectors = boundedFit.tangentVectors;
+  const bezierSegments = boundedFit.bezierSegments;
   const fittedBezierSegments = boundedFit.fittedBezierSegments;
   const finalSplinePoints = boundedFit.finalSplinePoints;
   const finalSvgPath = boundedFit.finalSvgPath;
@@ -1681,14 +1929,14 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
     rawPointCount: sourcePoints.length,
     filteredPointCount: jitterFiltered.length,
     resampledPointCount: resampled.length,
-    guideAnchorCount: shapeLandmarks.length,
+    guideAnchorCount: designerWaypoints.length,
     finalSplinePointCount: finalSplinePoints.length,
     maxAnchors: normalizedSmoothing.maxAnchors,
-    fittingModel: "bounded-local-bezier"
+    fittingModel: "designer-route-bezier"
   };
 
   if (options.log) {
-    logHomepage("Fitted bounded local Bezier curve from freehand guide.", {
+    logHomepage("Fitted designer-route Bezier curve from freehand guide.", {
       ...diagnostics,
       smoothing: normalizedSmoothing
     });
@@ -1698,10 +1946,13 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
     rawPoints: sourcePoints,
     filteredPoints: jitterFiltered,
     resampledPoints: resampled,
-    guideAnchors: shapeLandmarks,
+    guideAnchors: designerWaypoints,
+    designerWaypoints,
     shapeLandmarks,
+    tangentVectors,
+    bezierSegments,
     fittedBezierSegments,
-    alignedAnchors: shapeLandmarks,
+    alignedAnchors: designerWaypoints,
     smoothPoints: finalSplinePoints,
     finalSplinePoints,
     finalSvgPath,
@@ -1732,7 +1983,10 @@ const setCurveDebugData = (area, processed, boundaryDiagnostics = []) => {
     filteredPoints: processed.filteredPoints || [],
     resampledPoints: processed.resampledPoints || [],
     guideAnchors: processed.guideAnchors || [],
+    designerWaypoints: processed.designerWaypoints || processed.shapeLandmarks || processed.guideAnchors || [],
     shapeLandmarks: processed.shapeLandmarks || processed.guideAnchors || [],
+    tangentVectors: processed.tangentVectors || [],
+    bezierSegments: processed.bezierSegments || processed.fittedBezierSegments || [],
     fittedBezierSegments: processed.fittedBezierSegments || [],
     alignedAnchors: processed.alignedAnchors || processed.guideAnchors || [],
     finalSplinePoints: processed.finalSplinePoints || processed.smoothPoints || [],
@@ -1751,7 +2005,10 @@ const applyProcessedFreehandPath = (area, processed, boundaryDiagnostics = []) =
   area.path.filteredPoints = processed.filteredPoints || [];
   area.path.resampledPoints = processed.resampledPoints || [];
   area.path.guideAnchors = processed.guideAnchors || [];
+  area.path.designerWaypoints = processed.designerWaypoints || processed.shapeLandmarks || processed.guideAnchors || [];
   area.path.shapeLandmarks = processed.shapeLandmarks || processed.guideAnchors || [];
+  area.path.tangentVectors = processed.tangentVectors || [];
+  area.path.bezierSegments = processed.bezierSegments || processed.fittedBezierSegments || [];
   area.path.fittedBezierSegments = processed.fittedBezierSegments || [];
   area.path.alignedAnchors = processed.alignedAnchors || processed.guideAnchors || [];
   area.path.smoothPoints = processed.smoothPoints || processed.finalSplinePoints || [];
@@ -1795,6 +2052,7 @@ const setAreaPathBoundaryPoint = (area, boundary, point) => {
       segments[segments.length - 1].p1 = safePoint;
     }
     area.path.fittedBezierSegments = segments;
+    area.path.bezierSegments = segments;
     updateAreaDiagnosticsFromSegments(area);
     return true;
   }
@@ -1901,7 +2159,10 @@ const finalizeAlignedAreaPath = (area, boundaryDiagnostics = []) => {
       filteredPoints: area.path.filteredPoints || [],
       resampledPoints: area.path.resampledPoints || [],
       guideAnchors: area.path.guideAnchors || [],
+      designerWaypoints: area.path.designerWaypoints || area.path.shapeLandmarks || area.path.guideAnchors || [],
       shapeLandmarks: area.path.shapeLandmarks || area.path.guideAnchors || [],
+      tangentVectors: area.path.tangentVectors || [],
+      bezierSegments: area.path.bezierSegments || area.path.fittedBezierSegments || [],
       fittedBezierSegments: area.path.fittedBezierSegments || [],
       alignedAnchors: area.path.alignedAnchors || [],
       finalSplinePoints: area.path.finalSplinePoints || [],
@@ -2025,7 +2286,7 @@ const buildLocalBoundaryDiagnostics = (layouts) => {
   return boundaryDiagnostics;
 };
 
-const applyBoundedLocalBezierFitting = (areas, reason = "render") => {
+const applyDesignerRouteBezierFitting = (areas, reason = "render") => {
   const layouts = getAreaLayouts(areas);
   const perAreaFinalPaths = {};
   const perAreaDiagnostics = {};
@@ -2057,7 +2318,7 @@ const applyBoundedLocalBezierFitting = (areas, reason = "render") => {
   globalCurveDebugData = {
     generatedAt: new Date().toISOString(),
     reason,
-    fittingModel: "bounded-local-bezier",
+    fittingModel: "designer-route-bezier",
     legacyGlobalFairing: {
       enabled: false,
       note: "The previous global fairing model is retained only as legacy code and is not used."
@@ -2071,7 +2332,7 @@ const applyBoundedLocalBezierFitting = (areas, reason = "render") => {
     boundaryDiagnostics,
     smoothingSettings: normalizeSmoothing(layouts[0]?.area.path.smoothing),
     debugMetrics: {
-      fittingModel: "bounded-local-bezier",
+      fittingModel: "designer-route-bezier",
       areaCount: layouts.length,
       boundaryCount: boundaryDiagnostics.length,
       shapeWarnings: Object.values(perAreaDiagnostics)
@@ -2079,7 +2340,7 @@ const applyBoundedLocalBezierFitting = (areas, reason = "render") => {
     }
   };
 
-  logHomepage("Applied bounded local Bezier route fitting.", {
+  logHomepage("Applied designer-route Bezier fitting.", {
     reason,
     areaCount: layouts.length,
     boundaryCount: boundaryDiagnostics.length
@@ -2087,7 +2348,7 @@ const applyBoundedLocalBezierFitting = (areas, reason = "render") => {
 };
 
 const alignAdjacentAreaPaths = (areas, reason = "render") => {
-  applyBoundedLocalBezierFitting(areas, reason);
+  applyDesignerRouteBezierFitting(areas, reason);
 };
 
 const getAreaPathElement = (areaId) =>
@@ -2559,8 +2820,12 @@ const renderCurveDebugOverlay = (svg, area) => {
   const filteredPoints = debugData?.filteredPoints || area.path.filteredPoints || [];
   const resampledPoints = debugData?.resampledPoints || area.path.resampledPoints || [];
   const guideAnchors = debugData?.guideAnchors || area.path.guideAnchors || [];
-  const shapeLandmarks = debugData?.shapeLandmarks || area.path.shapeLandmarks || guideAnchors;
-  const alignedAnchors = debugData?.alignedAnchors || area.path.alignedAnchors || [];
+  const designerWaypoints =
+    debugData?.designerWaypoints ||
+    area.path.designerWaypoints ||
+    debugData?.shapeLandmarks ||
+    area.path.shapeLandmarks ||
+    guideAnchors;
   const finalSplinePoints = debugData?.finalSplinePoints || area.path.finalSplinePoints || [];
 
   if (uiState.debugLayers.raw) {
@@ -2572,8 +2837,7 @@ const renderCurveDebugOverlay = (svg, area) => {
     appendDebugPolyline(svg, finalSplinePoints, "curve-debug__final-samples");
   }
   if (uiState.debugLayers.anchors) {
-    appendDebugPoints(svg, shapeLandmarks, "curve-debug__guide-anchor", 6);
-    appendDebugPoints(svg, alignedAnchors, "curve-debug__aligned-anchor", 7);
+    appendDebugPoints(svg, designerWaypoints, "curve-debug__guide-anchor", 6);
   }
   if (uiState.debugLayers.tangents) {
     appendDebugTangents(svg, area);
@@ -3219,7 +3483,10 @@ const getCurveDebugExport = () => {
     filteredPoints: area.path.filteredPoints || [],
     resampledPoints: area.path.resampledPoints || [],
     guideAnchors: area.path.guideAnchors || [],
+    designerWaypoints: area.path.designerWaypoints || area.path.shapeLandmarks || area.path.guideAnchors || [],
     shapeLandmarks: area.path.shapeLandmarks || area.path.guideAnchors || [],
+    tangentVectors: area.path.tangentVectors || [],
+    bezierSegments: area.path.bezierSegments || area.path.fittedBezierSegments || [],
     fittedBezierSegments: area.path.fittedBezierSegments || [],
     alignedAnchors: area.path.alignedAnchors || [],
     finalSplinePoints: area.path.finalSplinePoints || area.path.smoothPoints || [],
@@ -3243,7 +3510,10 @@ const getCurveDebugExport = () => {
     filteredPoints: debugData.filteredPoints,
     resampledPoints: debugData.resampledPoints,
     guideAnchors: debugData.guideAnchors,
+    designerWaypoints: debugData.designerWaypoints,
     shapeLandmarks: debugData.shapeLandmarks,
+    tangentVectors: debugData.tangentVectors,
+    bezierSegments: debugData.bezierSegments,
     fittedBezierSegments: debugData.fittedBezierSegments,
     alignedAnchors: debugData.alignedAnchors,
     finalSplinePoints: debugData.finalSplinePoints,
