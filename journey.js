@@ -4,7 +4,12 @@ const DEFAULT_SMOOTHING = {
   enabled: true,
   strength: 0.78,
   simplification: 0.62,
-  algorithmPriority: 0.8
+  algorithmPriority: 0.88,
+  minPointDistance: 14,
+  resampleSpacing: 46,
+  maxAnchors: 8,
+  tangentSmoothing: 0.82,
+  boundaryTangentSmoothing: 0.78
 };
 const DRAW_POINT_MIN_DISTANCE = 10;
 const PATH_ALIGNMENT_HANDLE_DISTANCE = 96;
@@ -333,8 +338,10 @@ let uiState = {
   popover: null,
   contextMenu: null,
   hoverPreview: null,
-  lastPointerWasDrag: false
+  lastPointerWasDrag: false,
+  debugOverlay: false
 };
+const curveDebugDataByArea = new Map();
 
 const getOrderedAreas = () => [...editorState.areas].sort((a, b) => a.order - b.order);
 const getAreaById = (areaId) => editorState.areas.find((area) => area.id === areaId);
@@ -439,7 +446,32 @@ const normalizeSmoothing = (smoothing = {}) => ({
   ...smoothing,
   strength: clamp(Number(smoothing.strength ?? DEFAULT_SMOOTHING.strength), 0, 1),
   simplification: clamp(Number(smoothing.simplification ?? DEFAULT_SMOOTHING.simplification), 0, 1),
-  algorithmPriority: clamp(Number(smoothing.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority), 0, 1)
+  algorithmPriority: clamp(Number(smoothing.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority), 0, 1),
+  minPointDistance: clamp(
+    Number(smoothing.minPointDistance ?? DEFAULT_SMOOTHING.minPointDistance),
+    4,
+    48
+  ),
+  resampleSpacing: clamp(
+    Number(smoothing.resampleSpacing ?? DEFAULT_SMOOTHING.resampleSpacing),
+    16,
+    120
+  ),
+  maxAnchors: Math.round(clamp(
+    Number(smoothing.maxAnchors ?? DEFAULT_SMOOTHING.maxAnchors),
+    4,
+    12
+  )),
+  tangentSmoothing: clamp(
+    Number(smoothing.tangentSmoothing ?? DEFAULT_SMOOTHING.tangentSmoothing),
+    0,
+    1
+  ),
+  boundaryTangentSmoothing: clamp(
+    Number(smoothing.boundaryTangentSmoothing ?? DEFAULT_SMOOTHING.boundaryTangentSmoothing),
+    0,
+    1
+  )
 });
 
 const normalizePoint = (point, fallback = { x: SVG_WIDTH / 2, y: 0 }) => ({
@@ -627,6 +659,144 @@ const limitPointCount = (points, maxCount = 44) => {
   });
 };
 
+const pickHighValueAnchors = (points, maxAnchors) => {
+  if (points.length <= maxAnchors) {
+    return points;
+  }
+
+  const selected = new Set([0, points.length - 1]);
+  while (selected.size < maxAnchors) {
+    const ordered = [...selected].sort((first, second) => first - second);
+    let bestIndex = -1;
+    let bestScore = -1;
+
+    for (let spanIndex = 0; spanIndex < ordered.length - 1; spanIndex += 1) {
+      const startIndex = ordered[spanIndex];
+      const endIndex = ordered[spanIndex + 1];
+      if (endIndex - startIndex <= 1) {
+        continue;
+      }
+
+      for (let index = startIndex + 1; index < endIndex; index += 1) {
+        const distance = perpendicularDistance(points[index], points[startIndex], points[endIndex]);
+        const spanBalance = Math.min(index - startIndex, endIndex - index);
+        const score = distance + spanBalance * 0.04;
+        if (score > bestScore) {
+          bestScore = score;
+          bestIndex = index;
+        }
+      }
+    }
+
+    if (bestIndex < 0) {
+      break;
+    }
+    selected.add(bestIndex);
+  }
+
+  return [...selected]
+    .sort((first, second) => first - second)
+    .map((index) => points[index]);
+};
+
+const softenGuideAnchors = (anchors, smoothing) => {
+  if (anchors.length <= 3) {
+    return anchors;
+  }
+
+  const strength = smoothing.tangentSmoothing * smoothing.algorithmPriority;
+  return anchors.map((anchor, index) => {
+    if (index === 0 || index === anchors.length - 1) {
+      return anchor;
+    }
+
+    const previous = anchors[index - 1];
+    const next = anchors[index + 1];
+    const turnDistance = perpendicularDistance(anchor, previous, next);
+    const localSpan = Math.max(1, distanceBetweenPoints(previous, next));
+    const turnRatio = clamp(turnDistance / localSpan, 0, 1);
+    const midpoint = {
+      x: (previous.x + next.x) / 2,
+      y: (previous.y + next.y) / 2
+    };
+    const pull = clamp(0.18 + strength * 0.34 - turnRatio * 0.16, 0.08, 0.42);
+
+    return {
+      x: Math.round(anchor.x * (1 - pull) + midpoint.x * pull),
+      y: Math.round(anchor.y * (1 - pull) + midpoint.y * pull)
+    };
+  });
+};
+
+const getSplineControls = (anchors, index, smoothing) => {
+  const p0 = anchors[Math.max(0, index - 1)];
+  const p1 = anchors[index];
+  const p2 = anchors[index + 1];
+  const p3 = anchors[Math.min(anchors.length - 1, index + 2)];
+  const segmentLength = Math.max(1, distanceBetweenPoints(p1, p2));
+  const strength = 0.2 + smoothing.strength * 0.26 + smoothing.algorithmPriority * 0.12;
+  const tangentScale = clamp(strength * smoothing.tangentSmoothing, 0.12, 0.52);
+  const maxHandle = segmentLength * (0.22 + smoothing.tangentSmoothing * 0.18);
+  const incoming = {
+    x: (p2.x - p0.x) * tangentScale,
+    y: (p2.y - p0.y) * tangentScale
+  };
+  const outgoing = {
+    x: (p3.x - p1.x) * tangentScale,
+    y: (p3.y - p1.y) * tangentScale
+  };
+  const incomingLength = Math.hypot(incoming.x, incoming.y) || 1;
+  const outgoingLength = Math.hypot(outgoing.x, outgoing.y) || 1;
+  const incomingLimit = Math.min(1, maxHandle / incomingLength);
+  const outgoingLimit = Math.min(1, maxHandle / outgoingLength);
+
+  return {
+    cp1: {
+      x: Math.round(p1.x + incoming.x * incomingLimit),
+      y: Math.round(p1.y + incoming.y * incomingLimit)
+    },
+    cp2: {
+      x: Math.round(p2.x - outgoing.x * outgoingLimit),
+      y: Math.round(p2.y - outgoing.y * outgoingLimit)
+    }
+  };
+};
+
+const buildSplinePathFromAnchors = (anchors, smoothing = DEFAULT_SMOOTHING) => {
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
+  if (anchors.length < 3) {
+    return buildFreehandPathD(anchors, normalizedSmoothing);
+  }
+
+  let d = `M ${anchors[0].x} ${anchors[0].y}`;
+  for (let index = 0; index < anchors.length - 1; index += 1) {
+    const { cp1, cp2 } = getSplineControls(anchors, index, normalizedSmoothing);
+    const end = anchors[index + 1];
+    d += ` C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${end.x} ${end.y}`;
+  }
+  return d;
+};
+
+const sampleBezierSegment = (p0, p1, p2, p3, steps = 10) =>
+  Array.from({ length: steps }, (_, stepIndex) => {
+    const t = (stepIndex + 1) / steps;
+    return normalizePoint(getBezierPoint(p0, p1, p2, p3, t));
+  });
+
+const sampleSplineAnchors = (anchors, smoothing = DEFAULT_SMOOTHING) => {
+  if (anchors.length < 2) {
+    return anchors;
+  }
+
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
+  const samples = [anchors[0]];
+  for (let index = 0; index < anchors.length - 1; index += 1) {
+    const { cp1, cp2 } = getSplineControls(anchors, index, normalizedSmoothing);
+    samples.push(...sampleBezierSegment(anchors[index], cp1, cp2, anchors[index + 1], 10));
+  }
+  return samples;
+};
+
 const chaikinSmooth = (points, iterations = 2) => {
   if (points.length <= 2 || iterations <= 0) {
     return points;
@@ -670,19 +840,19 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
   const normalizedSmoothing = normalizeSmoothing(smoothing);
   const priority = normalizedSmoothing.algorithmPriority;
   const sourcePoints = rawPoints.map((point) => normalizePoint(point));
-  const jitterFiltered = filterJitterPoints(sourcePoints, DRAW_POINT_MIN_DISTANCE + priority * 14);
-  const intentionSpacing = 28 + priority * 26 - normalizedSmoothing.strength * 8;
-  const resampled = resamplePointsByDistance(jitterFiltered, intentionSpacing);
-  const tolerance = 8 + normalizedSmoothing.simplification * 44 + priority * 18;
-  const simplified = ensureUsefulCurvePoints(simplifyPoints(resampled, tolerance), resampled);
-  const broadGesture = resamplePointsByDistance(simplified, 34 + priority * 18);
-  const iterations = Math.max(
-    2,
-    Math.min(6, Math.round(2 + normalizedSmoothing.strength * 3 + priority * 2))
+  const jitterFiltered = filterJitterPoints(
+    sourcePoints,
+    Math.max(DRAW_POINT_MIN_DISTANCE, normalizedSmoothing.minPointDistance + priority * 10)
   );
-  const smoothed = chaikinSmooth(broadGesture, iterations);
-  const polished = resamplePointsByDistance(smoothed, 24 + (1 - normalizedSmoothing.strength) * 16);
-  const smoothPoints = limitPointCount(ensureUsefulCurvePoints(polished, sourcePoints)).map((point, index, points) => {
+  const intentionSpacing = normalizedSmoothing.resampleSpacing + priority * 18;
+  const resampled = resamplePointsByDistance(jitterFiltered, intentionSpacing);
+  const tolerance = 22 + normalizedSmoothing.simplification * 74 + priority * 26;
+  const simplified = ensureUsefulCurvePoints(simplifyPoints(resampled, tolerance), resampled);
+  const cappedAnchors = pickHighValueAnchors(
+    simplified,
+    Math.max(4, Math.min(10, normalizedSmoothing.maxAnchors))
+  );
+  const softenedAnchors = softenGuideAnchors(cappedAnchors, normalizedSmoothing).map((point, index, points) => {
     if (index === 0) {
       return normalizePoint(sourcePoints[0]);
     }
@@ -691,20 +861,38 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
     }
     return normalizePoint(point);
   });
+  const guideAnchors = ensureUsefulCurvePoints(softenedAnchors, sourcePoints);
+  const finalSplinePoints = sampleSplineAnchors(guideAnchors, normalizedSmoothing);
+  const finalSvgPath = buildSplinePathFromAnchors(guideAnchors, normalizedSmoothing);
+  const diagnostics = {
+    sourcePointCount: sourcePoints.length,
+    filteredPointCount: jitterFiltered.length,
+    resampledPointCount: resampled.length,
+    guideAnchorCount: guideAnchors.length,
+    finalSplinePointCount: finalSplinePoints.length,
+    simplificationTolerance: Math.round(tolerance),
+    maxAnchors: normalizedSmoothing.maxAnchors
+  };
 
   if (options.log) {
-    logHomepage("Processed algorithm-dominant freehand curve.", {
-      rawPointCount: rawPoints.length,
-      filteredPointCount: jitterFiltered.length,
-      smoothPointCount: smoothPoints.length,
+    logHomepage("Fitted algorithm-dominant spline from freehand guide.", {
+      ...diagnostics,
       smoothing: normalizedSmoothing
     });
   }
 
   return {
     rawPoints: sourcePoints,
-    smoothPoints,
-    d: buildFreehandPathD(smoothPoints, normalizedSmoothing)
+    filteredPoints: jitterFiltered,
+    resampledPoints: resampled,
+    guideAnchors,
+    alignedAnchors: guideAnchors,
+    smoothPoints: finalSplinePoints,
+    finalSplinePoints,
+    finalSvgPath,
+    boundaryDiagnostics: [],
+    diagnostics,
+    d: finalSvgPath
   };
 };
 
@@ -714,6 +902,44 @@ const getRenderablePathPoints = (area) => {
   }
 
   return pointsFromBezierAnchors(area.path.points || [], 14);
+};
+
+const setCurveDebugData = (area, processed, boundaryDiagnostics = []) => {
+  if (!area || !processed) {
+    return;
+  }
+
+  const debugData = {
+    areaId: area.id,
+    areaTitle: area.title,
+    generatedAt: new Date().toISOString(),
+    rawPointerPoints: processed.rawPoints || [],
+    filteredPoints: processed.filteredPoints || [],
+    resampledPoints: processed.resampledPoints || [],
+    guideAnchors: processed.guideAnchors || [],
+    alignedAnchors: processed.alignedAnchors || processed.guideAnchors || [],
+    finalSplinePoints: processed.finalSplinePoints || processed.smoothPoints || [],
+    finalSvgPath: processed.finalSvgPath || processed.d || "",
+    smoothingSettings: normalizeSmoothing(area.path.smoothing),
+    boundaryDiagnostics
+  };
+
+  curveDebugDataByArea.set(area.id, debugData);
+};
+
+const applyProcessedFreehandPath = (area, processed, boundaryDiagnostics = []) => {
+  area.path.mode = "freehand";
+  area.path.rawPoints = processed.rawPoints || [];
+  area.path.filteredPoints = processed.filteredPoints || [];
+  area.path.resampledPoints = processed.resampledPoints || [];
+  area.path.guideAnchors = processed.guideAnchors || [];
+  area.path.alignedAnchors = processed.alignedAnchors || processed.guideAnchors || [];
+  area.path.smoothPoints = processed.smoothPoints || processed.finalSplinePoints || [];
+  area.path.finalSplinePoints = processed.finalSplinePoints || area.path.smoothPoints;
+  area.path.finalSvgPath = processed.finalSvgPath || processed.d;
+  area.path.boundaryDiagnostics = boundaryDiagnostics;
+  area.path.d = processed.d || area.path.finalSvgPath || "";
+  setCurveDebugData(area, processed, boundaryDiagnostics);
 };
 
 const rebuildAreaPathData = (area) => {
@@ -726,9 +952,7 @@ const rebuildAreaPathData = (area) => {
       : area.path.smoothPoints || [];
     const processed = processRawFreehandPoints(source, area.path.smoothing);
     if (processed?.smoothPoints?.length >= 3) {
-      area.path.rawPoints = processed.rawPoints;
-      area.path.smoothPoints = processed.smoothPoints;
-      area.path.d = processed.d;
+      applyProcessedFreehandPath(area, processed, area.path.boundaryDiagnostics || []);
     } else {
       area.path.smoothPoints = (area.path.smoothPoints || []).map((point) => normalizePoint(point));
       area.path.d = buildFreehandPathD(area.path.smoothPoints, area.path.smoothing);
@@ -743,13 +967,20 @@ const setAreaPathBoundaryPoint = (area, boundary, point) => {
   const safePoint = normalizePoint(point);
 
   if (area.path.mode === "freehand" && area.path.smoothPoints?.length >= 2) {
-    const targetIndex = boundary === "start" ? 0 : area.path.smoothPoints.length - 1;
-    area.path.smoothPoints[targetIndex] = safePoint;
+    const alignedAnchors = (area.path.alignedAnchors?.length >= 2
+      ? area.path.alignedAnchors
+      : area.path.guideAnchors || area.path.smoothPoints).map((item) => normalizePoint(item));
+    const targetIndex = boundary === "start" ? 0 : alignedAnchors.length - 1;
+    alignedAnchors[targetIndex] = safePoint;
+    area.path.alignedAnchors = alignedAnchors;
+    area.path.finalSplinePoints = sampleSplineAnchors(alignedAnchors, area.path.smoothing);
+    area.path.smoothPoints = area.path.finalSplinePoints;
     if (area.path.rawPoints?.length >= 2) {
       const rawTargetIndex = boundary === "start" ? 0 : area.path.rawPoints.length - 1;
       area.path.rawPoints[rawTargetIndex] = safePoint;
     }
-    area.path.d = buildFreehandPathD(area.path.smoothPoints, area.path.smoothing);
+    area.path.finalSvgPath = buildSplinePathFromAnchors(alignedAnchors, area.path.smoothing);
+    area.path.d = area.path.finalSvgPath;
     return true;
   }
 
@@ -763,6 +994,93 @@ const setAreaPathBoundaryPoint = (area, boundary, point) => {
   anchors[targetIndex].y = safePoint.y;
   area.path.d = buildPathD(anchors);
   return true;
+};
+
+const getBoundaryTangent = (points, boundary) => {
+  if (!points || points.length < 2) {
+    return null;
+  }
+
+  const firstIndex = boundary === "start" ? 0 : points.length - 2;
+  const secondIndex = boundary === "start" ? 1 : points.length - 1;
+  const first = points[firstIndex];
+  const second = points[secondIndex];
+  return {
+    x: second.x - first.x,
+    y: second.y - first.y
+  };
+};
+
+const getTangentAngleDifference = (first, second) => {
+  if (!first || !second) {
+    return null;
+  }
+
+  const firstAngle = Math.atan2(first.y, first.x);
+  const secondAngle = Math.atan2(second.y, second.x);
+  let difference = Math.abs((firstAngle - secondAngle) * 180 / Math.PI);
+  if (difference > 180) {
+    difference = 360 - difference;
+  }
+  return Math.round(difference);
+};
+
+const applyBoundaryTangentSmoothing = (previousArea, nextArea, sharedX) => {
+  const previousAnchors = previousArea.path.alignedAnchors || previousArea.path.guideAnchors;
+  const nextAnchors = nextArea.path.alignedAnchors || nextArea.path.guideAnchors;
+  if (!previousAnchors?.length || !nextAnchors?.length) {
+    smoothBezierBoundaryHandles(
+      previousArea,
+      nextArea,
+      { x: sharedX, y: previousArea.height },
+      { x: sharedX, y: 0 }
+    );
+    return;
+  }
+
+  const previousStrength = normalizeSmoothing(previousArea.path.smoothing).boundaryTangentSmoothing;
+  const nextStrength = normalizeSmoothing(nextArea.path.smoothing).boundaryTangentSmoothing;
+  const strength = (previousStrength + nextStrength) / 2;
+  const previousGuide = previousAnchors[previousAnchors.length - 2];
+  const nextGuide = nextAnchors[1];
+  if (!previousGuide || !nextGuide) {
+    return;
+  }
+
+  const blendedX = Math.round(previousGuide.x * 0.5 + nextGuide.x * 0.5);
+  const previousIndex = previousAnchors.length - 2;
+  previousAnchors[previousIndex] = {
+    x: Math.round(previousGuide.x * (1 - strength * 0.35) + blendedX * strength * 0.35),
+    y: Math.round(previousGuide.y * (1 - strength * 0.2) + previousArea.height * strength * 0.2)
+  };
+  nextAnchors[1] = {
+    x: Math.round(nextGuide.x * (1 - strength * 0.35) + blendedX * strength * 0.35),
+    y: Math.round(nextGuide.y * (1 - strength * 0.2))
+  };
+};
+
+const finalizeAlignedAreaPath = (area, boundaryDiagnostics = []) => {
+  if (area.path.mode === "freehand" && area.path.alignedAnchors?.length >= 2) {
+    area.path.finalSplinePoints = sampleSplineAnchors(area.path.alignedAnchors, area.path.smoothing);
+    area.path.smoothPoints = area.path.finalSplinePoints;
+    area.path.finalSvgPath = buildSplinePathFromAnchors(area.path.alignedAnchors, area.path.smoothing);
+    area.path.boundaryDiagnostics = boundaryDiagnostics;
+    area.path.d = area.path.finalSvgPath;
+    setCurveDebugData(area, {
+      rawPoints: area.path.rawPoints || [],
+      filteredPoints: area.path.filteredPoints || [],
+      resampledPoints: area.path.resampledPoints || [],
+      guideAnchors: area.path.guideAnchors || [],
+      alignedAnchors: area.path.alignedAnchors || [],
+      finalSplinePoints: area.path.finalSplinePoints || [],
+      finalSvgPath: area.path.finalSvgPath || "",
+      d: area.path.d
+    }, boundaryDiagnostics);
+    return;
+  }
+
+  area.path.boundaryDiagnostics = boundaryDiagnostics;
+  area.path.d = buildPathD(area.path.points || []);
 };
 
 const smoothBezierBoundaryHandles = (previousArea, nextArea, previousPoint, nextPoint) => {
@@ -811,6 +1129,9 @@ const alignAdjacentAreaPaths = (areas, reason = "render") => {
   let connectionCount = 0;
 
   orderedAreas.forEach((area) => rebuildAreaPathData(area));
+  orderedAreas.forEach((area) => {
+    area.path.boundaryDiagnostics = [];
+  });
 
   for (let index = 0; index < orderedAreas.length - 1; index += 1) {
     const previousArea = orderedAreas[index];
@@ -831,13 +1152,43 @@ const alignAdjacentAreaPaths = (areas, reason = "render") => {
     const sharedX = Math.round(clamp((previousExit.x + nextEntry.x) / 2, 0, SVG_WIDTH));
     const previousBoundaryPoint = { x: sharedX, y: previousArea.height };
     const nextBoundaryPoint = { x: sharedX, y: 0 };
+    const beforePreviousTangent = getBoundaryTangent(previousPoints, "end");
+    const beforeNextTangent = getBoundaryTangent(nextPoints, "start");
+    const endpointGapBefore = Math.round(distanceBetweenPoints(
+      { x: previousExit.x, y: previousExit.y },
+      { x: nextEntry.x, y: nextEntry.y }
+    ));
+    const tangentAngleBefore = getTangentAngleDifference(beforePreviousTangent, beforeNextTangent);
     const previousUpdated = setAreaPathBoundaryPoint(previousArea, "end", previousBoundaryPoint);
     const nextUpdated = setAreaPathBoundaryPoint(nextArea, "start", nextBoundaryPoint);
 
     if (previousUpdated && nextUpdated) {
-      smoothBezierBoundaryHandles(previousArea, nextArea, previousBoundaryPoint, nextBoundaryPoint);
-      rebuildAreaPathData(previousArea);
-      rebuildAreaPathData(nextArea);
+      applyBoundaryTangentSmoothing(previousArea, nextArea, sharedX);
+      finalizeAlignedAreaPath(previousArea, previousArea.path.boundaryDiagnostics);
+      finalizeAlignedAreaPath(nextArea, nextArea.path.boundaryDiagnostics);
+
+      const afterPreviousTangent = getBoundaryTangent(getRenderablePathPoints(previousArea), "end");
+      const afterNextTangent = getBoundaryTangent(getRenderablePathPoints(nextArea), "start");
+      const diagnostic = {
+        previousAreaId: previousArea.id,
+        nextAreaId: nextArea.id,
+        previousEndPoint: previousBoundaryPoint,
+        nextStartPoint: nextBoundaryPoint,
+        sharedConnectionPoint: {
+          x: sharedX,
+          previousY: previousArea.height,
+          nextY: 0
+        },
+        endpointGapBefore,
+        endpointGapAfter: 0,
+        tangentAngleDifferenceBefore: tangentAngleBefore,
+        tangentAngleDifferenceAfter: getTangentAngleDifference(afterPreviousTangent, afterNextTangent)
+      };
+
+      previousArea.path.boundaryDiagnostics.push(diagnostic);
+      nextArea.path.boundaryDiagnostics.push(diagnostic);
+      finalizeAlignedAreaPath(previousArea, previousArea.path.boundaryDiagnostics);
+      finalizeAlignedAreaPath(nextArea, nextArea.path.boundaryDiagnostics);
       connectionCount += 1;
     }
   }
@@ -1215,6 +1566,10 @@ const renderAreaSvg = (area) => {
 
   svg.append(shadow, main);
 
+  if (editorState.mode === "edit" && uiState.debugOverlay) {
+    renderCurveDebugOverlay(svg, area);
+  }
+
   if (editorState.mode === "edit" && editorState.activeTool === "freehand" && editorState.selectedAreaId === area.id) {
     svg.append(createSvgElement("path", {
       class: "freehand-preview-path",
@@ -1225,6 +1580,84 @@ const renderAreaSvg = (area) => {
   }
 
   return svg;
+};
+
+const pointsToPolyline = (points) =>
+  points.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`).join(" ");
+
+const appendDebugPolyline = (svg, points, className) => {
+  if (!points?.length) {
+    return;
+  }
+
+  svg.append(createSvgElement("polyline", {
+    class: className,
+    points: pointsToPolyline(points)
+  }));
+};
+
+const appendDebugPoints = (svg, points, className, radius = 5) => {
+  if (!points?.length) {
+    return;
+  }
+
+  points.forEach((point) => {
+    svg.append(createSvgElement("circle", {
+      class: className,
+      cx: String(point.x),
+      cy: String(point.y),
+      r: String(radius)
+    }));
+  });
+};
+
+const appendDebugTangents = (svg, area) => {
+  const anchors = area.path.alignedAnchors || area.path.guideAnchors || [];
+  if (anchors.length < 2) {
+    return;
+  }
+
+  const first = anchors[0];
+  const second = anchors[1];
+  const beforeLast = anchors[anchors.length - 2];
+  const last = anchors[anchors.length - 1];
+  [
+    [first, second],
+    [beforeLast, last]
+  ].forEach(([start, end]) => {
+    const vector = { x: end.x - start.x, y: end.y - start.y };
+    const length = Math.hypot(vector.x, vector.y) || 1;
+    const tangentLength = Math.min(110, length * 0.55);
+    svg.append(createSvgElement("line", {
+      class: "curve-debug__tangent",
+      x1: String(start.x),
+      y1: String(start.y),
+      x2: String(Math.round(start.x + (vector.x / length) * tangentLength)),
+      y2: String(Math.round(start.y + (vector.y / length) * tangentLength))
+    }));
+  });
+};
+
+const renderCurveDebugOverlay = (svg, area) => {
+  if (area.id !== editorState.selectedAreaId) {
+    return;
+  }
+
+  const debugData = curveDebugDataByArea.get(area.id);
+  const rawPoints = debugData?.rawPointerPoints || area.path.rawPoints || [];
+  const filteredPoints = debugData?.filteredPoints || area.path.filteredPoints || [];
+  const resampledPoints = debugData?.resampledPoints || area.path.resampledPoints || [];
+  const guideAnchors = debugData?.guideAnchors || area.path.guideAnchors || [];
+  const alignedAnchors = debugData?.alignedAnchors || area.path.alignedAnchors || [];
+  const finalSplinePoints = debugData?.finalSplinePoints || area.path.finalSplinePoints || [];
+
+  appendDebugPolyline(svg, rawPoints, "curve-debug__raw");
+  appendDebugPolyline(svg, finalSplinePoints, "curve-debug__final-samples");
+  appendDebugPoints(svg, filteredPoints, "curve-debug__filtered", 3);
+  appendDebugPoints(svg, resampledPoints, "curve-debug__resampled", 3);
+  appendDebugPoints(svg, guideAnchors, "curve-debug__guide-anchor", 6);
+  appendDebugPoints(svg, alignedAnchors, "curve-debug__aligned-anchor", 7);
+  appendDebugTangents(svg, area);
 };
 
 const renderCurveHandles = (svg, area) => {
@@ -1856,6 +2289,87 @@ const importJson = () => {
   }
 };
 
+const getCurveDebugExport = () => {
+  const area = getSelectedArea();
+  alignAdjacentAreaPaths(editorState.areas, "debug export");
+  const debugData = curveDebugDataByArea.get(area.id) || {
+    areaId: area.id,
+    areaTitle: area.title,
+    rawPointerPoints: area.path.rawPoints || [],
+    filteredPoints: area.path.filteredPoints || [],
+    resampledPoints: area.path.resampledPoints || [],
+    guideAnchors: area.path.guideAnchors || [],
+    alignedAnchors: area.path.alignedAnchors || [],
+    finalSplinePoints: area.path.finalSplinePoints || area.path.smoothPoints || [],
+    finalSvgPath: area.path.finalSvgPath || area.path.d || "",
+    smoothingSettings: normalizeSmoothing(area.path.smoothing),
+    boundaryDiagnostics: area.path.boundaryDiagnostics || []
+  };
+
+  return {
+    exportedAt: new Date().toISOString(),
+    page: "journey.html",
+    selectedAreaId: area.id,
+    selectedAreaOrder: area.order,
+    rawPointerPoints: debugData.rawPointerPoints,
+    filteredPoints: debugData.filteredPoints,
+    resampledPoints: debugData.resampledPoints,
+    guideAnchors: debugData.guideAnchors,
+    alignedAnchors: debugData.alignedAnchors,
+    finalSplinePoints: debugData.finalSplinePoints,
+    finalSvgPath: debugData.finalSvgPath,
+    smoothingSettings: debugData.smoothingSettings,
+    boundaryDiagnostics: debugData.boundaryDiagnostics
+  };
+};
+
+const writeCurveDebugJsonToPopover = (json) => {
+  const textarea = document.querySelector("[data-curve-debug-json]");
+  if (textarea) {
+    textarea.value = json;
+  }
+};
+
+const exportCurveDebugJson = () => {
+  const debugExport = getCurveDebugExport();
+  const json = JSON.stringify(debugExport, null, 2);
+  writeCurveDebugJsonToPopover(json);
+
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `journey-curve-debug-${debugExport.selectedAreaId}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  showEditorMessage("曲线调试数据已导出。");
+  logHomepage("Exported front-end curve debug JSON.", {
+    areaId: debugExport.selectedAreaId,
+    rawPointCount: debugExport.rawPointerPoints.length,
+    guideAnchorCount: debugExport.guideAnchors.length
+  });
+};
+
+const copyCurveDebugJson = async () => {
+  const debugExport = getCurveDebugExport();
+  const json = JSON.stringify(debugExport, null, 2);
+  writeCurveDebugJsonToPopover(json);
+
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard API is unavailable.");
+    }
+    await navigator.clipboard.writeText(json);
+    showEditorMessage("曲线调试数据已复制。");
+  } catch (error) {
+    showEditorMessage("无法直接复制，调试数据已显示在文本框中。", true);
+    logHomepage("Curve debug clipboard copy failed.", { error: error.message });
+  }
+};
+
 const getContextEditorRoot = () => {
   let root = document.querySelector("#context-editor-root");
   if (!root) {
@@ -1906,6 +2420,7 @@ const renderFloatingToolbar = () => {
   toolbar.innerHTML = `
     <button type="button" data-context-action="select" aria-pressed="${editorState.activeTool === "select"}">选择</button>
     <button type="button" data-context-action="draw" aria-pressed="${editorState.activeTool === "freehand"}">手绘曲线</button>
+    <button type="button" data-context-action="debug" aria-pressed="${uiState.debugOverlay}">调试曲线</button>
     <button type="button" data-context-action="save">保存</button>
     <button type="button" data-context-action="data">数据</button>
     <span class="context-toolbar__status" data-editor-status>${editorState.dirty ? "未保存" : "已保存"}</span>
@@ -1921,12 +2436,24 @@ const handleContextAction = (action) => {
   const actions = {
     select: () => setActiveTool("select"),
     draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
+    debug: toggleCurveDebugOverlay,
     save: saveToLocalStorage,
     data: () => openContextPopover("data", {}, window.innerWidth - 360, 84),
     exit: () => setEditorMode("preview")
   };
   actions[action]?.();
   logHomepage("Handled floating toolbar action.", { action });
+};
+
+const toggleCurveDebugOverlay = () => {
+  uiState.debugOverlay = !uiState.debugOverlay;
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(uiState.debugOverlay ? "曲线调试叠层已开启。" : "曲线调试叠层已关闭。");
+  logHomepage("Toggled journey curve debug overlay.", {
+    enabled: uiState.debugOverlay,
+    selectedAreaId: editorState.selectedAreaId
+  });
 };
 
 const openContextPopover = (type, payload = {}, x = 120, y = 120) => {
@@ -2028,11 +2555,16 @@ const renderCurvePopoverContent = () => {
     <label>平滑程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}"></label>
     <label>简化程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}"></label>
     <label>算法优先<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="algorithmPriority" value="${area.path.smoothing?.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority}"></label>
+    <label>最大锚点数<input type="number" min="4" max="12" step="1" data-path-smoothing-field="maxAnchors" value="${area.path.smoothing?.maxAnchors ?? DEFAULT_SMOOTHING.maxAnchors}"></label>
+    <label>切线平滑<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="tangentSmoothing" value="${area.path.smoothing?.tangentSmoothing ?? DEFAULT_SMOOTHING.tangentSmoothing}"></label>
     <p class="context-note">手绘线条只表达大方向，最终曲线会由算法自动简化、平滑，并与相邻区域端点对齐。</p>
     <div class="context-button-row">
       <button type="button" data-context-popover-action="resmooth">重新平滑</button>
       <button type="button" data-context-popover-action="redraw">重画当前区域曲线</button>
+      <button type="button" data-context-popover-action="export-curve-debug">导出曲线调试数据</button>
+      <button type="button" data-context-popover-action="copy-curve-debug">复制调试数据</button>
     </div>
+    <textarea class="context-json curve-debug-json" data-curve-debug-json readonly placeholder="曲线调试 JSON 会显示在这里"></textarea>
   `;
 };
 
@@ -2112,6 +2644,8 @@ const handleContextPopoverAction = (action) => {
     import: importJson,
     resmooth: resmoothCurrentAreaCurve,
     redraw: () => setActiveTool("freehand"),
+    "export-curve-debug": exportCurveDebugJson,
+    "copy-curve-debug": copyCurveDebugJson,
     "delete-node": deleteSelectedNode
   };
   actions[action]?.();

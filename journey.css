@@ -520,9 +520,55 @@ select {
   pointer-events: none;
 }
 
+.curve-debug__raw,
+.curve-debug__final-samples {
+  fill: none;
+  pointer-events: none;
+}
+
+.curve-debug__raw {
+  stroke: rgba(35, 66, 96, 0.5);
+  stroke-width: 3;
+  stroke-dasharray: 9 10;
+}
+
+.curve-debug__final-samples {
+  stroke: rgba(30, 143, 92, 0.72);
+  stroke-width: 4;
+}
+
+.curve-debug__filtered {
+  fill: rgba(36, 109, 170, 0.72);
+}
+
+.curve-debug__resampled {
+  fill: rgba(245, 157, 65, 0.76);
+}
+
+.curve-debug__guide-anchor {
+  fill: #ffffff;
+  stroke: #1f6f56;
+  stroke-width: 3;
+}
+
+.curve-debug__aligned-anchor {
+  fill: #f7c948;
+  stroke: #342a18;
+  stroke-width: 2;
+}
+
+.curve-debug__tangent {
+  stroke: rgba(125, 73, 196, 0.76);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 12 8;
+  pointer-events: none;
+}
+
 .timeline-home[data-editor-mode="preview"] .curve-control-line,
 .timeline-home[data-editor-mode="preview"] .curve-handle,
-.timeline-home[data-editor-mode="preview"] .freehand-preview-path {
+.timeline-home[data-editor-mode="preview"] .freehand-preview-path,
+.timeline-home[data-editor-mode="preview"] [class^="curve-debug__"] {
   display: none;
 }
 
@@ -782,6 +828,10 @@ select {
   min-height: 120px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
+}
+
+.curve-debug-json {
+  min-height: 150px;
 }
 
 .context-note,

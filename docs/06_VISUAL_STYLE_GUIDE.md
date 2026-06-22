@@ -35,9 +35,11 @@ It should also prevent old navigation behavior from returning by accident.
 * The Overview and Details switch is part of the prototype.
 * Freehand curve editing and path-anchored nodes are prototype editor features.
 * Hand-drawn curve input should be treated as rough direction, not exact final geometry.
-* The final journey path should be algorithm-smoothed and may favor visual polish over exact hand-drawn fidelity.
+* The final journey path should be generated from algorithm-fitted guide anchors and smooth spline curves.
+* Smoothness and visual polish may override exact hand-drawn fidelity.
 * Adjacent journey areas should align path endpoints so the timeline does not show broken or disconnected transitions.
 * Vertically offset journey areas should still connect smoothly at their shared boundary.
+* The curve debug overlay and debug JSON export may be used to inspect raw points, guide anchors, final spline samples, and boundary diagnostics.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.

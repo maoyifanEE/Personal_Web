@@ -36,6 +36,7 @@ The repository must not contain real private data, secrets, production database 
 The journey prototype includes editable curve paths.
 Hand-drawn strokes are treated as rough direction input, then converted into algorithm-smoothed SVG curves.
 Adjacent journey areas automatically align their path endpoints so the timeline reads as one continuous path.
+The journey editor can also show and export front-end curve debug data for raw points, guide anchors, fitted spline samples, and boundary diagnostics.
 
 ## Navigation Behavior
 

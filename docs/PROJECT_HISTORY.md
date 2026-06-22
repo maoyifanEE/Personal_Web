@@ -1,5 +1,70 @@
 # Project History
 
+## 2026-06-21 - Add journey curve spline fitting and debug export
+
+### 本次目标
+
+* 在 `Feature/homepage-update` 分支继续优化 journey 路径曲线。
+* 将手绘曲线从“轻度平滑原始笔迹”改为“提取少量引导锚点后拟合平滑样条”。
+* 让算法主导最终可见路径，允许牺牲手绘精度换取视觉平滑。
+* 增加曲线调试叠层，便于观察原始点、过滤点、重采样点、锚点和最终曲线。
+* 增加曲线调试 JSON 导出 / 复制工具。
+* 保持相邻区域端点和边界切线连续。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* 手绘输入现在会先过滤近距离抖动点，再按弧长重采样。
+* 平滑流程会提取少量 guide anchors，并限制最大锚点数量以减少过拟合。
+* 最终路径由 cubic spline / Bezier path 生成，不再直接复制 raw pointer polyline。
+* 相邻区域边界会记录 endpoint gap 和 tangent angle diagnostics。
+* 编辑器工具栏新增“调试曲线”叠层开关。
+* 曲线设置中新增导出和复制调试数据按钮。
+* 调试数据只在前端内存中生成和导出，不上传服务器，不写入数据库。
+* README 和视觉规范补充了样条拟合与调试导出的说明。
+
+### 修改范围
+
+* `journey.js`
+* `journey.css`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `login.html`。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改特别订阅应用。
+* 未修改留言原型应用。
+* 未新增后端日志。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 本地分支已同步远端工作分支。
+* [x] `node --check journey.js` 通过。
+* [x] 变更文件 LF / CR / 长行检查通过。
+* [x] 破损问号占位符检查已执行。
+* [x] `git diff --stat` 已检查。
+* [ ] `journey.html` 已在浏览器中打开。
+* [ ] 编辑器已在浏览器中打开。
+* [ ] 手绘粗糙曲线已在浏览器中验证生成更平滑路径。
+* [ ] debug overlay 已在浏览器中验证。
+* [ ] 曲线调试 JSON 导出已在浏览器中验证。
+* [ ] 相邻区域连接已在浏览器中验证。
+
 ## 2026-06-21 - Improve journey curve smoothing and area alignment
 
 ### 本次目标
