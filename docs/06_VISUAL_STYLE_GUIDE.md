@@ -43,7 +43,12 @@ It should also prevent old navigation behavior from returning by accident.
 * Adjacent journey areas should align endpoints and adjust only local boundary handles.
 * Boundary tangent smoothing must not destroy the shape of either neighboring area.
 * Vertically offset journey areas should still connect smoothly at their shared boundary without a visible kink.
+* Curve smoothness should be tunable in the editor with sliders rather than repeated hardcoded parameter changes.
+* Tuning sliders should balance shape preservation and visual smoothness, and every active slider should affect the generated path.
+* Curve presets should help compare conservative, balanced, smooth, and detail-preserving route styles quickly.
+* The tuning panel may show compact diagnostics for deviation, turn angle, curvature spikes, and quality pass status.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
+* Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
 * Debug metrics should evaluate endpoint gaps, tangent improvement, internal join mismatch, curvature spikes, and raw-to-final deviation.
 * The curve debug overlay and debug JSON export may be used to inspect raw points, resampled points, designer waypoints, tangent vectors, Bezier segments, final curve samples, and boundary diagnostics.
 * The journey page should not contain real private personal history yet.

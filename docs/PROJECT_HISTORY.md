@@ -1,5 +1,73 @@
 # Project History
 
+## 2026-06-22 - Add journey curve tuning sliders
+
+### 本次目标
+
+* 继续在 `Feature/homepage-update` 分支上优化 journey 曲线编辑体验。
+* 不再通过反复硬编码参数来猜测丝滑程度。
+* 在 journey 编辑器中加入可视化曲线调参面板。
+* 通过滑块平衡“保留原始形状”和“视觉丝滑程度”。
+* 加入预设按钮，降低手动试参成本。
+* 保持 normal Overview 预览干净，不显示调试叠层。
+* 不新增后端、数据库、API、认证或授权。
+
+### 实际完成
+
+* 曲线设置弹窗已改为 `曲线调参` 面板。
+* 新增 12 个真实生效的平滑 / 简化 / 采样 / 控制柄 / 曲率相关滑块。
+* 新增 `保形`、`均衡`、`超平滑`、`细节更多`、`重置默认` 预设。
+* 新增 `只应用当前区域` / `应用到所有区域` 调参范围。
+* 滑块和预设会更新 `area.path.smoothing`，重新生成曲线，并标记为未保存。
+* 调参面板显示平均偏离、最大偏离、曲率尖峰、最大转角和质量通过状态。
+* 额外参数已接入现有 designer-route Bezier 生成流程，没有重写整套算法。
+* README 和视觉规范已补充曲线调参说明。
+
+### 修改范围
+
+* `journey.js`
+* `journey.css`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/PROJECT_HISTORY.md`
+
+### 未改变
+
+* 未修改 `index.html`。
+* 未修改公开首页文案。
+* 未修改 ICP 备案号。
+* 未修改隐藏 journey 入口。
+* 未修改隐藏私人入口。
+* 未修改 `hub.html`。
+* 未修改任务清单应用。
+* 未修改健康管理应用。
+* 未修改留言原型应用。
+* 未修改特别订阅应用。
+* 未新增后端。
+* 未新增数据库。
+* 未新增 API。
+* 未新增认证或授权。
+
+### 测试结果
+
+* [x] 当前分支是 `Feature/homepage-update`。
+* [x] 本地分支已拉取远端工作分支。
+* [x] `origin/main` 没有需要合入的新提交。
+* [x] `node --check journey.js` 通过。
+* [x] 变更文件 LF / CR / 长行检查通过。
+* [x] 破损问号占位符检查已执行。
+* [x] `git diff --stat` 已检查。
+* [x] `journey.html` 已在浏览器中打开。
+* [x] normal Overview view 已确认保持干净。
+* [x] 编辑器已在浏览器中打开。
+* [x] 曲线调参面板已在浏览器中确认只出现在编辑模式。
+* [x] 每个滑块已在浏览器中确认会更新数值。
+* [x] 代表性滑块已在浏览器中确认会改变曲线。
+* [x] 预设按钮已在浏览器中验证。
+* [x] 当前区域 / 所有区域范围已在浏览器中验证。
+* [x] Save 后 tuned values 已在浏览器中验证可保留。
+* [x] mobile width 已验证。
+
 ## 2026-06-22 - Improve journey route visual smoothness with designer Bezier handles
 
 ### 本次目标

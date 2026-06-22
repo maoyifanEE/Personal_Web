@@ -9,7 +9,174 @@ const DEFAULT_SMOOTHING = {
   resampleSpacing: 46,
   maxAnchors: 8,
   tangentSmoothing: 0.82,
-  boundaryTangentSmoothing: 0.78
+  boundaryTangentSmoothing: 0.78,
+  fitTolerance: 60,
+  maxDeviation: 100,
+  handleScale: 0.36,
+  curvaturePenalty: 0.5
+};
+const TUNING_SLIDERS = [
+  {
+    key: "strength",
+    label: "平滑强度",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    hint: "低值更贴近手绘，高值更丝滑。"
+  },
+  {
+    key: "simplification",
+    label: "简化强度",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    hint: "低值保留更多细节，高值移除更多小弯。"
+  },
+  {
+    key: "algorithmPriority",
+    label: "算法优先",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    hint: "高值更偏设计曲线，但仍保留整体形状。"
+  },
+  {
+    key: "minPointDistance",
+    label: "最小采样距离",
+    min: 2,
+    max: 40,
+    step: 1,
+    unit: "px",
+    hint: "过滤过近的鼠标点，减少抖动。"
+  },
+  {
+    key: "resampleSpacing",
+    label: "重采样间距",
+    min: 8,
+    max: 80,
+    step: 1,
+    unit: "px",
+    hint: "低值保留更多引导点，高值更简洁。"
+  },
+  {
+    key: "maxAnchors",
+    label: "最大锚点数",
+    min: 4,
+    max: 24,
+    step: 1,
+    hint: "低值路线更简单，高值更保形。"
+  },
+  {
+    key: "tangentSmoothing",
+    label: "切线平滑",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    hint: "控制区域内部控制柄方向连续性。"
+  },
+  {
+    key: "boundaryTangentSmoothing",
+    label: "边界切线平滑",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    hint: "控制相邻区域边界方向对齐力度。"
+  },
+  {
+    key: "fitTolerance",
+    label: "拟合误差容忍",
+    min: 5,
+    max: 160,
+    step: 1,
+    unit: "px",
+    hint: "低值更贴近引导点，高值更平滑。"
+  },
+  {
+    key: "maxDeviation",
+    label: "最大偏离限制",
+    min: 20,
+    max: 240,
+    step: 1,
+    unit: "px",
+    hint: "超过该偏离时会增加关键点或给出告警。"
+  },
+  {
+    key: "handleScale",
+    label: "控制柄长度",
+    min: 0.15,
+    max: 0.65,
+    step: 0.01,
+    hint: "低值更紧，高值更舒展。"
+  },
+  {
+    key: "curvaturePenalty",
+    label: "曲率抑制",
+    min: 0,
+    max: 1,
+    step: 0.01,
+    hint: "高值会压制突然弯折和曲率尖峰。"
+  }
+];
+const CURVE_TUNING_PRESETS = {
+  shape: {
+    label: "保形",
+    values: {
+      strength: 0.52,
+      simplification: 0.28,
+      algorithmPriority: 0.58,
+      minPointDistance: 8,
+      resampleSpacing: 26,
+      maxAnchors: 14,
+      tangentSmoothing: 0.62,
+      boundaryTangentSmoothing: 0.56,
+      fitTolerance: 36,
+      maxDeviation: 80,
+      handleScale: 0.3,
+      curvaturePenalty: 0.35
+    }
+  },
+  balanced: {
+    label: "均衡",
+    values: DEFAULT_SMOOTHING
+  },
+  silky: {
+    label: "超平滑",
+    values: {
+      strength: 0.94,
+      simplification: 0.82,
+      algorithmPriority: 0.94,
+      minPointDistance: 18,
+      resampleSpacing: 58,
+      maxAnchors: 7,
+      tangentSmoothing: 0.94,
+      boundaryTangentSmoothing: 0.9,
+      fitTolerance: 92,
+      maxDeviation: 130,
+      handleScale: 0.42,
+      curvaturePenalty: 0.82
+    }
+  },
+  detail: {
+    label: "细节更多",
+    values: {
+      strength: 0.64,
+      simplification: 0.18,
+      algorithmPriority: 0.68,
+      minPointDistance: 6,
+      resampleSpacing: 18,
+      maxAnchors: 20,
+      tangentSmoothing: 0.7,
+      boundaryTangentSmoothing: 0.66,
+      fitTolerance: 26,
+      maxDeviation: 70,
+      handleScale: 0.32,
+      curvaturePenalty: 0.42
+    }
+  },
+  reset: {
+    label: "重置默认",
+    values: DEFAULT_SMOOTHING
+  }
 };
 const DRAW_POINT_MIN_DISTANCE = 10;
 const PATH_ALIGNMENT_HANDLE_DISTANCE = 96;
@@ -340,6 +507,7 @@ const createDefaultUiState = () => ({
   hoverPreview: null,
   lastPointerWasDrag: false,
   debugOverlay: false,
+  tuningScope: "current",
   debugLayers: {
     raw: true,
     anchors: true,
@@ -457,18 +625,18 @@ const normalizeSmoothing = (smoothing = {}) => ({
   algorithmPriority: clamp(Number(smoothing.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority), 0, 1),
   minPointDistance: clamp(
     Number(smoothing.minPointDistance ?? DEFAULT_SMOOTHING.minPointDistance),
-    4,
-    48
+    2,
+    40
   ),
   resampleSpacing: clamp(
     Number(smoothing.resampleSpacing ?? DEFAULT_SMOOTHING.resampleSpacing),
-    16,
-    120
+    8,
+    80
   ),
   maxAnchors: Math.round(clamp(
     Number(smoothing.maxAnchors ?? DEFAULT_SMOOTHING.maxAnchors),
     4,
-    12
+    24
   )),
   tangentSmoothing: clamp(
     Number(smoothing.tangentSmoothing ?? DEFAULT_SMOOTHING.tangentSmoothing),
@@ -477,6 +645,26 @@ const normalizeSmoothing = (smoothing = {}) => ({
   ),
   boundaryTangentSmoothing: clamp(
     Number(smoothing.boundaryTangentSmoothing ?? DEFAULT_SMOOTHING.boundaryTangentSmoothing),
+    0,
+    1
+  ),
+  fitTolerance: clamp(
+    Number(smoothing.fitTolerance ?? DEFAULT_SMOOTHING.fitTolerance),
+    5,
+    160
+  ),
+  maxDeviation: clamp(
+    Number(smoothing.maxDeviation ?? DEFAULT_SMOOTHING.maxDeviation),
+    20,
+    240
+  ),
+  handleScale: clamp(
+    Number(smoothing.handleScale ?? DEFAULT_SMOOTHING.handleScale),
+    0.15,
+    0.65
+  ),
+  curvaturePenalty: clamp(
+    Number(smoothing.curvaturePenalty ?? DEFAULT_SMOOTHING.curvaturePenalty),
     0,
     1
   )
@@ -940,9 +1128,19 @@ const extractShapeLandmarks = (points, smoothing) => {
 
   const turnCandidates = points
     .map((point, index) => ({ index, angle: getDirectionTurnAngle(points, index) }))
-    .filter((item) => item.index > 0 && item.index < points.length - 1 && item.angle >= 28)
+    .filter((item) =>
+      item.index > 0 &&
+      item.index < points.length - 1 &&
+      item.angle >= 18 + smoothing.simplification * 22
+    )
     .sort((first, second) => second.angle - first.angle);
-  const maxTurnLandmarks = Math.max(3, Math.round(3 + smoothing.algorithmPriority * 5));
+  const maxTurnLandmarks = Math.max(
+    2,
+    Math.min(
+      smoothing.maxAnchors - 2,
+      Math.round(2 + (1 - smoothing.simplification) * 7 + (1 - smoothing.algorithmPriority) * 3)
+    )
+  );
   turnCandidates.slice(0, maxTurnLandmarks).forEach(({ index }) => landmarkIndexes.add(index));
 
   return [...landmarkIndexes]
@@ -968,6 +1166,55 @@ const getTriangleDistance = (point, start, end) => {
     end.x * start.y -
     end.y * start.x
   ) / lineLength;
+};
+
+const getPointToPolylineDistance = (point, polyline) => {
+  if (!polyline.length) {
+    return Infinity;
+  }
+  if (polyline.length === 1) {
+    return distanceBetweenPoints(point, polyline[0]);
+  }
+
+  let bestDistance = Infinity;
+  for (let index = 1; index < polyline.length; index += 1) {
+    bestDistance = Math.min(
+      bestDistance,
+      getTriangleDistance(point, polyline[index - 1], polyline[index])
+    );
+  }
+  return bestDistance;
+};
+
+const addDeviationWaypoints = (points, waypointIndexes, smoothing) => {
+  const refinedIndexes = new Set(waypointIndexes);
+  let added = 0;
+
+  while (refinedIndexes.size < smoothing.maxAnchors) {
+    const orderedIndexes = [...refinedIndexes].sort((first, second) => first - second);
+    const polyline = orderedIndexes.map((index) => points[index]);
+    let worst = { index: -1, distance: 0 };
+
+    points.forEach((point, index) => {
+      if (refinedIndexes.has(index)) {
+        return;
+      }
+      const distance = getPointToPolylineDistance(point, polyline);
+      if (distance > worst.distance) {
+        worst = { index, distance };
+      }
+    });
+
+    const threshold = Math.min(smoothing.maxDeviation, smoothing.fitTolerance * 1.15);
+    if (worst.index < 0 || worst.distance <= threshold) {
+      break;
+    }
+
+    refinedIndexes.add(worst.index);
+    added += 1;
+  }
+
+  return { indexes: refinedIndexes, added };
 };
 
 const removeRedundantWaypoints = (waypoints, minDistance = 72, maxAngle = 14, minCount = 5) => {
@@ -1015,7 +1262,17 @@ const extractDesignerWaypoints = (points, smoothing) => {
 
   const shapeLandmarks = extractShapeLandmarks(points, smoothing);
   const landmarkIndexes = new Set(getPointSequenceIndexes(points, shapeLandmarks));
-  const targetCount = Math.max(5, Math.min(7, Math.round(7 - smoothing.algorithmPriority * 1.5)));
+  const detailWeight =
+    0.22 +
+    (1 - smoothing.simplification) * 0.48 +
+    (1 - smoothing.algorithmPriority) * 0.3;
+  const targetCount = Math.max(
+    4,
+    Math.min(smoothing.maxAnchors, Math.round(4 + (smoothing.maxAnchors - 4) * detailWeight))
+  );
+
+  const deviationRefinement = addDeviationWaypoints(points, landmarkIndexes, smoothing);
+  deviationRefinement.indexes.forEach((index) => landmarkIndexes.add(index));
 
   while (landmarkIndexes.size > targetCount) {
     const indexes = [...landmarkIndexes].sort((first, second) => first - second);
@@ -1043,12 +1300,23 @@ const extractDesignerWaypoints = (points, smoothing) => {
   let waypoints = [...landmarkIndexes]
     .sort((first, second) => first - second)
     .map((index) => normalizePoint(points[index]));
-  const reduced = removeRedundantWaypoints(waypoints, 56 + smoothing.algorithmPriority * 34, 12, 5);
+  const minWaypointDistance =
+    34 +
+    smoothing.simplification * 54 +
+    smoothing.algorithmPriority * 24 -
+    (smoothing.maxAnchors - 4) * 1.2;
+  const reduced = removeRedundantWaypoints(
+    waypoints,
+    clamp(minWaypointDistance, 24, 110),
+    8 + smoothing.curvaturePenalty * 16,
+    Math.min(5, targetCount)
+  );
   waypoints = reduced.waypoints;
 
   return {
     designerWaypoints: waypoints,
     shapeLandmarks: waypoints,
+    deviationWaypointAddCount: deviationRefinement.added,
     redundantWaypointRemovalCount: reduced.removed
   };
 };
@@ -1101,7 +1369,10 @@ const getDesignerTangents = (waypoints, points, smoothing) => {
     }, broad);
   });
 
-  return smoothTangentVectors(tangents, Math.round(1 + smoothing.strength * 2));
+  return smoothTangentVectors(
+    tangents,
+    Math.round(1 + smoothing.strength * 2 + smoothing.tangentSmoothing * 2)
+  );
 };
 
 const getBoundedHandleLength = (point, tangent, length, direction, height) => {
@@ -1130,7 +1401,11 @@ const getBoundedHandleLength = (point, tangent, length, direction, height) => {
 const buildDesignerBezierSegments = (waypoints, tangentVectors, smoothing, height) => {
   const segments = [];
   let handleClampCount = 0;
-  const baseHandleScale = 0.28 + smoothing.strength * 0.12 + smoothing.algorithmPriority * 0.06;
+  const baseHandleScale = clamp(
+    smoothing.handleScale * (0.82 + smoothing.strength * 0.2 + smoothing.algorithmPriority * 0.08),
+    0.15,
+    0.65
+  );
 
   for (let index = 0; index < waypoints.length - 1; index += 1) {
     const p0 = waypoints[index];
@@ -1140,8 +1415,13 @@ const buildDesignerBezierSegments = (waypoints, tangentVectors, smoothing, heigh
     const nextChord = index < waypoints.length - 2 ? distanceBetweenPoints(p1, waypoints[index + 2]) : chordLength;
     const outLimit = Math.min(chordLength * 0.48, previousChord * 0.42, 190);
     const inLimit = Math.min(chordLength * 0.48, nextChord * 0.42, 190);
-    const targetOutLength = clamp(chordLength * baseHandleScale, 26, outLimit);
-    const targetInLength = clamp(chordLength * baseHandleScale, 26, inLimit);
+    const joinTurn = Math.max(
+      index > 0 ? getDirectionTurnAngle(waypoints, index) : 0,
+      index < waypoints.length - 2 ? getDirectionTurnAngle(waypoints, index + 1) : 0
+    );
+    const curvatureReduction = 1 - smoothing.curvaturePenalty * clamp((joinTurn - 18) / 140, 0, 0.38);
+    const targetOutLength = clamp(chordLength * baseHandleScale * curvatureReduction, 20, outLimit);
+    const targetInLength = clamp(chordLength * baseHandleScale * curvatureReduction, 20, inLimit);
     const outLength = getBoundedHandleLength(p0, tangentVectors[index], targetOutLength, 1, height);
     const inLength = getBoundedHandleLength(p1, tangentVectors[index + 1], targetInLength, -1, height);
     if (outLength < targetOutLength || inLength < targetInLength || targetOutLength === outLimit || targetInLength === inLimit) {
@@ -1205,6 +1485,7 @@ const fitBoundedBezierPath = (points, smoothing) => {
   const {
     designerWaypoints,
     shapeLandmarks,
+    deviationWaypointAddCount,
     redundantWaypointRemovalCount
   } = extractDesignerWaypoints(points, smoothing);
   const tangentVectors = getDesignerTangents(designerWaypoints, points, smoothing);
@@ -1224,8 +1505,8 @@ const fitBoundedBezierPath = (points, smoothing) => {
     ? Math.max(...internalJoinTangentMismatches)
     : 0;
   const shapePreservationWarning =
-    deviationStats.averageRawToFinalDeviation > 45 ||
-    deviationStats.maxRawToFinalDeviation > 120;
+    deviationStats.averageRawToFinalDeviation > Math.max(45, smoothing.maxDeviation * 0.45) ||
+    deviationStats.maxRawToFinalDeviation > smoothing.maxDeviation;
   const smoothnessQualityPass =
     maxInternalJoinTangentMismatchDeg <= 8 &&
     curvatureStats.curvatureSpikeCount <= 3 &&
@@ -1249,6 +1530,7 @@ const fitBoundedBezierPath = (points, smoothing) => {
       maxInternalJoinTangentMismatchDeg,
       internalJoinTangentMismatches,
       handleClampCount,
+      deviationWaypointAddCount,
       redundantWaypointRemovalCount,
       ...curvatureStats,
       ...deviationStats,
@@ -1911,9 +2193,9 @@ const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, opti
   const sourcePoints = rawPoints.map((point) => normalizePoint(point));
   const jitterFiltered = filterJitterPoints(
     sourcePoints,
-    Math.max(DRAW_POINT_MIN_DISTANCE, normalizedSmoothing.minPointDistance + priority * 10)
+    Math.max(2, normalizedSmoothing.minPointDistance + priority * 4)
   );
-  const intentionSpacing = Math.max(12, normalizedSmoothing.resampleSpacing + priority * 8);
+  const intentionSpacing = Math.max(8, normalizedSmoothing.resampleSpacing + priority * 6);
   const resampled = resamplePointsByDistance(jitterFiltered, intentionSpacing);
   const boundedFit = fitBoundedBezierPath(resampled, normalizedSmoothing);
   const designerWaypoints = boundedFit.designerWaypoints;
@@ -3621,6 +3903,7 @@ const renderFloatingToolbar = () => {
   toolbar.innerHTML = `
     <button type="button" data-context-action="select" aria-pressed="${editorState.activeTool === "select"}">选择</button>
     <button type="button" data-context-action="draw" aria-pressed="${editorState.activeTool === "freehand"}">手绘曲线</button>
+    <button type="button" data-context-action="curve-tuning">曲线调参</button>
     <button type="button" data-context-action="debug" aria-pressed="${uiState.debugOverlay}">调试曲线</button>
     ${uiState.debugOverlay ? `
       <button type="button" data-context-action="debug-raw" aria-pressed="${uiState.debugLayers.raw}">原始手绘</button>
@@ -3643,6 +3926,7 @@ const handleContextAction = (action) => {
   const actions = {
     select: () => setActiveTool("select"),
     draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
+    "curve-tuning": () => openContextPopover("curve", { areaId: editorState.selectedAreaId }, window.innerWidth - 360, 72),
     debug: toggleCurveDebugOverlay,
     "debug-raw": () => toggleCurveDebugLayer("raw"),
     "debug-anchors": () => toggleCurveDebugLayer("anchors"),
@@ -3763,10 +4047,100 @@ const renderAreaPopoverContent = () => {
   `;
 };
 
+const formatTuningValue = (value, slider) => {
+  if (slider.step === 1) {
+    return `${Math.round(value)}${slider.unit || ""}`;
+  }
+  return `${Number(value).toFixed(2)}${slider.unit || ""}`;
+};
+
+const getSelectedAreaDiagnostics = () => {
+  const area = getSelectedArea();
+  return (
+    area.path.globalFitDiagnostics ||
+    area.path.diagnostics ||
+    curveDebugDataByArea.get(area.id)?.diagnostics ||
+    {}
+  );
+};
+
+const renderTuningMetrics = () => {
+  const diagnostics = getSelectedAreaDiagnostics();
+  const metricRows = [
+    ["平均偏离", diagnostics.averageRawToFinalDeviation, "px"],
+    ["最大偏离", diagnostics.maxRawToFinalDeviation, "px"],
+    ["曲率尖峰", diagnostics.curvatureSpikeCount, ""],
+    ["最大转角", diagnostics.maxTurnAngleDeg, "°"],
+    ["质量通过", diagnostics.smoothnessQualityPass === true ? "是" : "否", ""]
+  ];
+
+  return `
+    <div class="journey-tuning-metrics" aria-label="曲线质量指标">
+      ${metricRows.map(([label, value, unit]) => `
+        <div class="journey-tuning-metric">
+          <span>${label}</span>
+          <strong>${typeof value === "number" ? Math.round(value) : value ?? "-"}${unit}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+};
+
+const renderTuningSlider = (slider, smoothing) => {
+  const value = smoothing[slider.key];
+  return `
+    <label class="journey-tuning-row" title="${escapeHtml(slider.hint)}">
+      <span class="journey-tuning-label">${slider.label}</span>
+      <input
+        class="journey-tuning-slider"
+        type="range"
+        min="${slider.min}"
+        max="${slider.max}"
+        step="${slider.step}"
+        data-path-smoothing-field="${slider.key}"
+        value="${value}"
+      >
+      <span class="journey-tuning-value" data-smoothing-value="${slider.key}">
+        ${formatTuningValue(value, slider)}
+      </span>
+      <small>${slider.hint}</small>
+    </label>
+  `;
+};
+
 const renderCurvePopoverContent = () => {
   const area = getSelectedArea();
+  if (!area) {
+    return `${renderPopoverHeader("曲线调参")}<p class="context-note">请先选择一个区域。</p>`;
+  }
+
+  area.path.smoothing = normalizeSmoothing(area.path.smoothing);
+  const smoothing = area.path.smoothing;
+
   return `
-    ${renderPopoverHeader("曲线设置")}
+    ${renderPopoverHeader("曲线调参")}
+    <div class="journey-tuning-panel">
+      <p class="context-note">
+        当前区域：<strong>${escapeHtml(area.title)}</strong>。
+        手绘线条只表示大方向。你可以通过下面的滑块调节“保留原始形状”和“视觉丝滑程度”的平衡。
+      </p>
+      <label class="journey-tuning-scope">
+        应用范围
+        <select data-curve-tuning-scope>
+          <option value="current" ${uiState.tuningScope === "current" ? "selected" : ""}>只应用当前区域</option>
+          <option value="all" ${uiState.tuningScope === "all" ? "selected" : ""}>应用到所有区域</option>
+        </select>
+      </label>
+      <div class="journey-tuning-presets" aria-label="曲线调参预设">
+        ${Object.entries(CURVE_TUNING_PRESETS).map(([key, preset]) => `
+          <button type="button" data-curve-preset="${key}">${preset.label}</button>
+        `).join("")}
+      </div>
+      <div class="journey-tuning-grid">
+        ${TUNING_SLIDERS.map((slider) => renderTuningSlider(slider, smoothing)).join("")}
+      </div>
+      ${renderTuningMetrics()}
+    </div>
     <label>曲线颜色<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
     <label>阴影颜色<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
     <label>曲线宽度<input type="number" min="8" max="80" step="2" data-area-path-field="strokeWidth" value="${area.path.strokeWidth}"></label>
@@ -3774,22 +4148,15 @@ const renderCurvePopoverContent = () => {
       <option value="solid" ${area.path.lineStyle === "solid" ? "selected" : ""}>solid</option>
       <option value="dashed" ${area.path.lineStyle === "dashed" ? "selected" : ""}>dashed</option>
     </select></label>
-    <label>平滑程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}"></label>
-    <label>简化程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}"></label>
-    <label>算法优先<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="algorithmPriority" value="${area.path.smoothing?.algorithmPriority ?? DEFAULT_SMOOTHING.algorithmPriority}"></label>
-    <label>最大锚点数<input type="number" min="4" max="12" step="1" data-path-smoothing-field="maxAnchors" value="${area.path.smoothing?.maxAnchors ?? DEFAULT_SMOOTHING.maxAnchors}"></label>
-    <label>切线平滑<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="tangentSmoothing" value="${area.path.smoothing?.tangentSmoothing ?? DEFAULT_SMOOTHING.tangentSmoothing}"></label>
-    <p class="context-note">手绘线条只表示大方向；系统会拟合平滑曲线，但会尽量保留主要转折和整体形状。</p>
     <div class="context-button-row">
-      <button type="button" data-context-popover-action="resmooth">重新平滑</button>
+      <button type="button" data-context-popover-action="resmooth">重新生成平滑曲线</button>
       <button type="button" data-context-popover-action="redraw">重画当前区域曲线</button>
-      <button type="button" data-context-popover-action="export-curve-debug">导出曲线调试数据</button>
+      <button type="button" data-context-popover-action="export-curve-debug">导出调试数据</button>
       <button type="button" data-context-popover-action="copy-curve-debug">复制调试数据</button>
     </div>
     <textarea class="context-json curve-debug-json" data-curve-debug-json readonly placeholder="曲线调试 JSON 会显示在这里"></textarea>
   `;
 };
-
 const renderNodePopoverContent = () => {
   const selected = getNodeById(uiState.popover.payload.nodeId || editorState.selectedNodeId);
   if (!selected) {
@@ -3848,6 +4215,17 @@ const bindContextPopoverEvents = (popover) => {
   });
   popover.querySelectorAll("[data-path-smoothing-field]").forEach((field) => {
     field.addEventListener("input", () => updatePathSmoothingField(field));
+    field.addEventListener("change", () => updatePathSmoothingField(field, { rerenderPanel: true }));
+  });
+  popover.querySelector("[data-curve-tuning-scope]")?.addEventListener("change", (event) => {
+    uiState.tuningScope = event.target.value === "all" ? "all" : "current";
+    showEditorMessage(
+      uiState.tuningScope === "all" ? "调参将应用到所有区域。" : "调参仅应用到当前区域。"
+    );
+    logHomepage("Changed curve tuning scope.", { scope: uiState.tuningScope });
+  });
+  popover.querySelectorAll("[data-curve-preset]").forEach((button) => {
+    button.addEventListener("click", () => applyCurveTuningPreset(button.dataset.curvePreset));
   });
   popover.querySelectorAll("[data-node-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeField(field));
@@ -4276,12 +4654,18 @@ const updateAreaPathField = (field) => {
   renderTimeline();
 };
 
-const updatePathSmoothingField = (field) => {
-  const area = getSelectedArea();
-  area.path.smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
-  area.path.smoothing[field.dataset.pathSmoothingField] = Number(field.value);
-  area.path.smoothing = normalizeSmoothing(area.path.smoothing);
+const getCurveTuningTargetAreas = () =>
+  uiState.tuningScope === "all" ? getOrderedAreas() : [getSelectedArea()].filter(Boolean);
 
+const refreshTuningValueDisplay = (field) => {
+  const slider = TUNING_SLIDERS.find((item) => item.key === field.dataset.pathSmoothingField);
+  const valueDisplay = document.querySelector(`[data-smoothing-value="${field.dataset.pathSmoothingField}"]`);
+  if (slider && valueDisplay) {
+    valueDisplay.textContent = formatTuningValue(Number(field.value), slider);
+  }
+};
+
+const regenerateAreaCurveFromSmoothing = (area) => {
   if (area.path.mode === "freehand" && area.path.rawPoints?.length >= 3) {
     const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing, { log: true });
     if (processed?.smoothPoints?.length >= 3) {
@@ -4296,13 +4680,72 @@ const updatePathSmoothingField = (field) => {
         }
       });
     }
+    return;
   }
 
+  rebuildAreaPathData(area);
+  const source = getRoughLocalPointsForArea(area);
+  const processed = processRawFreehandPoints(source, area.path.smoothing, { log: true });
+  if (processed?.smoothPoints?.length >= 3) {
+    applyProcessedFreehandPath(area, processed, []);
+  }
+};
+
+const applySmoothingSettingsToArea = (area, nextSmoothing) => {
+  area.path.smoothing = normalizeSmoothing({
+    ...DEFAULT_SMOOTHING,
+    ...(area.path.smoothing || {}),
+    ...nextSmoothing
+  });
+  regenerateAreaCurveFromSmoothing(area);
+};
+
+const updatePathSmoothingField = (field, options = {}) => {
+  const key = field.dataset.pathSmoothingField;
+  const value = Number(field.value);
+  const targetAreas = getCurveTuningTargetAreas();
+
+  targetAreas.forEach((area) => {
+    applySmoothingSettingsToArea(area, { [key]: value });
+  });
+
   markDirty("path smoothing changed");
+  refreshTuningValueDisplay(field);
   renderTimeline();
+  if (options.rerenderPanel) {
+    renderEditorPanel();
+  } else {
+    const metrics = document.querySelector(".journey-tuning-metrics");
+    if (metrics) {
+      metrics.outerHTML = renderTuningMetrics();
+    }
+  }
   logHomepage("Updated freehand smoothing configuration.", {
-    areaId: area.id,
-    smoothing: area.path.smoothing
+    field: key,
+    value,
+    scope: uiState.tuningScope,
+    areaIds: targetAreas.map((area) => area.id)
+  });
+};
+
+const applyCurveTuningPreset = (presetKey) => {
+  const preset = CURVE_TUNING_PRESETS[presetKey];
+  if (!preset) {
+    return;
+  }
+
+  const targetAreas = getCurveTuningTargetAreas();
+  targetAreas.forEach((area) => {
+    applySmoothingSettingsToArea(area, preset.values);
+  });
+  markDirty(`curve tuning preset ${presetKey}`);
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(`已应用“${preset.label}”曲线预设。`);
+  logHomepage("Applied journey curve tuning preset.", {
+    preset: presetKey,
+    scope: uiState.tuningScope,
+    areaIds: targetAreas.map((area) => area.id)
   });
 };
 

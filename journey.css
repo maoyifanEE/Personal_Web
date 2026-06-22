@@ -787,6 +787,10 @@ select {
   overflow: auto;
 }
 
+.context-popover[data-popover-type="curve"] {
+  width: min(520px, calc(100vw - 24px));
+}
+
 .context-popover__header {
   display: flex;
   align-items: center;
@@ -832,6 +836,90 @@ select {
 
 .curve-debug-json {
   min-height: 150px;
+}
+
+.journey-tuning-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(23, 37, 52, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.journey-tuning-scope {
+  display: grid;
+  gap: 6px;
+}
+
+.journey-tuning-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.journey-tuning-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.journey-tuning-row {
+  display: grid;
+  grid-template-columns: minmax(86px, 1fr) minmax(120px, 1.6fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.journey-tuning-label {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.journey-tuning-slider {
+  accent-color: var(--teal);
+}
+
+.journey-tuning-value {
+  min-width: 52px;
+  padding: 4px 7px;
+  border: 1px solid rgba(23, 37, 52, 0.12);
+  border-radius: 999px;
+  color: var(--teal);
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+}
+
+.journey-tuning-row small {
+  grid-column: 1 / -1;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.journey-tuning-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.journey-tuning-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid rgba(23, 37, 52, 0.08);
+  border-radius: 8px;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.54);
+  font-size: 12px;
+}
+
+.journey-tuning-metric strong {
+  color: var(--ink);
 }
 
 .context-note,
@@ -1338,6 +1426,15 @@ select {
   .card-link {
     justify-content: center;
     text-align: center;
+  }
+
+  .journey-tuning-row,
+  .journey-tuning-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .journey-tuning-value {
+    justify-self: start;
   }
 }
 
