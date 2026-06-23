@@ -33,6 +33,12 @@ The repository must not contain real private data, secrets, production database 
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 
+The journey prototype includes editable curve paths.
+Hand-drawn strokes are treated as full rough route input, not reduced to a few designer waypoints.
+The active smoothing pipeline removes consecutive duplicate points, resamples by equal arc-length distance, applies Gaussian low-pass smoothing, and then uses Catmull-Rom interpolation.
+The journey editor includes simple smoothing sliders for strength, sample spacing, and interpolation density.
+The journey editor can show and export front-end curve debug data for raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
+
 ## Navigation Behavior
 
 * Hidden lower-left entrance on `index.html` opens `journey.html`.

@@ -34,6 +34,16 @@ It should also prevent old navigation behavior from returning by accident.
 * Major and minor nodes are part of the journey prototype.
 * The Overview and Details switch is part of the prototype.
 * Freehand curve editing and path-anchored nodes are prototype editor features.
+* Hand-drawn curve input should be treated as the full rough route, not exact final geometry.
+* The active journey curve pipeline should directly smooth the full point sequence.
+* The smoothing pipeline is: remove consecutive duplicates, resample by equal arc-length distance, apply Gaussian low-pass smoothing, then apply Catmull-Rom interpolation.
+* Do not reduce freehand curves to only a few designer waypoints.
+* Do not skip large middle arcs from the original hand-drawn route.
+* Preserve enough resampled points so broad S-shaped and loop-like gestures remain recognizable.
+* Tuning should stay simple: smooth strength, sample spacing, interpolation density, and debug overlays.
+* Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
+* Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
+* Curve debug export may be used to inspect raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.
