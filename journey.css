@@ -545,17 +545,12 @@ select {
   fill: rgba(245, 157, 65, 0.76);
 }
 
-.curve-debug__guide-anchor {
+.curve-debug__control-point {
   fill: #ffffff;
   stroke: #1f6f56;
   stroke-width: 3;
 }
 
-.curve-debug__aligned-anchor {
-  fill: #f7c948;
-  stroke: #342a18;
-  stroke-width: 2;
-}
 
 .curve-debug__tangent {
   stroke: rgba(125, 73, 196, 0.76);

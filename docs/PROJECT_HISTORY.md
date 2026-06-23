@@ -1,5 +1,76 @@
 # Project History
 
+## 2026-06-22 - Clean up obsolete journey curve experiments
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Preserve the accepted direct smoothing pipeline for journey curves.
+* Remove obsolete runtime code from earlier curve experiments.
+* Keep the journey page front-end only.
+* Do not add backend, database, API, authentication, or authorization.
+
+### Completed
+
+* Removed dead designer waypoint, guide anchor, global fairing, and bounded Bezier fitting runtime code from `journey.js`.
+* Removed old debug export/runtime fields that only belonged to removed curve engines.
+* Kept the active `simple-strong-smooth` pipeline unchanged.
+* Kept the freehand drawing workflow, simple smoothing sliders, presets, and simple debug export.
+* Renamed the debug control-point CSS hook away from old guide-anchor wording.
+* Confirmed Paper.js vendor files and runtime references remain removed.
+
+### Current active algorithm
+
+* Raw points.
+* Equal-distance resampling.
+* Gaussian low-pass smoothing.
+* Catmull-Rom interpolation.
+* Dense SVG path rendering.
+
+### Modified files
+
+* `journey.js`
+* `journey.css`
+* `docs/PROJECT_HISTORY.md`
+
+### Not changed
+
+* Did not modify `index.html`.
+* Did not modify public homepage text.
+* Did not modify ICP footer.
+* Did not modify hidden journey entrance.
+* Did not modify hidden private entrance.
+* Did not modify `hub.html`.
+* Did not modify task, health, message, or special subscription apps.
+* Did not add backend.
+* Did not add database.
+* Did not add API.
+* Did not add authentication or authorization.
+
+### Verification
+
+* [x] Current branch is `Feature/homepage-update`.
+* [x] Local branch was pulled from the remote working branch.
+* [x] `origin/main` had no new commits to merge.
+* [x] Obsolete runtime reference audit was run before cleanup.
+* [x] `node --check journey.js` passed after cleanup.
+* [x] Text format LF / CR / long-line check passed after cleanup.
+* [x] Broken question-mark placeholder check was reviewed after cleanup.
+* [x] Obsolete runtime reference check passed after cleanup.
+* [x] Vendor cleanup check passed after cleanup.
+* [x] `git diff --stat origin/main...HEAD` was reviewed after cleanup.
+* [ ] `journey.html` opened in the browser after cleanup.
+* [ ] Normal overview stayed clean after cleanup.
+* [ ] Editor opened after cleanup.
+* [ ] Freehand drawing worked after cleanup.
+* [ ] Smooth strength slider changed the curve after cleanup.
+* [ ] Sample spacing slider changed the curve after cleanup.
+* [ ] Interpolation density slider changed the curve after cleanup.
+* [ ] Presets worked after cleanup.
+* [ ] Debug export included simple smoothing data after cleanup.
+* [ ] Save / reload preserved raw points and simple smooth settings after cleanup.
+* [ ] Mobile width was tested after cleanup.
+
 ## 2026-06-22 - Replace journey curve fitting with direct smoothing pipeline
 
 ### Goal
