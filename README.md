@@ -34,13 +34,10 @@ The repository must not contain real private data, secrets, production database 
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 
 The journey prototype includes editable curve paths.
-Hand-drawn strokes are treated as rough direction input, then converted into a designer-route Bezier curve.
-The fitting uses a few route waypoints, one tangent direction per waypoint, and paired handles to keep internal joins visually continuous.
-The quality gates keep broad shape landmarks while limiting raw-to-final deviation and curvature spikes.
-Adjacent journey areas align endpoints and adjust only local boundary handles so the timeline reads as one continuous path without destroying each area's shape.
-The journey editor includes curve tuning sliders, presets, and compact metrics so smoothing values can be calibrated visually in the browser.
-The journey editor can optionally use a local Paper.js smoothing engine for visual comparison; Paper.js is loaded only on `journey.html`.
-The journey editor can show and export front-end curve debug data for raw points, designer waypoints, tangent vectors, Bezier segments, final samples, per-area metrics, and boundary diagnostics.
+Hand-drawn strokes are treated as full rough route input, not reduced to a few designer waypoints.
+The active smoothing pipeline removes consecutive duplicate points, resamples by equal arc-length distance, applies Gaussian low-pass smoothing, and then uses Catmull-Rom interpolation.
+The journey editor includes simple smoothing sliders for strength, sample spacing, and interpolation density.
+The journey editor can show and export front-end curve debug data for raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
 
 ## Navigation Behavior
 

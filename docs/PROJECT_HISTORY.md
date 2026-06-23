@@ -1,5 +1,73 @@
 # Project History
 
+## 2026-06-22 - Replace journey curve fitting with direct smoothing pipeline
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the previous fitting / Paper.js experiment as the active journey curve direction.
+* Follow the standalone demo style because its resample + Gaussian smooth + Catmull-Rom result is visually closer to the desired curve.
+* Keep freehand drawing as the main input workflow.
+* Do not add backend, database, API, authentication, or authorization.
+
+### Completed
+
+* Removed the runtime Paper.js script from `journey.html`.
+* Removed the local `vendor/paperjs/` files.
+* Changed the active freehand curve generator to `simple-strong-smooth`.
+* The active pipeline now removes consecutive duplicate points, resamples by equal arc length, applies Gaussian smoothing, then uses Catmull-Rom interpolation.
+* Replaced the curve tuning UI with simpler controls for smooth strength, sample spacing, and interpolation density.
+* Debug export now focuses on raw points, resampled points, smoothed control points, final smooth points, final SVG path, and simple smoothing stats.
+* Documentation now describes the direct smoothing pipeline instead of the Paper.js / designer waypoint experiments.
+
+### Modified / deleted files
+
+* `journey.html`
+* `journey.js`
+* `README.md`
+* `docs/06_VISUAL_STYLE_GUIDE.md`
+* `docs/08_PROJECT_STRUCTURE_STANDARD.md`
+* `docs/PROJECT_HISTORY.md`
+* Deleted `vendor/paperjs/paper-full.js`
+* Deleted `vendor/paperjs/LICENSE.txt`
+
+### Not changed
+
+* Did not modify `index.html`.
+* Did not modify public homepage text.
+* Did not modify ICP footer.
+* Did not modify hidden journey entrance.
+* Did not modify hidden private entrance.
+* Did not modify `hub.html`.
+* Did not modify task, health, message, or special subscription apps.
+* Did not add backend.
+* Did not add database.
+* Did not add API.
+* Did not add authentication or authorization.
+
+### Verification
+
+* [x] Current branch is `Feature/homepage-update`.
+* [x] Local branch was pulled from the remote working branch.
+* [x] `origin/main` had no new commits to merge.
+* [x] `node --check journey.js` passed.
+* [x] Text format LF / CR / long-line check passed.
+* [x] Broken question-mark placeholder check was reviewed.
+* [x] Paper.js runtime cleanup check was reviewed.
+* [x] `git diff --stat origin/main...HEAD` was reviewed.
+* [x] `journey.html` opened in the browser.
+* [x] Normal overview stayed clean.
+* [x] Editor opened.
+* [ ] Freehand drawing worked.
+* [ ] Shaky S-shaped drawing generated a smooth final curve.
+* [x] Smooth strength slider changed the curve.
+* [x] Sample spacing slider changed the curve.
+* [x] Interpolation density slider changed the curve.
+* [x] Presets worked.
+* [x] Debug export included simple smoothing data.
+* [ ] Save / reload preserved raw points and simple smooth settings.
+* [ ] Mobile width was tested.
+
 ## 2026-06-22 - Add optional Paper.js journey curve engine
 
 ### 本次目标

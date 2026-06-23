@@ -34,27 +34,16 @@ It should also prevent old navigation behavior from returning by accident.
 * Major and minor nodes are part of the journey prototype.
 * The Overview and Details switch is part of the prototype.
 * Freehand curve editing and path-anchored nodes are prototype editor features.
-* Hand-drawn curve input should be treated as rough direction, not exact final geometry.
-* The final journey route should be generated with a designer-route Bezier model.
-* The algorithm should use a small number of route waypoints with one tangent direction per waypoint.
-* Internal Bezier joins should be G1/C1-continuous so the route does not look like stitched rounded segments.
-* The algorithm should preserve broad shape landmarks such as major turns, extrema, and start/end direction.
-* Smoothness and visual polish may reduce hand jitter, but must not collapse an S-shaped or looping gesture into a different route.
-* Adjacent journey areas should align endpoints and adjust only local boundary handles.
-* Boundary tangent smoothing must not destroy the shape of either neighboring area.
-* Vertically offset journey areas should still connect smoothly at their shared boundary without a visible kink.
-* Curve smoothness should be tunable in the editor with sliders rather than repeated hardcoded parameter changes.
-* Tuning sliders should balance shape preservation and visual smoothness, and every active slider should affect the generated path.
-* Curve presets should help compare conservative, balanced, smooth, and detail-preserving route styles quickly.
-* The curve engine can be switched between the current custom algorithm and the local Paper.js smoothing engine.
-* Paper.js mode should use simplify tolerance and smoothing type controls for visual comparison.
-* Paper.js mode must be loaded from local project files, not a CDN.
-* The final curve engine choice should be based on visual acceptance in the browser, not documentation claims.
-* The tuning panel may show compact diagnostics for deviation, turn angle, curvature spikes, and quality pass status.
+* Hand-drawn curve input should be treated as the full rough route, not exact final geometry.
+* The active journey curve pipeline should directly smooth the full point sequence.
+* The smoothing pipeline is: remove consecutive duplicates, resample by equal arc-length distance, apply Gaussian low-pass smoothing, then apply Catmull-Rom interpolation.
+* Do not reduce freehand curves to only a few designer waypoints.
+* Do not skip large middle arcs from the original hand-drawn route.
+* Preserve enough resampled points so broad S-shaped and loop-like gestures remain recognizable.
+* Tuning should stay simple: smooth strength, sample spacing, interpolation density, and debug overlays.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
 * Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
-* Debug metrics should evaluate endpoint gaps, tangent improvement, internal join mismatch, curvature spikes, and raw-to-final deviation.
-* The curve debug overlay and debug JSON export may be used to inspect raw points, resampled points, designer waypoints, tangent vectors, Bezier segments, final curve samples, and boundary diagnostics.
+* Curve debug export may be used to inspect raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.
