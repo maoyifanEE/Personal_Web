@@ -32,6 +32,58 @@
         title=""
       ></a>
     </main>
+
+    <div class="floating-tools" aria-label="Floating website tools">
+      <button
+        class="floating-tool-button"
+        type="button"
+        data-message-open
+        aria-haspopup="dialog"
+        aria-controls="visitor-message-modal"
+      >留言</button>
+    </div>
+
+    <div
+      class="visitor-message-modal"
+      id="visitor-message-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="visitor-message-title"
+      hidden
+    >
+      <div class="visitor-message-modal__overlay" data-message-close></div>
+      <section class="visitor-message-modal__panel" tabindex="-1">
+        <button
+          class="visitor-message-modal__close"
+          type="button"
+          data-message-close
+          aria-label="关闭留言窗口"
+        >&times;</button>
+        <p class="visitor-message-modal__eyebrow">Prototype</p>
+        <h2 id="visitor-message-title">留言</h2>
+        <p class="visitor-message-notice">
+          当前仅为前端原型，真实留言提交需要后端和数据库支持。
+        </p>
+        <form class="visitor-message-form" data-message-form novalidate>
+          <label>
+            <span>昵称</span>
+            <input name="nickname" type="text" autocomplete="name" required>
+          </label>
+          <label>
+            <span>联系方式（可选）</span>
+            <input name="contact" type="text" autocomplete="email">
+          </label>
+          <label>
+            <span>留言内容</span>
+            <textarea name="message" rows="5" required></textarea>
+          </label>
+          <p class="visitor-message-status" data-message-status aria-live="polite">
+            原型模式：留言不会被保存。
+          </p>
+          <button class="visitor-message-submit" type="submit">提交留言（原型）</button>
+        </form>
+      </section>
+    </div>
     <footer class="site-footer" aria-label="Site filing information">
       <!-- TODO: Add the public security filing number after 公安联网备案 approval. -->
       <a

@@ -32,6 +32,7 @@ The repository must not contain real private data, secrets, production database 
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
+| `apps/messages/index.html` | Visitor Message Management prototype | Static/front-end prototype |
 
 The journey prototype includes editable curve paths.
 Hand-drawn strokes are treated as full rough route input, not reduced to a few designer waypoints.
@@ -146,6 +147,7 @@ Then open these URLs as needed:
 * `http://127.0.0.1:4173/apps/tasks/index.html`
 * `http://127.0.0.1:4173/apps/health/index.html`
 * `http://127.0.0.1:4173/apps/special-subscription/index.html`
+* `http://127.0.0.1:4173/apps/messages/index.html`
 
 ## Current Non-Goals
 
@@ -163,3 +165,18 @@ Then open these URLs as needed:
 Documentation fixes should not change website behavior.
 
 Application behavior should be verified separately when application files are changed.
+
+
+## Visitor Message Prototype
+
+The public cover page includes a bottom-right floating `留言` tool.
+
+This tool opens a front-end modal prototype for visitor messages.
+
+The current prototype validates nickname and message content only.
+
+Visitor messages are not saved in this static phase.
+
+The admin message page at `apps/messages/index.html` is also a front-end prototype only.
+
+Real message submission and management require future backend, database, authentication, and administrator authorization.

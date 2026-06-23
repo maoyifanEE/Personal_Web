@@ -205,3 +205,18 @@ Real personal records should not be stored in the local repository.
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`
 * `docs/09_BACKEND_DATABASE_PLAN.md`
 * `docs/PROJECT_HISTORY.md`
+
+
+## Visitor Message Data Boundary
+
+Visitor-submitted messages are private user-submitted data.
+
+Visitor message data must not be stored in GitHub.
+
+Visitor message data must not be hard-coded into static HTML, CSS, JavaScript, JSON, or Markdown files.
+
+The current visitor message UI is a front-end prototype only.
+
+Real visitor message submission requires backend, database, authentication for administrators, and authorization checks.
+
+The static prototype must not use localStorage, sessionStorage, or cookies as fake message persistence.
