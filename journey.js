@@ -1,11 +1,79 @@
 const STORAGE_KEY = "personal_web_homepage_timeline_v1";
 const SVG_WIDTH = 1000;
-const DEFAULT_SMOOTHING = {
-  enabled: true,
-  strength: 0.55,
-  simplification: 0.35
+const SIMPLE_SMOOTH_ENGINE = "simple-strong-smooth";
+const DEFAULT_SIMPLE_SMOOTH = {
+  engine: SIMPLE_SMOOTH_ENGINE,
+  smoothStrength: 72,
+  smoothSpacing: 12,
+  catmullSamplesPerSegment: 16,
+  preserveEndpoints: true
 };
-const DRAW_POINT_MIN_DISTANCE = 6;
+const DEFAULT_SMOOTHING = {
+  ...DEFAULT_SIMPLE_SMOOTH
+};
+const TUNING_SLIDERS = [
+  {
+    key: "smoothStrength",
+    label: "\u5e73\u6ed1\u5f3a\u5ea6",
+    min: 0,
+    max: 100,
+    step: 1,
+    hint: "\u4f4e\u503c\u66f4\u63a5\u8fd1\u624b\u7ed8\uff0c\u9ad8\u503c\u66f4\u5e73\u6ed1\u5e76\u51cf\u5c11\u6296\u52a8\u3002"
+  },
+  {
+    key: "smoothSpacing",
+    label: "\u91c7\u6837\u95f4\u8ddd",
+    min: 4,
+    max: 40,
+    step: 1,
+    unit: "px",
+    hint: "\u4f4e\u503c\u4fdd\u7559\u66f4\u591a\u91c7\u6837\u70b9\u5e76\u66f4\u8d34\u8fd1\u539f\u7ebf\uff0c\u9ad8\u503c\u66f4\u7b80\u6d01\u5e73\u6ed1\u3002"
+  },
+  {
+    key: "catmullSamplesPerSegment",
+    label: "\u63d2\u503c\u5bc6\u5ea6",
+    min: 6,
+    max: 30,
+    step: 1,
+    hint: "\u9ad8\u503c\u4f1a\u751f\u6210\u66f4\u591a\u6700\u7ec8\u70b9\uff0c\u8ba9\u663e\u793a\u66f2\u7ebf\u66f4\u7ec6\u817b\u3002"
+  }
+];
+const CURVE_TUNING_PRESETS = {
+  close: {
+    label: "\u63a5\u8fd1\u539f\u7ebf",
+    values: {
+      smoothStrength: 38,
+      smoothSpacing: 8,
+      catmullSamplesPerSegment: 14
+    }
+  },
+  balanced: {
+    label: "\u5747\u8861",
+    values: DEFAULT_SIMPLE_SMOOTH
+  },
+  strong: {
+    label: "\u5f3a\u529b\u5e73\u6ed1",
+    values: {
+      smoothStrength: 88,
+      smoothSpacing: 14,
+      catmullSamplesPerSegment: 22
+    }
+  },
+  detail: {
+    label: "\u7ec6\u8282\u66f4\u591a",
+    values: {
+      smoothStrength: 58,
+      smoothSpacing: 6,
+      catmullSamplesPerSegment: 24
+    }
+  },
+  reset: {
+    label: "\u91cd\u7f6e\u9ed8\u8ba4",
+    values: DEFAULT_SIMPLE_SMOOTH
+  }
+};
+const DRAW_POINT_MIN_DISTANCE = 10;
+const PATH_ALIGNMENT_HANDLE_DISTANCE = 96;
 
 const logHomepage = (message, details = {}) => {
   console.log(`[Personal_Web][HomepageEditor] ${message}`, details);
@@ -327,12 +395,23 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
 
 let editorState = clone(DEFAULT_HOMEPAGE_EDITOR_STATE);
 let dragState = null;
-let uiState = {
+const createDefaultUiState = () => ({
   popover: null,
   contextMenu: null,
   hoverPreview: null,
-  lastPointerWasDrag: false
-};
+  lastPointerWasDrag: false,
+  debugOverlay: false,
+  tuningScope: "current",
+  debugLayers: {
+    raw: true,
+    anchors: true,
+    final: true,
+    tangents: true
+  }
+});
+let uiState = createDefaultUiState();
+const curveDebugDataByArea = new Map();
+let globalCurveDebugData = null;
 
 const getOrderedAreas = () => [...editorState.areas].sort((a, b) => a.order - b.order);
 const getAreaById = (areaId) => editorState.areas.find((area) => area.id === areaId);
@@ -372,9 +451,11 @@ const sanitizeState = (rawState) => {
       nodes: Array.isArray(area.nodes) ? area.nodes : clone(defaultArea.nodes)
     };
     migrateAreaPath(migratedArea);
-    migrateAreaNodes(migratedArea);
     return migratedArea;
   });
+
+  alignAdjacentAreaPaths(nextState.areas, "sanitize");
+  nextState.areas.forEach((area) => migrateAreaNodes(area));
 
   return nextState;
 };
@@ -430,6 +511,36 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const distanceBetweenPoints = (first, second) =>
   Math.hypot(first.x - second.x, first.y - second.y);
 
+const normalizeSmoothing = (smoothing = {}) => ({
+  ...DEFAULT_SIMPLE_SMOOTH,
+  engine: SIMPLE_SMOOTH_ENGINE,
+  smoothStrength: Math.round(clamp(
+    Number(smoothing.simpleSmooth?.smoothStrength ?? smoothing.smoothStrength ?? DEFAULT_SIMPLE_SMOOTH.smoothStrength),
+    0,
+    100
+  )),
+  smoothSpacing: Math.round(clamp(
+    Number(smoothing.simpleSmooth?.smoothSpacing ?? smoothing.smoothSpacing ?? DEFAULT_SIMPLE_SMOOTH.smoothSpacing),
+    4,
+    40
+  )),
+  catmullSamplesPerSegment: Math.round(clamp(
+    Number(
+      smoothing.simpleSmooth?.catmullSamplesPerSegment ??
+      smoothing.catmullSamplesPerSegment ??
+      DEFAULT_SIMPLE_SMOOTH.catmullSamplesPerSegment
+    ),
+    6,
+    30
+  )),
+  preserveEndpoints: smoothing.simpleSmooth?.preserveEndpoints ?? smoothing.preserveEndpoints ?? true
+});
+
+const normalizePoint = (point, fallback = { x: SVG_WIDTH / 2, y: 0 }) => ({
+  x: Math.round(Number.isFinite(point?.x) ? point.x : fallback.x),
+  y: Math.round(Number.isFinite(point?.y) ? point.y : fallback.y)
+});
+
 const getBezierPoint = (p0, p1, p2, p3, t) => {
   const inverse = 1 - t;
   return {
@@ -463,91 +574,6 @@ const getBasePathPoints = (area) => {
   return pointsFromBezierAnchors(area.path.points || []);
 };
 
-const catmullRomToBezierPath = (points, strength = 0.55) => {
-  if (!points.length) {
-    return "";
-  }
-  if (points.length === 1) {
-    return `M ${points[0].x} ${points[0].y}`;
-  }
-  if (points.length === 2) {
-    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
-  }
-
-  const tension = clamp(strength, 0, 1) / 6;
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const p0 = points[Math.max(0, index - 1)];
-    const p1 = points[index];
-    const p2 = points[index + 1];
-    const p3 = points[Math.min(points.length - 1, index + 2)];
-    const cp1 = {
-      x: Math.round(p1.x + (p2.x - p0.x) * tension),
-      y: Math.round(p1.y + (p2.y - p0.y) * tension)
-    };
-    const cp2 = {
-      x: Math.round(p2.x - (p3.x - p1.x) * tension),
-      y: Math.round(p2.y - (p3.y - p1.y) * tension)
-    };
-    d += ` C ${cp1.x} ${cp1.y} ${cp2.x} ${cp2.y} ${p2.x} ${p2.y}`;
-  }
-  return d;
-};
-
-const perpendicularDistance = (point, start, end) => {
-  const length = distanceBetweenPoints(start, end);
-  if (!length) {
-    return distanceBetweenPoints(point, start);
-  }
-  return Math.abs(
-    (end.y - start.y) * point.x -
-    (end.x - start.x) * point.y +
-    end.x * start.y -
-    end.y * start.x
-  ) / length;
-};
-
-const simplifyPoints = (points, tolerance) => {
-  if (points.length <= 3) {
-    return points;
-  }
-
-  let maxDistance = 0;
-  let splitIndex = 0;
-  const lastIndex = points.length - 1;
-
-  for (let index = 1; index < lastIndex; index += 1) {
-    const distance = perpendicularDistance(points[index], points[0], points[lastIndex]);
-    if (distance > maxDistance) {
-      maxDistance = distance;
-      splitIndex = index;
-    }
-  }
-
-  if (maxDistance > tolerance) {
-    const first = simplifyPoints(points.slice(0, splitIndex + 1), tolerance);
-    const second = simplifyPoints(points.slice(splitIndex), tolerance);
-    return first.slice(0, -1).concat(second);
-  }
-
-  return [points[0], points[lastIndex]];
-};
-
-const filterJitterPoints = (points, minDistance = DRAW_POINT_MIN_DISTANCE) => {
-  if (points.length <= 2) {
-    return points;
-  }
-  const filtered = [points[0]];
-  points.slice(1, -1).forEach((point) => {
-    const previous = filtered[filtered.length - 1];
-    if (distanceBetweenPoints(previous, point) >= minDistance) {
-      filtered.push(point);
-    }
-  });
-  filtered.push(points[points.length - 1]);
-  return filtered;
-};
-
 const resamplePointsByDistance = (points, spacing = 22) => {
   if (points.length <= 2) {
     return points;
@@ -579,56 +605,498 @@ const resamplePointsByDistance = (points, spacing = 22) => {
   return resampled;
 };
 
-const chaikinSmooth = (points, iterations = 2) => {
-  if (points.length <= 2 || iterations <= 0) {
+const removeConsecutiveDuplicatePoints = (points) => {
+  const cleaned = [];
+  points.forEach((point) => {
+    const normalized = normalizePoint(point);
+    const previous = cleaned[cleaned.length - 1];
+    if (!previous || distanceBetweenPoints(previous, normalized) > 0) {
+      cleaned.push(normalized);
+    }
+  });
+  return cleaned;
+};
+
+const getPolylineLength = (points) =>
+  points.reduce((total, point, index) => (
+    index === 0 ? total : total + distanceBetweenPoints(points[index - 1], point)
+  ), 0);
+
+const gaussianWeights = (radius, sigma) => {
+  const weights = [];
+  let total = 0;
+  for (let index = -radius; index <= radius; index += 1) {
+    const weight = Math.exp(-(index * index) / (2 * sigma * sigma));
+    weights.push(weight);
+    total += weight;
+  }
+  return weights.map((weight) => weight / total);
+};
+
+const gaussianSmoothPoints = (points, radius, sigma, passes = 1) => {
+  if (points.length <= 2) {
     return points;
   }
-  let smoothed = points;
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    const next = [smoothed[0]];
-    for (let index = 0; index < smoothed.length - 1; index += 1) {
-      const current = smoothed[index];
-      const following = smoothed[index + 1];
-      next.push(
-        {
-          x: Math.round(current.x * 0.75 + following.x * 0.25),
-          y: Math.round(current.y * 0.75 + following.y * 0.25)
-        },
-        {
-          x: Math.round(current.x * 0.25 + following.x * 0.75),
-          y: Math.round(current.y * 0.25 + following.y * 0.75)
-        }
-      );
-    }
-    next.push(smoothed[smoothed.length - 1]);
-    smoothed = next;
+
+  let smoothed = points.map(normalizePoint);
+  const weights = gaussianWeights(radius, sigma);
+  for (let pass = 0; pass < passes; pass += 1) {
+    smoothed = smoothed.map((point, index) => {
+      if (index === 0 || index === smoothed.length - 1) {
+        return point;
+      }
+      let x = 0;
+      let y = 0;
+      weights.forEach((weight, offsetIndex) => {
+        const sourceIndex = clamp(index + offsetIndex - radius, 0, smoothed.length - 1);
+        x += smoothed[sourceIndex].x * weight;
+        y += smoothed[sourceIndex].y * weight;
+      });
+      return { x: Math.round(x), y: Math.round(y) };
+    });
   }
   return smoothed;
 };
 
+const catmullRomPoint = (p0, p1, p2, p3, t) => {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return {
+    x: 0.5 * (
+      2 * p1.x +
+      (-p0.x + p2.x) * t +
+      (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 +
+      (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3
+    ),
+    y: 0.5 * (
+      2 * p1.y +
+      (-p0.y + p2.y) * t +
+      (2 * p0.y - 5 * p1.y + 4 * p2.y - p3.y) * t2 +
+      (-p0.y + 3 * p1.y - 3 * p2.y + p3.y) * t3
+    )
+  };
+};
+
+const catmullRomInterpolate = (points, samplesPerSegment) => {
+  if (points.length <= 2) {
+    return points.map(normalizePoint);
+  }
+
+  const samples = [normalizePoint(points[0])];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const p0 = points[Math.max(0, index - 1)];
+    const p1 = points[index];
+    const p2 = points[index + 1];
+    const p3 = points[Math.min(points.length - 1, index + 2)];
+    for (let step = 1; step <= samplesPerSegment; step += 1) {
+      samples.push(normalizePoint(catmullRomPoint(p0, p1, p2, p3, step / samplesPerSegment)));
+    }
+  }
+  return removeConsecutiveDuplicatePoints(samples);
+};
+
+const buildDensePolylinePathD = (points) => {
+  if (!points.length) {
+    return "";
+  }
+  return `M ${points.map((point) => `${Math.round(point.x)} ${Math.round(point.y)}`).join(" L ")}`;
+};
+
+const getAreaLayouts = (areas) => {
+  let top = 0;
+  return [...areas]
+    .sort((first, second) => first.order - second.order)
+    .map((area) => {
+      const layout = {
+        area,
+        top,
+        bottom: top + area.height
+      };
+      top += area.height;
+      return layout;
+    });
+};
+
+const localToGlobalPoint = (point, layout) => ({
+  x: Math.round(point.x),
+  y: Math.round(point.y + layout.top),
+  areaId: layout.area.id
+});
+
+const getRoughLocalPointsForArea = (area) => {
+  if (area.path.mode === "freehand") {
+    if (area.path.rawPoints?.length >= 3) {
+      return area.path.rawPoints.map((point) => normalizePoint(point));
+    }
+    if (area.path.resampledPoints?.length >= 3) {
+      return area.path.resampledPoints.map((point) => normalizePoint(point));
+    }
+    if (area.path.smoothPoints?.length >= 3) {
+      return area.path.smoothPoints.map((point) => normalizePoint(point));
+    }
+  }
+
+  return pointsFromBezierAnchors(area.path.points || [], 18);
+};
+
+const findNearestPoint = (points, target) => points.reduce((nearest, point) => {
+  const distance = distanceBetweenPoints(point, target);
+  if (!nearest || distance < nearest.distance) {
+    return { point, distance };
+  }
+  return nearest;
+}, null);
+
+const getDeviationStats = (rawPoints, finalSamples) => {
+  if (!rawPoints.length || !finalSamples.length) {
+    return {
+      averageRawToFinalDeviation: 0,
+      maxRawToFinalDeviation: 0
+    };
+  }
+
+  const distances = rawPoints.map((point) => findNearestPoint(finalSamples, point)?.distance || 0);
+  return {
+    averageRawToFinalDeviation: Math.round(distances.reduce((total, distance) => total + distance, 0) / distances.length),
+    maxRawToFinalDeviation: Math.round(Math.max(...distances))
+  };
+};
+
 const buildFreehandPathD = (points, smoothing = DEFAULT_SMOOTHING) => {
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
   if (points.length < 3) {
     return points.length ? `M ${points.map((point) => `${point.x} ${point.y}`).join(" L ")}` : "";
   }
-  return catmullRomToBezierPath(points, smoothing.strength);
+  const processed = generateSimpleStrongSmoothPath(points, normalizedSmoothing);
+  return processed?.d || buildDensePolylinePathD(points);
 };
 
-const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING) => {
+const getSimpleSmoothDerivedSettings = (settings) => {
+  const smoothStrength = settings.smoothStrength;
+  const gaussianRadius = Math.round(clamp(1 + smoothStrength / 12, 1, 10));
+  const gaussianSigma = Math.max(1, gaussianRadius / 2.1);
+  const gaussianPasses = Math.round(clamp(1 + Math.floor(smoothStrength / 22), 1, 7));
+  const catmullSamplesPerSegment = Math.round(clamp(
+    settings.catmullSamplesPerSegment || 8 + Math.floor(smoothStrength / 8),
+    6,
+    30
+  ));
+  return {
+    gaussianRadius,
+    gaussianSigma,
+    gaussianPasses,
+    catmullSamplesPerSegment
+  };
+};
+
+const generateSimpleStrongSmoothPath = (rawPoints, smoothing = DEFAULT_SMOOTHING) => {
+  const settings = normalizeSmoothing(smoothing);
+  const sourcePoints = removeConsecutiveDuplicatePoints(rawPoints || []);
+  if (sourcePoints.length < 2) {
+    return null;
+  }
+
+  const resampledPoints = resamplePointsByDistance(sourcePoints, settings.smoothSpacing);
+  const derived = getSimpleSmoothDerivedSettings(settings);
+  const smoothedControlPoints = gaussianSmoothPoints(
+    resampledPoints,
+    derived.gaussianRadius,
+    derived.gaussianSigma,
+    derived.gaussianPasses
+  );
+  const finalSmoothPoints = catmullRomInterpolate(
+    smoothedControlPoints,
+    derived.catmullSamplesPerSegment
+  );
+  const d = buildDensePolylinePathD(finalSmoothPoints);
+  const deviationStats = getDeviationStats(sourcePoints, finalSmoothPoints);
+  const rawLength = Math.round(getPolylineLength(sourcePoints));
+  const finalLength = Math.round(getPolylineLength(finalSmoothPoints));
+
+  return {
+    engine: SIMPLE_SMOOTH_ENGINE,
+    rawPoints: sourcePoints,
+    filteredPoints: sourcePoints,
+    resampledPoints,
+    smoothedControlPoints,
+    smoothPoints: finalSmoothPoints,
+    finalSmoothPoints,
+    finalSplinePoints: finalSmoothPoints,
+    finalSvgPath: d,
+    d,
+    simpleSmoothSettings: settings,
+    diagnostics: {
+      engine: SIMPLE_SMOOTH_ENGINE,
+      rawPointCount: sourcePoints.length,
+      filteredPointCount: sourcePoints.length,
+      resampledPointCount: resampledPoints.length,
+      smoothedControlPointCount: smoothedControlPoints.length,
+      finalPointCount: finalSmoothPoints.length,
+      finalSamplePointCount: finalSmoothPoints.length,
+      rawLength,
+      finalLength,
+      smoothStrength: settings.smoothStrength,
+      smoothSpacing: settings.smoothSpacing,
+      catmullSamplesPerSegment: derived.catmullSamplesPerSegment,
+      gaussianRadius: derived.gaussianRadius,
+      gaussianSigma: Number(derived.gaussianSigma.toFixed(2)),
+      gaussianPasses: derived.gaussianPasses,
+      ...deviationStats
+    }
+  };
+};
+
+const processRawFreehandPoints = (rawPoints, smoothing = DEFAULT_SMOOTHING, options = {}) => {
   if (rawPoints.length < 3) {
     return null;
   }
 
-  const jitterFiltered = filterJitterPoints(rawPoints, DRAW_POINT_MIN_DISTANCE);
-  const resampled = resamplePointsByDistance(jitterFiltered, 18 + (1 - smoothing.strength) * 18);
-  const tolerance = 2 + smoothing.simplification * 26;
-  const simplified = simplifyPoints(resampled, tolerance);
-  const iterations = Math.max(1, Math.min(3, Math.round(1 + smoothing.strength * 2)));
-  const smoothPoints = chaikinSmooth(simplified, iterations);
+  const normalizedSmoothing = normalizeSmoothing(smoothing);
+  const processed = generateSimpleStrongSmoothPath(rawPoints, normalizedSmoothing);
+  if (!processed) {
+    return null;
+  }
+  const diagnostics = processed.diagnostics;
+
+  if (options.log) {
+    logHomepage("Generated journey curve with simple strong smoothing.", {
+      ...diagnostics,
+      smoothing: normalizedSmoothing
+    });
+  }
+
   return {
-    rawPoints,
-    smoothPoints,
-    d: buildFreehandPathD(smoothPoints, smoothing)
+    rawPoints: processed.rawPoints,
+    filteredPoints: processed.filteredPoints,
+    resampledPoints: processed.resampledPoints,
+    smoothedControlPoints: processed.smoothedControlPoints,
+        smoothPoints: processed.smoothPoints,
+    finalSmoothPoints: processed.finalSmoothPoints,
+    finalSplinePoints: processed.finalSplinePoints,
+    finalSvgPath: processed.finalSvgPath,
+    simpleSmoothSettings: normalizedSmoothing,
+    boundaryDiagnostics: [],
+    diagnostics,
+    d: processed.d
   };
+};
+
+const getRenderablePathPoints = (area) => {
+  if (area.path.mode === "freehand" && area.path.smoothPoints?.length >= 2) {
+    return area.path.smoothPoints.map((point) => normalizePoint(point));
+  }
+
+  return pointsFromBezierAnchors(area.path.points || [], 14);
+};
+
+const setCurveDebugData = (area, processed, boundaryDiagnostics = []) => {
+  if (!area || !processed) {
+    return;
+  }
+
+  const debugData = {
+    areaId: area.id,
+    areaTitle: area.title,
+    generatedAt: new Date().toISOString(),
+    rawPointerPoints: processed.rawPoints || [],
+    filteredPoints: processed.filteredPoints || [],
+    resampledPoints: processed.resampledPoints || [],
+    smoothedControlPoints: processed.smoothedControlPoints || [],
+    finalSmoothPoints: processed.finalSmoothPoints || processed.smoothPoints || [],
+    finalSplinePoints: processed.finalSplinePoints || processed.smoothPoints || [],
+    finalSvgPath: processed.finalSvgPath || processed.d || "",
+    engine: SIMPLE_SMOOTH_ENGINE,
+    simpleSmoothSettings: normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing),
+    smoothingSettings: normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing),
+    boundaryDiagnostics,
+    diagnostics: processed.diagnostics || area.path.simpleSmoothDiagnostics || {}
+  };
+
+  curveDebugDataByArea.set(area.id, debugData);
+};
+
+const applyProcessedFreehandPath = (area, processed, boundaryDiagnostics = []) => {
+  area.path.mode = "freehand";
+  area.path.rawPoints = processed.rawPoints || [];
+  area.path.filteredPoints = processed.filteredPoints || [];
+  area.path.resampledPoints = processed.resampledPoints || [];
+  area.path.smoothedControlPoints = processed.smoothedControlPoints || [];
+  area.path.smoothPoints = processed.smoothPoints || processed.finalSplinePoints || [];
+  area.path.finalSmoothPoints = processed.finalSmoothPoints || area.path.smoothPoints;
+  area.path.finalSplinePoints = processed.finalSplinePoints || area.path.smoothPoints;
+  area.path.finalSvgPath = processed.finalSvgPath || processed.d;
+  area.path.simpleSmooth = normalizeSmoothing(processed.simpleSmoothSettings || area.path.simpleSmooth || area.path.smoothing);
+  area.path.boundaryDiagnostics = boundaryDiagnostics;
+  area.path.simpleSmoothDiagnostics = processed.diagnostics || area.path.simpleSmoothDiagnostics || {};
+  area.path.d = processed.d || area.path.finalSvgPath || "";
+  setCurveDebugData(area, processed, boundaryDiagnostics);
+};
+
+const rebuildAreaPathData = (area) => {
+  area.path.simpleSmooth = normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing);
+  area.path.smoothing = area.path.simpleSmooth;
+  area.path.viewBox = `0 0 ${SVG_WIDTH} ${area.height}`;
+
+  if (area.path.mode === "freehand") {
+    const source = area.path.rawPoints?.length >= 3
+      ? area.path.rawPoints
+      : area.path.smoothPoints || [];
+    const processed = processRawFreehandPoints(source, area.path.simpleSmooth);
+    if (processed?.smoothPoints?.length >= 3) {
+      applyProcessedFreehandPath(area, processed, area.path.boundaryDiagnostics || []);
+    } else {
+      area.path.smoothPoints = (area.path.smoothPoints || []).map((point) => normalizePoint(point));
+      area.path.d = buildFreehandPathD(area.path.smoothPoints, area.path.smoothing);
+    }
+    return;
+  }
+
+  area.path.d = buildPathD(area.path.points || []);
+};
+
+const setAreaPathBoundaryPoint = (area, boundary, point) => {
+  const safePoint = normalizePoint(point);
+
+  if (area.path.mode === "freehand" && area.path.smoothPoints?.length >= 2) {
+    if (area.path.rawPoints?.length >= 2) {
+      const rawTargetIndex = boundary === "start" ? 0 : area.path.rawPoints.length - 1;
+      area.path.rawPoints[rawTargetIndex] = safePoint;
+      const processed = processRawFreehandPoints(area.path.rawPoints, area.path.simpleSmooth || area.path.smoothing);
+      if (processed) {
+        applyProcessedFreehandPath(area, processed, area.path.boundaryDiagnostics || []);
+      }
+      return true;
+    }
+
+    const points = area.path.smoothPoints.map((item) => normalizePoint(item));
+    const targetIndex = boundary === "start" ? 0 : points.length - 1;
+    points[targetIndex] = safePoint;
+    area.path.smoothPoints = points;
+    area.path.finalSmoothPoints = points;
+    area.path.finalSplinePoints = points;
+    area.path.finalSvgPath = buildDensePolylinePathD(points);
+    area.path.d = area.path.finalSvgPath;
+    return true;
+  }
+
+  const anchors = area.path.points || [];
+  if (!anchors.length) {
+    return false;
+  }
+
+  const targetIndex = boundary === "start" ? 0 : anchors.length - 1;
+  anchors[targetIndex].x = safePoint.x;
+  anchors[targetIndex].y = safePoint.y;
+  area.path.d = buildPathD(anchors);
+  return true;
+};
+
+const applySimpleStrongSmoothingToAreas = (areas, reason = "render") => {
+  const layouts = getAreaLayouts(areas);
+  const perAreaFinalPaths = {};
+  const perAreaDiagnostics = {};
+  const boundaryDiagnostics = [];
+
+  layouts.forEach((layout) => {
+    const area = layout.area;
+    rebuildAreaPathData(area);
+  });
+
+  for (let index = 0; index < layouts.length - 1; index += 1) {
+    const previousArea = layouts[index].area;
+    const nextArea = layouts[index + 1].area;
+    const previousPoints = getRenderablePathPoints(previousArea);
+    const nextPoints = getRenderablePathPoints(nextArea);
+    if (!previousPoints.length || !nextPoints.length) {
+      continue;
+    }
+
+    const previousEndBefore = previousPoints[previousPoints.length - 1];
+    const nextStartBefore = nextPoints[0];
+    const sharedX = Math.round(clamp((previousEndBefore.x + nextStartBefore.x) / 2, 0, SVG_WIDTH));
+    const previousConnection = { x: sharedX, y: previousArea.height };
+    const nextConnection = { x: sharedX, y: 0 };
+    const endpointGapBefore = Math.round(distanceBetweenPoints(
+      localToGlobalPoint(previousEndBefore, layouts[index]),
+      localToGlobalPoint(nextStartBefore, layouts[index + 1])
+    ));
+
+    setAreaPathBoundaryPoint(previousArea, "end", previousConnection);
+    setAreaPathBoundaryPoint(nextArea, "start", nextConnection);
+
+    const previousAfter = getRenderablePathPoints(previousArea).at(-1) || previousConnection;
+    const nextAfter = getRenderablePathPoints(nextArea)[0] || nextConnection;
+    const endpointGapAfter = Math.round(distanceBetweenPoints(
+      localToGlobalPoint(previousAfter, layouts[index]),
+      localToGlobalPoint(nextAfter, layouts[index + 1])
+    ));
+
+    boundaryDiagnostics.push({
+      previousAreaId: previousArea.id,
+      nextAreaId: nextArea.id,
+      endpointGapBefore,
+      endpointGapAfter,
+      tangentAngleDifferenceBefore: null,
+      tangentAngleDifferenceAfter: null,
+      tangentImprovementDeg: null,
+      sharedConnectionPoint: {
+        x: sharedX,
+        previousY: previousArea.height,
+        nextY: 0
+      },
+      boundaryTangentLimitedByShapePreservation: false
+    });
+  }
+
+  layouts.forEach((layout) => {
+    const localBoundaryDiagnostics = boundaryDiagnostics.filter(
+      (diagnostic) =>
+        diagnostic.previousAreaId === layout.area.id ||
+        diagnostic.nextAreaId === layout.area.id
+    );
+    layout.area.path.boundaryDiagnostics = localBoundaryDiagnostics;
+    setCurveDebugData(layout.area, {
+      rawPoints: layout.area.path.rawPoints || [],
+      filteredPoints: layout.area.path.filteredPoints || [],
+      resampledPoints: layout.area.path.resampledPoints || [],
+      smoothedControlPoints: layout.area.path.smoothedControlPoints || [],
+      smoothPoints: layout.area.path.smoothPoints || [],
+      finalSmoothPoints: layout.area.path.finalSmoothPoints || layout.area.path.smoothPoints || [],
+      finalSplinePoints: layout.area.path.finalSplinePoints || layout.area.path.smoothPoints || [],
+      finalSvgPath: layout.area.path.finalSvgPath || layout.area.path.d || "",
+      d: layout.area.path.d || "",
+      simpleSmoothSettings: layout.area.path.simpleSmooth,
+      diagnostics: layout.area.path.simpleSmoothDiagnostics || {}
+    }, localBoundaryDiagnostics);
+    perAreaFinalPaths[layout.area.id] = layout.area.path.d;
+    perAreaDiagnostics[layout.area.id] = layout.area.path.simpleSmoothDiagnostics || {};
+  });
+
+  globalCurveDebugData = {
+    generatedAt: new Date().toISOString(),
+    reason,
+    engine: SIMPLE_SMOOTH_ENGINE,
+    globalRawRoutePoints: [],
+    perAreaFinalPaths,
+    perAreaDiagnostics,
+    boundaryDiagnostics,
+    smoothingSettings: normalizeSmoothing(layouts[0]?.area.path.simpleSmooth || layouts[0]?.area.path.smoothing),
+    debugMetrics: {
+      engine: SIMPLE_SMOOTH_ENGINE,
+      areaCount: layouts.length,
+      boundaryCount: boundaryDiagnostics.length
+    }
+  };
+
+  logHomepage("Applied simple strong smoothing to journey areas.", {
+    reason,
+    areaCount: layouts.length,
+    boundaryCount: boundaryDiagnostics.length
+  });
+};
+
+const alignAdjacentAreaPaths = (areas, reason = "render") => {
+  applySimpleStrongSmoothingToAreas(areas, reason);
 };
 
 const getAreaPathElement = (areaId) =>
@@ -816,7 +1284,7 @@ const setEditorMode = (mode) => {
   }
 
   if (mode !== "edit") {
-    uiState = { popover: null, contextMenu: null, hoverPreview: null, lastPointerWasDrag: false };
+    uiState = createDefaultUiState();
     editorState.activeTool = "select";
   }
   closeEventPopover();
@@ -864,6 +1332,7 @@ const renderTimeline = () => {
   }
 
   renderHero();
+  alignAdjacentAreaPaths(editorState.areas, "render");
   const root = document.querySelector(".timeline-home");
   if (root) {
     root.dataset.activeTool = editorState.activeTool || "select";
@@ -995,6 +1464,10 @@ const renderAreaSvg = (area) => {
 
   svg.append(shadow, main);
 
+  if (editorState.mode === "edit" && uiState.debugOverlay) {
+    renderCurveDebugOverlay(svg, area);
+  }
+
   if (editorState.mode === "edit" && editorState.activeTool === "freehand" && editorState.selectedAreaId === area.id) {
     svg.append(createSvgElement("path", {
       class: "freehand-preview-path",
@@ -1005,6 +1478,89 @@ const renderAreaSvg = (area) => {
   }
 
   return svg;
+};
+
+const pointsToPolyline = (points) =>
+  points.map((point) => `${Math.round(point.x)},${Math.round(point.y)}`).join(" ");
+
+const appendDebugPolyline = (svg, points, className) => {
+  if (!points?.length) {
+    return;
+  }
+
+  svg.append(createSvgElement("polyline", {
+    class: className,
+    points: pointsToPolyline(points)
+  }));
+};
+
+const appendDebugPoints = (svg, points, className, radius = 5) => {
+  if (!points?.length) {
+    return;
+  }
+
+  points.forEach((point) => {
+    svg.append(createSvgElement("circle", {
+      class: className,
+      cx: String(point.x),
+      cy: String(point.y),
+      r: String(radius)
+    }));
+  });
+};
+
+const appendDebugTangents = (svg, area) => {
+  const points = area.path.smoothedControlPoints?.length >= 2
+    ? area.path.smoothedControlPoints
+    : area.path.finalSmoothPoints || area.path.smoothPoints || [];
+  if (points.length < 2) {
+    return;
+  }
+
+  const pairs = [
+    [points[0], points[1]],
+    [points[points.length - 2], points[points.length - 1]]
+  ];
+  pairs.forEach(([start, end]) => {
+    const vector = { x: end.x - start.x, y: end.y - start.y };
+    const length = Math.hypot(vector.x, vector.y) || 1;
+    const tangentLength = Math.min(110, length * 0.55);
+    svg.append(createSvgElement("line", {
+      class: "curve-debug__tangent",
+      x1: String(start.x),
+      y1: String(start.y),
+      x2: String(Math.round(start.x + (vector.x / length) * tangentLength)),
+      y2: String(Math.round(start.y + (vector.y / length) * tangentLength))
+    }));
+  });
+};
+
+const renderCurveDebugOverlay = (svg, area) => {
+  if (area.id !== editorState.selectedAreaId) {
+    return;
+  }
+
+  const debugData = curveDebugDataByArea.get(area.id);
+  const rawPoints = debugData?.rawPointerPoints || area.path.rawPoints || [];
+  const filteredPoints = debugData?.filteredPoints || area.path.filteredPoints || [];
+  const resampledPoints = debugData?.resampledPoints || area.path.resampledPoints || [];
+  const smoothedControlPoints = debugData?.smoothedControlPoints || area.path.smoothedControlPoints || [];
+  const finalSplinePoints = debugData?.finalSmoothPoints || debugData?.finalSplinePoints || area.path.finalSmoothPoints || area.path.finalSplinePoints || [];
+
+  if (uiState.debugLayers.raw) {
+    appendDebugPolyline(svg, rawPoints, "curve-debug__raw");
+    appendDebugPoints(svg, filteredPoints, "curve-debug__filtered", 3);
+    appendDebugPoints(svg, resampledPoints, "curve-debug__resampled", 3);
+  }
+  if (uiState.debugLayers.final) {
+    appendDebugPolyline(svg, finalSplinePoints, "curve-debug__final-samples");
+  }
+  if (uiState.debugLayers.anchors) {
+    appendDebugPoints(svg, smoothedControlPoints, "curve-debug__control-point", 5);
+  }
+  if (uiState.debugLayers.tangents) {
+    appendDebugTangents(svg, area);
+  }
 };
 
 const renderCurveHandles = (svg, area) => {
@@ -1330,7 +1886,7 @@ const finishFreehandDrawing = () => {
 
   const previousPath = clone(area.path);
   const smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
-  const processed = processRawFreehandPoints(rawPoints, smoothing);
+  const processed = processRawFreehandPoints(rawPoints, smoothing, { log: true });
   if (!processed.d || processed.smoothPoints.length < 3) {
     area.path = previousPath;
     editorState.drawingPreviewPoints = [];
@@ -1350,6 +1906,7 @@ const finishFreehandDrawing = () => {
     d: processed.d,
     smoothing
   };
+  alignAdjacentAreaPaths(editorState.areas, "freehand draw");
   area.nodes.forEach((node) => {
     if (node.anchorMode === "path") {
       const point = getPointAtPathT(area, node.pathT);
@@ -1377,10 +1934,18 @@ const resmoothCurrentAreaCurve = () => {
     return;
   }
 
-  const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing);
+  const processed = processRawFreehandPoints(area.path.rawPoints, area.path.smoothing, { log: true });
   area.path.mode = "freehand";
   area.path.smoothPoints = processed.smoothPoints;
   area.path.d = processed.d;
+  alignAdjacentAreaPaths(editorState.areas, "resmooth");
+  area.nodes.forEach((node) => {
+    if (node.anchorMode === "path") {
+      const point = getPointAtPathT(area, node.pathT);
+      node.x = point.x;
+      node.y = point.y;
+    }
+  });
   markDirty("freehand curve resmoothed");
   renderTimeline();
   renderEditorPanel();
@@ -1627,6 +2192,103 @@ const importJson = () => {
   }
 };
 
+const getCurveDebugExport = () => {
+  const area = getSelectedArea();
+  alignAdjacentAreaPaths(editorState.areas, "debug export");
+  const debugData = curveDebugDataByArea.get(area.id) || {
+    areaId: area.id,
+    areaTitle: area.title,
+    rawPointerPoints: area.path.rawPoints || [],
+    filteredPoints: area.path.filteredPoints || area.path.rawPoints || [],
+    resampledPoints: area.path.resampledPoints || [],
+    smoothedControlPoints: area.path.smoothedControlPoints || [],
+    finalSmoothPoints: area.path.finalSmoothPoints || area.path.smoothPoints || [],
+    finalSplinePoints: area.path.finalSplinePoints || area.path.smoothPoints || [],
+    finalSvgPath: area.path.finalSvgPath || area.path.d || "",
+    engine: SIMPLE_SMOOTH_ENGINE,
+    simpleSmoothSettings: normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing),
+    diagnostics: area.path.simpleSmoothDiagnostics || {},
+    boundaryDiagnostics: area.path.boundaryDiagnostics || []
+  };
+  const stats = debugData.diagnostics || {};
+
+  return {
+    exportedAt: new Date().toISOString(),
+    page: "journey.html",
+    selectedAreaId: area.id,
+    selectedAreaOrder: area.order,
+    engine: SIMPLE_SMOOTH_ENGINE,
+    rawPointerPoints: debugData.rawPointerPoints || [],
+    filteredPoints: debugData.filteredPoints || [],
+    resampledPoints: debugData.resampledPoints || [],
+    smoothedControlPoints: debugData.smoothedControlPoints || [],
+    finalSmoothPoints: debugData.finalSmoothPoints || debugData.finalSplinePoints || [],
+    finalSvgPath: debugData.finalSvgPath || "",
+    simpleSmoothSettings: debugData.simpleSmoothSettings || normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing),
+    stats: {
+      rawPointCount: stats.rawPointCount || 0,
+      resampledPointCount: stats.resampledPointCount || 0,
+      smoothedControlPointCount: stats.smoothedControlPointCount || 0,
+      finalPointCount: stats.finalPointCount || stats.finalSamplePointCount || 0,
+      rawLength: stats.rawLength || 0,
+      finalLength: stats.finalLength || 0,
+      averageRawToFinalDeviation: stats.averageRawToFinalDeviation || 0,
+      maxRawToFinalDeviation: stats.maxRawToFinalDeviation || 0,
+      gaussianRadius: stats.gaussianRadius,
+      gaussianSigma: stats.gaussianSigma,
+      gaussianPasses: stats.gaussianPasses
+    },
+    boundaryDiagnostics: debugData.boundaryDiagnostics || []
+  };
+};
+
+const writeCurveDebugJsonToPopover = (json) => {
+  const textarea = document.querySelector("[data-curve-debug-json]");
+  if (textarea) {
+    textarea.value = json;
+  }
+};
+
+const exportCurveDebugJson = () => {
+  const debugExport = getCurveDebugExport();
+  const json = JSON.stringify(debugExport, null, 2);
+  writeCurveDebugJsonToPopover(json);
+
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `journey-curve-debug-${debugExport.selectedAreaId}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  showEditorMessage("曲线调试数据已导出。");
+  logHomepage("Exported front-end curve debug JSON.", {
+    areaId: debugExport.selectedAreaId,
+    rawPointCount: debugExport.rawPointerPoints.length,
+    finalPointCount: debugExport.finalSmoothPoints.length
+  });
+};
+
+const copyCurveDebugJson = async () => {
+  const debugExport = getCurveDebugExport();
+  const json = JSON.stringify(debugExport, null, 2);
+  writeCurveDebugJsonToPopover(json);
+
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("Clipboard API is unavailable.");
+    }
+    await navigator.clipboard.writeText(json);
+    showEditorMessage("曲线调试数据已复制。");
+  } catch (error) {
+    showEditorMessage("无法直接复制，调试数据已显示在文本框中。", true);
+    logHomepage("Curve debug clipboard copy failed.", { error: error.message });
+  }
+};
+
 const getContextEditorRoot = () => {
   let root = document.querySelector("#context-editor-root");
   if (!root) {
@@ -1677,6 +2339,14 @@ const renderFloatingToolbar = () => {
   toolbar.innerHTML = `
     <button type="button" data-context-action="select" aria-pressed="${editorState.activeTool === "select"}">选择</button>
     <button type="button" data-context-action="draw" aria-pressed="${editorState.activeTool === "freehand"}">手绘曲线</button>
+    <button type="button" data-context-action="curve-tuning">曲线调参</button>
+    <button type="button" data-context-action="debug" aria-pressed="${uiState.debugOverlay}">调试曲线</button>
+    ${uiState.debugOverlay ? `
+      <button type="button" data-context-action="debug-raw" aria-pressed="${uiState.debugLayers.raw}">原始手绘</button>
+      <button type="button" data-context-action="debug-anchors" aria-pressed="${uiState.debugLayers.anchors}">引导锚点</button>
+      <button type="button" data-context-action="debug-final" aria-pressed="${uiState.debugLayers.final}">最终拟合曲线</button>
+      <button type="button" data-context-action="debug-tangents" aria-pressed="${uiState.debugLayers.tangents}">边界切线</button>
+    ` : ""}
     <button type="button" data-context-action="save">保存</button>
     <button type="button" data-context-action="data">数据</button>
     <span class="context-toolbar__status" data-editor-status>${editorState.dirty ? "未保存" : "已保存"}</span>
@@ -1692,12 +2362,46 @@ const handleContextAction = (action) => {
   const actions = {
     select: () => setActiveTool("select"),
     draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
+    "curve-tuning": () => openContextPopover("curve", { areaId: editorState.selectedAreaId }, window.innerWidth - 360, 72),
+    debug: toggleCurveDebugOverlay,
+    "debug-raw": () => toggleCurveDebugLayer("raw"),
+    "debug-anchors": () => toggleCurveDebugLayer("anchors"),
+    "debug-final": () => toggleCurveDebugLayer("final"),
+    "debug-tangents": () => toggleCurveDebugLayer("tangents"),
     save: saveToLocalStorage,
     data: () => openContextPopover("data", {}, window.innerWidth - 360, 84),
     exit: () => setEditorMode("preview")
   };
   actions[action]?.();
   logHomepage("Handled floating toolbar action.", { action });
+};
+
+const toggleCurveDebugLayer = (layer) => {
+  uiState.debugLayers[layer] = !uiState.debugLayers[layer];
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(
+    `\u66f2\u7ebf\u8c03\u8bd5\u5c42\u5df2${uiState.debugLayers[layer] ? "\u663e\u793a" : "\u9690\u85cf"}\u3002`
+  );
+  logHomepage("Toggled journey curve debug layer.", {
+    layer,
+    enabled: uiState.debugLayers[layer]
+  });
+};
+
+const toggleCurveDebugOverlay = () => {
+  uiState.debugOverlay = !uiState.debugOverlay;
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(
+    uiState.debugOverlay
+      ? "\u66f2\u7ebf\u8c03\u8bd5\u53e0\u5c42\u5df2\u5f00\u542f\u3002"
+      : "\u66f2\u7ebf\u8c03\u8bd5\u53e0\u5c42\u5df2\u5173\u95ed\u3002"
+  );
+  logHomepage("Toggled journey curve debug overlay.", {
+    enabled: uiState.debugOverlay,
+    selectedAreaId: editorState.selectedAreaId
+  });
 };
 
 const openContextPopover = (type, payload = {}, x = 120, y = 120) => {
@@ -1712,8 +2416,11 @@ const renderContextPopover = () => {
   const popover = document.createElement("section");
   popover.className = "context-popover";
   popover.dataset.popoverType = uiState.popover.type;
-  popover.style.left = `${Math.min(window.innerWidth - 340, Math.max(12, uiState.popover.x))}px`;
-  popover.style.top = `${Math.min(window.innerHeight - 220, Math.max(72, uiState.popover.y))}px`;
+  const expectedWidth = uiState.popover.type === "curve" ? 520 : 330;
+  const maxLeft = Math.max(12, window.innerWidth - expectedWidth - 12);
+  const maxTop = Math.max(72, window.innerHeight - 220);
+  popover.style.left = `${Math.min(maxLeft, Math.max(12, uiState.popover.x))}px`;
+  popover.style.top = `${Math.min(maxTop, Math.max(72, uiState.popover.y))}px`;
   popover.setAttribute("role", "dialog");
 
   const renderers = {
@@ -1785,23 +2492,116 @@ const renderAreaPopoverContent = () => {
   `;
 };
 
+const formatTuningValue = (value, slider) => {
+  if (slider.step === 1) {
+    return `${Math.round(value)}${slider.unit || ""}`;
+  }
+  return `${Number(value).toFixed(2)}${slider.unit || ""}`;
+};
+
+const getSelectedAreaDiagnostics = () => {
+  const area = getSelectedArea();
+  return (
+    area.path.simpleSmoothDiagnostics ||
+    area.path.diagnostics ||
+    curveDebugDataByArea.get(area.id)?.diagnostics ||
+    {}
+  );
+};
+
+const renderTuningMetrics = () => {
+  const diagnostics = getSelectedAreaDiagnostics();
+  const metricRows = [
+    ["\u539f\u59cb\u70b9", diagnostics.rawPointCount, ""],
+    ["\u91c7\u6837\u70b9", diagnostics.resampledPointCount, ""],
+    ["\u6700\u7ec8\u70b9", diagnostics.finalPointCount || diagnostics.finalSamplePointCount, ""],
+    ["\u5e73\u5747\u504f\u79bb", diagnostics.averageRawToFinalDeviation, "px"],
+    ["\u6700\u5927\u504f\u79bb", diagnostics.maxRawToFinalDeviation, "px"]
+  ];
+
+  return `
+    <div class="journey-tuning-metrics" aria-label="\u66f2\u7ebf\u5e73\u6ed1\u6307\u6807">
+      ${metricRows.map(([label, value, unit]) => `
+        <div class="journey-tuning-metric">
+          <span>${label}</span>
+          <strong>${typeof value === "number" ? Math.round(value) : value ?? "-"}${unit}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `;
+};
+
+const renderTuningSlider = (slider, smoothing) => {
+  const value = smoothing[slider.key];
+  return `
+    <label class="journey-tuning-row" title="${escapeHtml(slider.hint)}">
+      <span class="journey-tuning-label">${slider.label}</span>
+      <input
+        class="journey-tuning-slider"
+        type="range"
+        min="${slider.min}"
+        max="${slider.max}"
+        step="${slider.step}"
+        data-path-smoothing-field="${slider.key}"
+        value="${value}"
+      >
+      <span class="journey-tuning-value" data-smoothing-value="${slider.key}">
+        ${formatTuningValue(value, slider)}
+      </span>
+      <small>${slider.hint}</small>
+    </label>
+  `;
+};
+
 const renderCurvePopoverContent = () => {
   const area = getSelectedArea();
+  if (!area) {
+    return `${renderPopoverHeader("\u624b\u7ed8\u66f2\u7ebf\u5e73\u6ed1")}<p class="context-note">\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u533a\u57df\u3002</p>`;
+  }
+
+  area.path.simpleSmooth = normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing);
+  area.path.smoothing = area.path.simpleSmooth;
+  const smoothing = area.path.simpleSmooth;
+
   return `
-    ${renderPopoverHeader("曲线设置")}
-    <label>曲线颜色<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
-    <label>阴影颜色<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
-    <label>曲线宽度<input type="number" min="8" max="80" step="2" data-area-path-field="strokeWidth" value="${area.path.strokeWidth}"></label>
-    <label>线条样式<select data-area-path-field="lineStyle">
+    ${renderPopoverHeader("\u624b\u7ed8\u66f2\u7ebf\u5e73\u6ed1")}
+    <div class="journey-tuning-panel">
+      <p class="context-note">
+        \u5f53\u524d\u533a\u57df\uff1a<strong>${escapeHtml(area.title)}</strong>\u3002
+        \u624b\u7ed8\u7ebf\u6761\u53ea\u8868\u793a\u5927\u65b9\u5411\uff1b
+        \u7cfb\u7edf\u4f1a\u6309\u7b49\u8ddd\u91c7\u6837\u3001Gaussian \u5e73\u6ed1\u548c Catmull-Rom \u63d2\u503c\u751f\u6210\u6700\u7ec8\u66f2\u7ebf\u3002
+      </p>
+      <label class="journey-tuning-scope">
+        \u5e94\u7528\u8303\u56f4
+        <select data-curve-tuning-scope>
+          <option value="current" ${uiState.tuningScope === "current" ? "selected" : ""}>\u53ea\u5e94\u7528\u5f53\u524d\u533a\u57df</option>
+          <option value="all" ${uiState.tuningScope === "all" ? "selected" : ""}>\u5e94\u7528\u5230\u6240\u6709\u533a\u57df</option>
+        </select>
+      </label>
+      <div class="journey-tuning-presets" aria-label="\u66f2\u7ebf\u5e73\u6ed1\u9884\u8bbe">
+        ${Object.entries(CURVE_TUNING_PRESETS).map(([key, preset]) => `
+          <button type="button" data-curve-preset="${key}">${preset.label}</button>
+        `).join("")}
+      </div>
+      <div class="journey-tuning-grid">
+        ${TUNING_SLIDERS.map((slider) => renderTuningSlider(slider, smoothing)).join("")}
+      </div>
+      ${renderTuningMetrics()}
+    </div>
+    <label>\u66f2\u7ebf\u989c\u8272<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
+    <label>\u9634\u5f71\u989c\u8272<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
+    <label>\u66f2\u7ebf\u5bbd\u5ea6<input type="number" min="8" max="80" step="2" data-area-path-field="strokeWidth" value="${area.path.strokeWidth}"></label>
+    <label>\u7ebf\u6761\u6837\u5f0f<select data-area-path-field="lineStyle">
       <option value="solid" ${area.path.lineStyle === "solid" ? "selected" : ""}>solid</option>
       <option value="dashed" ${area.path.lineStyle === "dashed" ? "selected" : ""}>dashed</option>
     </select></label>
-    <label>平滑程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}"></label>
-    <label>简化程度<input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}"></label>
     <div class="context-button-row">
-      <button type="button" data-context-popover-action="resmooth">重新平滑</button>
-      <button type="button" data-context-popover-action="redraw">重画当前区域曲线</button>
+      <button type="button" data-context-popover-action="resmooth">\u91cd\u65b0\u751f\u6210\u5e73\u6ed1\u66f2\u7ebf</button>
+      <button type="button" data-context-popover-action="redraw">\u91cd\u753b\u5f53\u524d\u533a\u57df\u66f2\u7ebf</button>
+      <button type="button" data-context-popover-action="export-curve-debug">\u5bfc\u51fa\u8c03\u8bd5\u6570\u636e</button>
+      <button type="button" data-context-popover-action="copy-curve-debug">\u590d\u5236\u8c03\u8bd5\u6570\u636e</button>
     </div>
+    <textarea class="context-json curve-debug-json" data-curve-debug-json readonly placeholder="\u66f2\u7ebf\u8c03\u8bd5 JSON \u4f1a\u663e\u793a\u5728\u8fd9\u91cc"></textarea>
   `;
 };
 
@@ -1863,6 +2663,17 @@ const bindContextPopoverEvents = (popover) => {
   });
   popover.querySelectorAll("[data-path-smoothing-field]").forEach((field) => {
     field.addEventListener("input", () => updatePathSmoothingField(field));
+    field.addEventListener("change", () => updatePathSmoothingField(field, { rerenderPanel: true }));
+  });
+  popover.querySelector("[data-curve-tuning-scope]")?.addEventListener("change", (event) => {
+    uiState.tuningScope = event.target.value === "all" ? "all" : "current";
+    showEditorMessage(
+      uiState.tuningScope === "all" ? "调参将应用到所有区域。" : "调参仅应用到当前区域。"
+    );
+    logHomepage("Changed curve tuning scope.", { scope: uiState.tuningScope });
+  });
+  popover.querySelectorAll("[data-curve-preset]").forEach((button) => {
+    button.addEventListener("click", () => applyCurveTuningPreset(button.dataset.curvePreset));
   });
   popover.querySelectorAll("[data-node-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeField(field));
@@ -1881,6 +2692,8 @@ const handleContextPopoverAction = (action) => {
     import: importJson,
     resmooth: resmoothCurrentAreaCurve,
     redraw: () => setActiveTool("freehand"),
+    "export-curve-debug": exportCurveDebugJson,
+    "copy-curve-debug": copyCurveDebugJson,
     "delete-node": deleteSelectedNode
   };
   actions[action]?.();
@@ -2041,36 +2854,48 @@ const renderLegacyEditorPanel = () => {
     </section>
 
     <section class="editor-section">
-      <h3>曲线</h3>
-      <label>曲线颜色
+      <h3>\u66f2\u7ebf</h3>
+      <label>\u66f2\u7ebf\u989c\u8272
         <input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}">
       </label>
-      <label>曲线宽度
+      <label>\u66f2\u7ebf\u5bbd\u5ea6
         <input type="number" min="8" max="80" step="2" data-area-path-field="strokeWidth" value="${area.path.strokeWidth}">
       </label>
-      <label>线条样式
+      <label>\u7ebf\u6761\u6837\u5f0f
         <select data-area-path-field="lineStyle">
           <option value="solid" ${area.path.lineStyle === "solid" ? "selected" : ""}>solid</option>
           <option value="dashed" ${area.path.lineStyle === "dashed" ? "selected" : ""}>dashed</option>
         </select>
       </label>
-      <label>平滑程度
-        <input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="strength" value="${area.path.smoothing?.strength ?? DEFAULT_SMOOTHING.strength}">
-      </label>
-      <label>简化程度
-        <input type="range" min="0" max="1" step="0.05" data-path-smoothing-field="simplification" value="${area.path.smoothing?.simplification ?? DEFAULT_SMOOTHING.simplification}">
-      </label>
-      <p class="editor-help">当前工具：${editorState.activeTool === "freehand" ? "手绘曲线" : editorState.activeTool === "add-node" ? "添加节点" : "选择"}</p>
+      ${TUNING_SLIDERS.map((slider) => `
+        <label>${slider.label}
+          <input
+            type="range"
+            min="${slider.min}"
+            max="${slider.max}"
+            step="${slider.step}"
+            data-path-smoothing-field="${slider.key}"
+            value="${normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing)[slider.key]}"
+          >
+        </label>
+      `).join("")}
+      <p class="editor-help">
+        \u624b\u7ed8\u7ebf\u6761\u53ea\u8868\u8fbe\u5927\u65b9\u5411\uff1b
+        \u7cfb\u7edf\u4f1a\u5bf9\u5b8c\u6574\u70b9\u5e8f\u5217\u505a\u7b49\u8ddd\u91c7\u6837\u3001Gaussian \u5e73\u6ed1\u548c Catmull-Rom \u63d2\u503c\u3002
+      </p>
+      <p class="editor-help">\u5f53\u524d\u5de5\u5177\uff1a${editorState.activeTool === "freehand" ? "\u624b\u7ed8\u66f2\u7ebf" : editorState.activeTool === "add-node" ? "\u6dfb\u52a0\u8282\u70b9" : "\u9009\u62e9"}</p>
       <div class="editor-button-row">
-        <button type="button" class="homepage-editor__tool" data-editor-action="select-tool">选择</button>
-        <button type="button" class="homepage-editor__tool" data-editor-action="freehand">${editorState.activeTool === "freehand" ? "退出手绘" : "手绘曲线"}</button>
-        <button type="button" data-editor-action="resmooth">重新平滑</button>
+        <button type="button" class="homepage-editor__tool" data-editor-action="select-tool">\u9009\u62e9</button>
+        <button type="button" class="homepage-editor__tool" data-editor-action="freehand">${editorState.activeTool === "freehand" ? "\u9000\u51fa\u624b\u7ed8" : "\u624b\u7ed8\u66f2\u7ebf"}</button>
+        <button type="button" data-editor-action="resmooth">\u91cd\u65b0\u5e73\u6ed1</button>
       </div>
-      ${editorState.activeTool === "freehand" ? "<p class=\"editor-help\">在当前区域内拖动鼠标绘制曲线，松开后自动平滑。</p>" : ""}
+      ${editorState.activeTool === "freehand"
+        ? "<p class=\"editor-help\">\\u5728\\u5f53\\u524d\\u533a\\u57df\\u5185\\u62d6\\u52a8\\u9f20\\u6807\\u7ed8\\u5236\\u66f2\\u7ebf\\uff0c\\u677e\\u5f00\\u540e\\u81ea\\u52a8\\u5e73\\u6ed1\\u3002</p>"
+        : ""}
       <div class="editor-button-row">
-        <button type="button" data-editor-action="add-point">添加曲线点</button>
-        <button type="button" data-editor-action="delete-point">删除选中曲线点</button>
-        <button type="button" data-editor-action="reset-curve">重置当前区域曲线</button>
+        <button type="button" data-editor-action="add-point">\u6dfb\u52a0\u66f2\u7ebf\u70b9</button>
+        <button type="button" data-editor-action="delete-point">\u5220\u9664\u9009\u4e2d\u66f2\u7ebf\u70b9</button>
+        <button type="button" data-editor-action="reset-curve">\u91cd\u7f6e\u5f53\u524d\u533a\u57df\u66f2\u7ebf</button>
       </div>
     </section>
 
@@ -2285,14 +3110,99 @@ const updateAreaPathField = (field) => {
   renderTimeline();
 };
 
-const updatePathSmoothingField = (field) => {
-  const area = getSelectedArea();
-  area.path.smoothing = { ...DEFAULT_SMOOTHING, ...(area.path.smoothing || {}) };
-  area.path.smoothing[field.dataset.pathSmoothingField] = Number(field.value);
+const getCurveTuningTargetAreas = () =>
+  uiState.tuningScope === "all" ? getOrderedAreas() : [getSelectedArea()].filter(Boolean);
+
+const refreshTuningValueDisplay = (field) => {
+  const slider = TUNING_SLIDERS.find((item) => item.key === field.dataset.pathSmoothingField);
+  const valueDisplay = document.querySelector(`[data-smoothing-value="${field.dataset.pathSmoothingField}"]`);
+  if (slider && valueDisplay) {
+    valueDisplay.textContent = formatTuningValue(Number(field.value), slider);
+  }
+};
+
+const regenerateAreaCurveFromSmoothing = (area) => {
+  area.path.simpleSmooth = normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing);
+  area.path.smoothing = area.path.simpleSmooth;
+  if (area.path.mode === "freehand" && area.path.rawPoints?.length >= 3) {
+    const processed = processRawFreehandPoints(area.path.rawPoints, area.path.simpleSmooth, { log: true });
+    if (processed?.smoothPoints?.length >= 3) {
+      applyProcessedFreehandPath(area, processed, area.path.boundaryDiagnostics || []);
+      alignAdjacentAreaPaths(editorState.areas, "smoothing control");
+      area.nodes.forEach((node) => {
+        if (node.anchorMode === "path") {
+          const point = getPointAtPathT(area, node.pathT);
+          node.x = point.x;
+          node.y = point.y;
+        }
+      });
+    }
+    return;
+  }
+
+  rebuildAreaPathData(area);
+  const source = getRoughLocalPointsForArea(area);
+  const processed = processRawFreehandPoints(source, area.path.simpleSmooth, { log: true });
+  if (processed?.smoothPoints?.length >= 3) {
+    applyProcessedFreehandPath(area, processed, []);
+  }
+};
+
+const applySmoothingSettingsToArea = (area, nextSmoothing) => {
+  area.path.simpleSmooth = normalizeSmoothing({
+    ...(area.path.simpleSmooth || area.path.smoothing || {}),
+    ...nextSmoothing
+  });
+  area.path.smoothing = area.path.simpleSmooth;
+  regenerateAreaCurveFromSmoothing(area);
+};
+
+const updatePathSmoothingField = (field, options = {}) => {
+  const key = field.dataset.pathSmoothingField;
+  const value = Number(field.value);
+  const targetAreas = getCurveTuningTargetAreas();
+
+  targetAreas.forEach((area) => {
+    applySmoothingSettingsToArea(area, { [key]: value });
+  });
+
   markDirty("path smoothing changed");
+  refreshTuningValueDisplay(field);
+  renderTimeline();
+  if (options.rerenderPanel) {
+    renderEditorPanel();
+  } else {
+    const metrics = document.querySelector(".journey-tuning-metrics");
+    if (metrics) {
+      metrics.outerHTML = renderTuningMetrics();
+    }
+  }
   logHomepage("Updated freehand smoothing configuration.", {
-    areaId: area.id,
-    smoothing: area.path.smoothing
+    field: key,
+    value,
+    scope: uiState.tuningScope,
+    areaIds: targetAreas.map((area) => area.id)
+  });
+};
+
+const applyCurveTuningPreset = (presetKey) => {
+  const preset = CURVE_TUNING_PRESETS[presetKey];
+  if (!preset) {
+    return;
+  }
+
+  const targetAreas = getCurveTuningTargetAreas();
+  targetAreas.forEach((area) => {
+    applySmoothingSettingsToArea(area, preset.values);
+  });
+  markDirty(`curve tuning preset ${presetKey}`);
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(`\u5df2\u5e94\u7528\u201c${preset.label}\u201d\u66f2\u7ebf\u9884\u8bbe\u3002`);
+  logHomepage("Applied journey curve tuning preset.", {
+    preset: presetKey,
+    scope: uiState.tuningScope,
+    areaIds: targetAreas.map((area) => area.id)
   });
 };
 

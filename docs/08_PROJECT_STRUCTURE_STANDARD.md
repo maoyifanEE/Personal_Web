@@ -42,6 +42,14 @@ Future backend/API areas must be planned before implementation.
 * Journey-specific CSS and JavaScript should stay in `journey.css` and `journey.js`.
 * Root pages should not import child app logic.
 
+## Local Vendor Rules
+
+* Third-party front-end libraries should live under `vendor/library-name/`.
+* The current project does not have an active local vendor dependency.
+* Vendor libraries must include their license file.
+* Vendor libraries must be loaded from local project files, not from a CDN.
+* Do not add `node_modules` or package lock files for static vendor files unless a future build task explicitly introduces npm tooling.
+
 ## Child App Rules
 
 * Child apps live under `apps/module-name/`.
