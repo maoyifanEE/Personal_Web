@@ -108,6 +108,7 @@ Code is developed locally, versioned in GitHub, and deployed to the server; real
 * Cloud sync is not implemented.
 * Future backend work must use a dedicated branch.
 * Future backend work must include documentation updates.
+* Future backend/database implementation must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 * Future backend work must not introduce real private data into GitHub.
 * Future backend work must define storage, backup, and security boundaries before production use.
 
@@ -205,6 +206,7 @@ Real personal records should not be stored in the local repository.
 * `docs/07_ROUTE_AND_SECURITY_RULES.md`
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`
 * `docs/09_BACKEND_DATABASE_PLAN.md`
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`
 * `docs/PROJECT_HISTORY.md`
 
 

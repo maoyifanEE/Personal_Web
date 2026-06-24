@@ -70,6 +70,7 @@ Future backend/API areas must be planned before implementation.
 * `docs/06_VISUAL_STYLE_GUIDE.md` owns visual and navigation style rules.
 * `docs/07_ROUTE_AND_SECURITY_RULES.md` owns route and security boundaries.
 * `docs/09_BACKEND_DATABASE_PLAN.md` owns future backend planning.
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` owns target backend/database architecture before implementation.
 * `docs/PROJECT_HISTORY.md` records completed project changes.
 * Markdown source files must use real newline characters.
 * Tables must have one row per source line.

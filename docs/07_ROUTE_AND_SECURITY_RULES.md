@@ -43,6 +43,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Static pages must not contain real private data.
 * Future backend, authentication, authorization, and security are planned only.
 * They are not implemented in the current project.
+* Future protected admin and data routes must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 
 ## Current Data Rule
 

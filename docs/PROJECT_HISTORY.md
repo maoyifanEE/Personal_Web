@@ -1,5 +1,44 @@
 # Project History
 
+## 2026-06-24 - Plan backend database architecture
+
+### Goal
+
+* Work on `Feature/backend-database-architecture-plan`.
+* Create a serious backend/database architecture plan for the next development stage.
+* Design the future path from static prototypes to a secure server-backed personal tools platform.
+* Keep this task documentation-only.
+
+### Completed
+
+* Added `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
+* Documented the target browser -> Nginx HTTPS -> backend API -> PostgreSQL architecture.
+* Compared Node.js / Express and Python / FastAPI for the backend service.
+* Recommended Python / FastAPI, PostgreSQL, SQLAlchemy, Alembic, server-side secrets, and Nginx reverse proxy.
+* Planned formal/test/demo/imported/archived data classification with `data_scope`.
+* Planned soft delete, restore, purge, export, audit log, and backup rules.
+* Planned a future protected admin data center route and UI model.
+* Updated existing docs to point to the new architecture document.
+
+### Not implemented
+
+* No backend code was added.
+* No database files were added.
+* No migrations were added.
+* No API routes were added.
+* No authentication or authorization code was added.
+* No admin UI implementation was added.
+* No server deployment configuration was changed.
+* No real private data or secrets were added.
+
+### Verification
+
+* [x] Documentation diff was reviewed.
+* [x] Committed text format check passed.
+* [x] Conflict marker check passed.
+* [x] Accidental implementation scan was reviewed.
+* [x] Secret scan was reviewed.
+
 ## 2026-06-24 - Minimal login entry mock
 
 ### Goal
