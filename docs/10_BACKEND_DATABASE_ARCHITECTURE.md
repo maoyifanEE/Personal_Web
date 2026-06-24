@@ -14,7 +14,8 @@ It does not create API routes.
 
 It does not create authentication or authorization code.
 
-The goal is to make the next development stage safe, maintainable, and practical for a personal website that will eventually store real long-term private data.
+The goal is to make the next development stage safe, maintainable, and practical for a personal website
+that will eventually store real long-term private data.
 
 ## 2. Current Boundary
 
@@ -40,7 +41,8 @@ The fixed test password in `login.html` is not security.
 
 Direct URL access to private preview pages is still possible.
 
-No real private data should be stored until backend, database, authentication, authorization, backup, and admin data-management rules are implemented correctly.
+No real private data should be stored until backend, database, authentication, authorization, backup,
+and admin data-management rules are implemented correctly.
 
 ## 3. Target Architecture
 
@@ -132,7 +134,8 @@ Recommended stack for this project:
 * Database access: SQLAlchemy.
 * Migration tool: Alembic.
 * Password hashing: Argon2id or bcrypt through a maintained password-hashing library.
-* Session/token approach: decide later; prefer secure server-side sessions first unless API-only mobile clients become a hard requirement.
+* Session/token approach: decide later; prefer secure server-side sessions first unless API-only mobile
+  clients become a hard requirement.
 * Process manager: systemd service on the Linux server.
 * Reverse proxy: Nginx HTTPS in front of the backend service.
 
@@ -146,7 +149,8 @@ The main risk is accidentally mixing prototypes, private data, secrets, and prod
 
 FastAPI plus typed request models and Alembic migrations gives the project clearer contracts before code grows.
 
-That clarity is helpful for an AI-assisted non-professional developer because future tasks can point to explicit schemas, route groups, and validation models.
+That clarity is helpful for an AI-assisted non-professional developer because future tasks can point to
+explicit schemas, route groups, and validation models.
 
 ## 5. Data Ownership and Storage Rules
 
@@ -242,7 +246,9 @@ Compatibility field:
 
 * `is_test`
 
-`is_test` may be useful as a derived or compatibility field, but it should not be the canonical classification because it cannot represent demo, imported, or archived states.
+`is_test` may be useful as a derived or compatibility field.
+
+It should not be the canonical classification because it cannot represent demo, imported, or archived states.
 
 Admin filtering requirements:
 
@@ -253,7 +259,8 @@ Admin filtering requirements:
 * Filter by creation time.
 * Filter by update time.
 
-Each persisted app table should either include `data_scope` directly or inherit it through a shared metadata table if a future schema chooses that pattern.
+Each persisted app table should either include `data_scope` directly or inherit it through a shared metadata table
+if a future schema chooses that pattern.
 
 For this project, direct fields on each app table are simpler and easier to inspect.
 
@@ -304,7 +311,9 @@ The current static project uses `apps/` for front-end child app prototypes.
 
 The future admin data center should not look like another unprotected static child app.
 
-During early front-end prototyping, a static mock may live under `apps/admin-data/index.html`, but production should move to protected `/admin/data`.
+During early front-end prototyping, a static mock may live under `apps/admin-data/index.html`.
+
+Production should move to protected `/admin/data`.
 
 Required admin UI areas:
 
@@ -763,7 +772,8 @@ Acceptance criteria:
 
 Goal:
 
-* Add backend service skeleton, environment config pattern, PostgreSQL connection, health check endpoint, and migration baseline.
+* Add backend service skeleton, environment config pattern, PostgreSQL connection, health check endpoint,
+  and migration baseline.
 
 Files likely touched:
 
@@ -929,7 +939,8 @@ Database:
 
 Backend:
 
-* The server-side application that receives browser requests, checks permissions, validates input, and talks to the database.
+* The server-side application that receives browser requests, checks permissions, validates input,
+  and talks to the database.
 
 API:
 
