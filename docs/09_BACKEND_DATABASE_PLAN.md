@@ -84,6 +84,22 @@ Do not create exact database schemas in documentation-formatting tasks.
 
 Do not create database files in documentation-formatting tasks.
 
+## Static Login Mock Boundary
+
+`login.html` currently uses a fixed test-password redirect to `hub.html`.
+
+This is planned only for static route verification.
+
+It is not real authentication.
+
+It is not authorization.
+
+It does not create a session, token, cookie, or account record.
+
+Future real private access must use backend authentication, server-side session or token handling, database-backed accounts, roles, and permission checks.
+
+Real passwords must never be stored in static HTML, CSS, JavaScript, Markdown, or GitHub files.
+
 ## Rules for Future Backend Work
 
 * Backend work must be done in a dedicated branch.

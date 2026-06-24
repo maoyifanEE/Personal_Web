@@ -94,6 +94,7 @@ Code is developed locally, versioned in GitHub, and deployed to the server; real
 * Static pages can use placeholder content.
 * Static pages must not contain real long-term private records.
 * Real long-term private data requires backend, database, authentication, and authorization.
+* Static mock login pages are route previews only and must not store real passwords.
 * Data saved in one browser may not appear in another browser.
 * Clearing browser data may delete local prototype data.
 

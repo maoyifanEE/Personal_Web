@@ -1,5 +1,40 @@
 # Project History
 
+## 2026-06-24 - Minimal login entry mock
+
+### Goal
+
+* Work on `Feature/minimal-login-entry`.
+* Replace the old private entrance placeholder with a minimal static login card.
+* Verify the route `index.html` -> `login.html` -> `hub.html`.
+* Keep the page quiet, clear, and separate from the homepage journey/map visual language.
+
+### Completed
+
+* Rebuilt `login.html` as a centered minimal login form.
+* Added `login.js` for fixed test-password mock routing to `hub.html`.
+* Added focused login form styles to `styles.css` using the existing visual tokens.
+* Documented that the mock password route is not real authentication or security.
+* Kept `hub.html` as a static, directly accessible preview page.
+
+### Not implemented
+
+* No backend was added.
+* No database was added.
+* No API was added.
+* No authentication or authorization system was added.
+* No real session, token, cookie, or permission system was added.
+* No real passwords or account records were stored.
+
+### Verification
+
+* [x] `node --check login.js` passed.
+* [x] Text format check passed before commit.
+* [x] Conflict marker check passed.
+* [x] Broken question-mark placeholder check was reviewed.
+* [x] Forbidden auth/backend/persistence scan passed for login-related files.
+* [x] Browser smoke tests were run with local Chrome headless.
+
 ## 2026-06-22 - Merge latest main into visitor message prototype branch
 
 ### Goal

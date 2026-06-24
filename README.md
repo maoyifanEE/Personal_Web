@@ -27,7 +27,7 @@ The repository must not contain real private data, secrets, production database 
 | --- | --- | --- |
 | `index.html` | Public cover homepage | Implemented static page |
 | `journey.html` | Curved path timeline prototype | Static/local prototype |
-| `login.html` | Login placeholder | Not real authentication |
+| `login.html` | Static mock private entrance | Fixed test-password route only; not real authentication |
 | `hub.html` | Private hub placeholder | Not real authorization |
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
@@ -45,6 +45,7 @@ The journey editor can show and export front-end curve debug data for raw points
 * Hidden lower-left entrance on `index.html` opens `journey.html`.
 * Normal cover background clicks do not navigate.
 * Hidden private entrance opens `login.html`.
+* `login.html` accepts a fixed test password only to verify the route to `hub.html`.
 * ICP footer opens `https://beian.miit.gov.cn/`.
 * `hub.html` links to child app prototypes.
 * Hidden entrances are navigation devices, not security mechanisms.
@@ -60,6 +61,7 @@ The following items must stay out of GitHub:
 
 * Real private data.
 * Real account passwords.
+* Real login credentials.
 * API keys.
 * Access tokens.
 * SSH private keys.
@@ -126,6 +128,7 @@ Personal_Web/
 * Read `docs/05_APP_MODULES.md` before adding child apps.
 * Read `docs/07_ROUTE_AND_SECURITY_RULES.md` before route or security work.
 * Do not add backend, database, or auth unless explicitly requested.
+* Do not treat the static `login.html` mock as real security.
 * Do not add real private data to static files.
 * Keep app-specific code inside the relevant app folder.
 * Keep documentation readable in raw Markdown source form.
@@ -155,6 +158,7 @@ Then open these URLs as needed:
 * Real database.
 * Real login.
 * Real authorization.
+* Real sessions or protected private routes.
 * Real cloud synchronization.
 * Real payment or subscription integration.
 * Production CMS.
