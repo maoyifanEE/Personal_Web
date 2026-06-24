@@ -1,38 +1,53 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="Personal_Web 私人入口静态占位页，真实登录和权限系统尚未实现。"
+      content="Static mock private entrance for the Personal_Web private hub preview."
     >
-    <title>Private Entrance Placeholder</title>
+    <title>Private Entrance</title>
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
-    <script src="./script.js" defer></script>
+    <script src="./login.js" defer></script>
   </head>
   <body data-page="login">
-    <main class="private-page" aria-labelledby="page-title">
-      <section class="private-panel entrance-panel">
-        <div class="private-mark" aria-hidden="true">
-          <img src="./assets/icon.svg" alt="" width="34" height="34">
-        </div>
+    <main class="private-page login-page" aria-labelledby="login-title">
+      <section class="private-panel entrance-panel login-card">
+        <h1 id="login-title">Private Entrance</h1>
 
-        <p class="status-badge">Static placeholder</p>
-        <h1 id="page-title">Private Entrance</h1>
-        <p class="private-copy">
-          This is the future private entrance. Real authentication is not implemented yet.
-        </p>
-        <p class="safety-note">
-          Do not enter real passwords. This page does not collect credentials or create sessions.
-          The hub preview is static only and is not secure.
-        </p>
+        <form class="login-form" data-login-form novalidate>
+          <div class="login-field">
+            <label class="login-label" for="login-account">Account or email</label>
+            <input
+              class="login-input"
+              id="login-account"
+              name="account"
+              type="text"
+              autocomplete="username"
+              data-login-account
+            >
+          </div>
 
-        <div class="private-actions">
-          <a class="primary-action" href="./hub.html">Preview private hub placeholder</a>
-          <a class="secondary-action" href="./index.html">Back to public homepage</a>
-        </div>
+          <div class="login-field">
+            <label class="login-label" for="login-password">Password</label>
+            <input
+              class="login-input"
+              id="login-password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              data-login-password
+            >
+          </div>
+
+          <p class="login-error" role="alert" aria-live="polite" data-login-error></p>
+
+          <button class="primary-action login-submit" type="submit">Enter</button>
+        </form>
+
+        <a class="login-back-link" href="./index.html">Back to homepage</a>
       </section>
     </main>
   </body>

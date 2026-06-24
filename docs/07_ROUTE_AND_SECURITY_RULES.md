@@ -20,7 +20,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | --- | --- | --- | --- |
 | Public page | `index.html` | Public cover page | Public |
 | Public prototype | `journey.html` | Curved path timeline prototype | Public/static prototype |
-| Login placeholder | `login.html` | Static login placeholder | Not real authentication |
+| Login mock | `login.html` | Static fixed test-password route | Not real authentication |
 | Private placeholder | `hub.html` | Static hub placeholder | Not real authorization |
 | Child app prototype | `apps/tasks/index.html` | Task List prototype | Direct URL access possible |
 | Child app prototype | `apps/health/index.html` | Health Management prototype | Direct URL access possible |
@@ -34,7 +34,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Hidden entrances are not authorization.
 * Hidden entrances are not access control.
 * Hidden entrances are not private data protection.
-* `login.html` is a static placeholder.
+* `login.html` is a static mock private entrance.
+* The fixed test-password redirect is route verification only.
+* The fixed test-password redirect is not authentication.
+* The fixed test-password redirect is not security.
 * `hub.html` is a static placeholder.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.
@@ -90,6 +93,7 @@ Real private data must wait for the future security model.
 * [ ] Placeholder private pages are not described as secure.
 * [ ] Hidden entrances are described as navigation only.
 * [ ] Static login is not described as real authentication.
+* [ ] Static mock login is not described as real session creation.
 * [ ] Static hub is not described as real authorization.
 * [ ] Child apps do not claim protected access.
 * [ ] Real private data is not added to static files.
