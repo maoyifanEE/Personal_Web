@@ -20,6 +20,15 @@
 * Real private data should not stay in long-term `localStorage`.
 * This document prevents future Codex work from inventing backend architecture freely.
 * This document marks future backend work as planned until explicitly implemented.
+* Detailed backend/database architecture now lives in `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
+
+## Architecture Reference
+
+Read `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` before implementing backend, database, authentication, authorization, admin data management, migrations, or backup features.
+
+That document defines the target Nginx, backend API, PostgreSQL, admin data center, test-data classification, soft-delete, purge, and phased implementation plan.
+
+This file remains a concise planning overview and does not claim backend/database/auth exists.
 
 ## Future Data Ownership Model
 

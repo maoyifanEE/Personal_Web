@@ -105,6 +105,7 @@ Personal_Web/
     |-- 07_ROUTE_AND_SECURITY_RULES.md
     |-- 08_PROJECT_STRUCTURE_STANDARD.md
     |-- 09_BACKEND_DATABASE_PLAN.md
+    |-- 10_BACKEND_DATABASE_ARCHITECTURE.md
     `-- PROJECT_HISTORY.md
 ```
 
@@ -116,6 +117,7 @@ Personal_Web/
 * `docs/07_ROUTE_AND_SECURITY_RULES.md`: route categories and security limits.
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`: structure and branch standards.
 * `docs/09_BACKEND_DATABASE_PLAN.md`: future backend and database planning.
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture before implementation.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 ## Development Rules
