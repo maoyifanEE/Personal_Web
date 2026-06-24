@@ -1,5 +1,52 @@
 # Project History
 
+## 2026-06-24 - Add FastAPI PostgreSQL backend skeleton
+
+### Goal
+
+* Work on `Feature/backend-skeleton-local-postgresql`.
+* Add the first real backend/database foundation for local development.
+* Provide a PostgreSQL-backed API foundation for future application data testing.
+* Keep production deployment, real auth, and existing front-end behavior unchanged.
+
+### Completed
+
+* Added a `backend/` FastAPI application skeleton.
+* Added local PostgreSQL configuration through `backend/.env.example`.
+* Added SQLAlchemy database session and model foundation.
+* Added Alembic baseline migration.
+* Added `visitor_messages` as the first business table for local database testing.
+* Added `audit_logs` as the first audit foundation table.
+* Added `/api/health`.
+* Added create/list/status/soft-delete visitor message endpoints.
+* Added development-only seed, reset, and export endpoints under `/api/dev/*`.
+* Added development-only `/api/admin/data/summary`.
+* Added local development helper scripts for seed, reset, and export.
+* Updated backend and project documentation.
+* Updated `.gitignore` for backend env files, Python cache, virtual environments, data, logs, uploads, and backups.
+
+### Safety boundaries
+
+* No production deployment was added.
+* No Nginx or server config was changed.
+* No real authentication was added.
+* No real authorization was added.
+* No real private data was added.
+* No real secrets were added.
+* No frontend behavior was changed.
+* `/api/dev/*` is disabled outside development tools mode.
+* Admin-like message list/status/delete and admin data summary are disabled outside development tools mode.
+
+### Verification
+
+* [ ] Python compileall passed.
+* [ ] Backend import smoke test passed.
+* [ ] Text format check passed.
+* [ ] Conflict marker check passed.
+* [ ] Secret scan was reviewed.
+* [ ] Implementation scope was reviewed.
+* [ ] Local PostgreSQL database-backed tests were run.
+
 ## 2026-06-24 - Plan backend database architecture
 
 ### Goal

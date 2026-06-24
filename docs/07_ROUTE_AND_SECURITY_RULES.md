@@ -26,6 +26,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Child app prototype | `apps/health/index.html` | Health Management prototype | Direct URL access possible |
 | Child app placeholder | `apps/special-subscription/index.html` | Special Subscription placeholder | Direct URL access possible |
 | Admin UI prototype | `apps/messages/index.html` | Message Management prototype | Direct URL access possible |
+| Backend health | `/api/health` | Local backend health endpoint | Public status only |
+| Backend message create | `/api/messages` | Local visitor message create endpoint | No auth yet |
+| Backend dev tools | `/api/dev/*` | Local development data tools | Disabled outside development |
+| Backend admin summary | `/api/admin/data/summary` | Local admin data foundation endpoint | Disabled outside development |
 
 ## Important Security Boundary
 
@@ -44,6 +48,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Future backend, authentication, authorization, and security are planned only.
 * They are not implemented in the current project.
 * Future protected admin and data routes must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
+* `/api/dev/*` must never be enabled in production.
+* Message list, status update, soft delete, and admin summary endpoints are disabled in production until real auth exists.
 
 ## Current Data Rule
 

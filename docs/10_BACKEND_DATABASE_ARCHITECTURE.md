@@ -18,6 +18,10 @@ that will eventually store real long-term private data.
 
 The current project is still mostly a static front-end preview.
 
+Phase 2 has begun with a local FastAPI and PostgreSQL backend skeleton.
+
+That backend foundation is for local development and future data testing only.
+
 Current boundaries:
 
 * `index.html` is a public static homepage.
@@ -31,6 +35,7 @@ Current boundaries:
 * There is no real authentication.
 * There is no real authorization.
 * There is no real cloud sync.
+* There is no production backend deployment.
 
 Hidden links are not security.
 
@@ -40,6 +45,10 @@ Direct URL access to private preview pages is still possible.
 
 No real private data should be stored until backend, database, authentication, authorization, backup,
 and admin data-management rules are implemented correctly.
+
+The first implemented business table is `visitor_messages`.
+
+The `/api/dev/*` endpoints and `/api/admin/data/summary` are development-only until real authentication exists.
 
 ## 3. Target Architecture
 

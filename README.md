@@ -8,8 +8,8 @@ The current project stage is a static front-end preview.
 
 Current implementation boundaries:
 
-* Backend is not implemented.
-* Database is not implemented.
+* Backend skeleton exists for local development only.
+* Local PostgreSQL development foundation exists.
 * Real login is not implemented.
 * Authentication is not implemented.
 * Authorization is not implemented.
@@ -79,6 +79,12 @@ The following items must stay out of GitHub:
 
 Long-term private data should eventually move to a backend API and a server-side database.
 
+The `backend/` folder now contains a FastAPI + PostgreSQL local-development foundation.
+
+It is not deployed to production yet.
+
+It does not add real authentication or protected private pages yet.
+
 ## File Structure
 
 ```text
@@ -91,6 +97,13 @@ Personal_Web/
 |-- script.js
 |-- journey.css
 |-- journey.js
+|-- backend/
+|   |-- README.md
+|   |-- requirements.txt
+|   |-- .env.example
+|   |-- alembic.ini
+|   |-- alembic/
+|   `-- app/
 |-- apps/
 |   |-- tasks/
 |   |   `-- index.html
@@ -157,7 +170,7 @@ Then open these URLs as needed:
 ## Current Non-Goals
 
 * Real backend server.
-* Real database.
+* Production database.
 * Real login.
 * Real authorization.
 * Real sessions or protected private routes.

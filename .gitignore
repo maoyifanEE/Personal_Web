@@ -5,6 +5,8 @@ desktop.ini
 .env
 .env.*
 !.env.example
+!backend/.env.example
+backend/.env
 data/
 database/
 *.db
@@ -21,6 +23,13 @@ id_rsa
 id_ed25519
 config.production.json
 node_modules/
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+env/
+backend/.venv/
 dist/
 build/
 .cache/

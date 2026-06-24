@@ -2,16 +2,16 @@
 
 ## Current Status
 
-* Backend: not implemented.
-* Database: not implemented.
-* API: not implemented.
+* Backend: local development skeleton started.
+* Database: local PostgreSQL development foundation started.
+* API: local development endpoints started.
 * Authentication: not implemented.
 * Authorization: not implemented.
 * Cloud sync: not implemented.
 * Real login: not implemented.
 * Real protected private routes: not implemented.
 * This document is planning only.
-* No backend code should be added in documentation-formatting tasks.
+* No production backend is deployed yet.
 
 ## Why This Document Exists
 
@@ -61,6 +61,30 @@ The following components are planned only:
 * Data migration tools.
 
 None of these components are implemented by this document.
+
+## Phase 2 Local Foundation Status
+
+Phase 2 has started in `backend/`.
+
+Implemented for local development only:
+
+* FastAPI backend skeleton.
+* PostgreSQL configuration pattern.
+* SQLAlchemy model foundation.
+* Alembic baseline migration.
+* Database health endpoint.
+* `visitor_messages` table.
+* `audit_logs` table.
+* Development-only seed, reset, export, and admin summary endpoints.
+
+Not implemented yet:
+
+* Production backend deployment.
+* Real authentication.
+* Real authorization.
+* Production admin UI.
+* Front-end migration to backend APIs.
+* Task, health, subscription, or journey database persistence.
 
 ## Planned User Roles
 
