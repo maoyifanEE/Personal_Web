@@ -7,11 +7,8 @@ This document defines the backend and database architecture before implementatio
 It is a planning document.
 
 It does not create backend code.
-
 It does not create database files.
-
 It does not create API routes.
-
 It does not create authentication or authorization code.
 
 The goal is to make the next development stage safe, maintainable, and practical for a personal website
@@ -37,7 +34,7 @@ Current boundaries:
 
 Hidden links are not security.
 
-The fixed test password in `login.html` is not security.
+The fixed test password in login.html is not security.
 
 Direct URL access to private preview pages is still possible.
 
@@ -77,7 +74,7 @@ Target components:
 * Admin data center: protected UI for viewing and managing all stored data.
 * Backups: server-side backups outside the Git repository.
 * Environment variables: server-only configuration.
-* Secrets: stored outside GitHub, for example in `/etc/personal-web/.env`.
+* Secrets: stored outside GitHub, for example in /etc/personal-web/.env.
 
 Server folder concept:
 
@@ -259,7 +256,7 @@ Admin filtering requirements:
 * Filter by creation time.
 * Filter by update time.
 
-Each persisted app table should either include `data_scope` directly or inherit it through a shared metadata table
+Each persisted app table should either include data_scope directly or inherit it through a shared metadata table
 if a future schema chooses that pattern.
 
 For this project, direct fields on each app table are simpler and easier to inspect.
@@ -307,13 +304,13 @@ Reason:
 
 `/admin/data` makes the future route clearly backend-protected and admin-only.
 
-The current static project uses `apps/` for front-end child app prototypes.
+The current static project uses the apps folder for front-end child app prototypes.
 
 The future admin data center should not look like another unprotected static child app.
 
-During early front-end prototyping, a static mock may live under `apps/admin-data/index.html`.
+During early front-end prototyping, a static mock may live under apps/admin-data/index.html.
 
-Production should move to protected `/admin/data`.
+Production should move to protected /admin/data.
 
 Required admin UI areas:
 
@@ -735,7 +732,7 @@ Backup rules:
 
 * Production backups live outside the repository.
 * Backup files should be ignored by Git.
-* Backup jobs should record status in `backup_runs`.
+* Backup jobs should record status in backup_runs.
 * Before destructive admin operations, backup or export should exist.
 * Restore process should be documented before real data becomes important.
 * Backups should be access-controlled and protected from public web access.
@@ -841,7 +838,7 @@ Must not do:
 Acceptance criteria:
 
 * Admin can view categories and counts.
-* Admin can filter by `data_scope`.
+* Admin can filter by data_scope.
 * Audit log records admin view or action events as designed.
 
 ### Phase 5: Visitor message real storage
@@ -885,12 +882,12 @@ Files likely touched:
 Must not do:
 
 * Do not migrate real personal data without backup/export plan.
-* Do not mix test and production data without `data_scope`.
+* Do not mix test and production data without data_scope.
 
 Acceptance criteria:
 
 * Data syncs through backend across browsers.
-* Records include `data_scope`.
+* Records include data_scope.
 * Admin data center can filter and manage records.
 
 ### Phase 7: Backup, restore, and deployment hardening
@@ -923,8 +920,8 @@ User decisions needed before coding:
 
 * Confirm Python / FastAPI or choose Node.js / Express instead.
 * Confirm PostgreSQL as the production database instead of SQLite.
-* Confirm production admin route path, recommended as `/admin/data`.
-* Confirm canonical data classification field name, recommended as `data_scope`.
+* Confirm production admin route path, recommended as /admin/data.
+* Confirm canonical data classification field name, recommended as data_scope.
 * Confirm backup policy and retention expectations.
 * Confirm whether future auth should use server-side sessions or JWT-style tokens.
 * Confirm whether visitor messages become a public submission form first or private-only form first.
