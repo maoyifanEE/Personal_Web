@@ -28,12 +28,15 @@ It explains what is public, what is a placeholder, and what must not be treated 
 
 ## Important Security Boundary
 
-* Hidden entrances are visual navigation only.
-* Hidden entrances are not authentication.
-* Hidden entrances are not authorization.
-* Hidden entrances are not access control.
-* Hidden entrances are not private data protection.
-* `login.html` is a static placeholder.
+* Homepage entrance buttons are visual navigation only.
+* Homepage entrance buttons are not authentication.
+* Homepage entrance buttons are not authorization.
+* Homepage entrance buttons are not access control.
+* Homepage entrance buttons are not private data protection.
+* `login.html` is a static private entrance placeholder.
+* The current private entrance preview is route verification only.
+* The current private entrance preview is not authentication.
+* The current private entrance preview is not security.
 * `hub.html` is a static placeholder.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.
@@ -87,7 +90,7 @@ Real private data must wait for the future security model.
 
 * [ ] Public pages are clearly marked public.
 * [ ] Placeholder private pages are not described as secure.
-* [ ] Hidden entrances are described as navigation only.
+* [ ] Homepage entrance buttons are described as navigation only.
 * [ ] Static login is not described as real authentication.
 * [ ] Static hub is not described as real authorization.
 * [ ] Child apps do not claim protected access.

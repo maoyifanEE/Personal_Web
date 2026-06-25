@@ -41,12 +41,13 @@ The journey editor can show and export front-end curve debug data for raw points
 
 ## Navigation Behavior
 
-* Hidden lower-left entrance on `index.html` opens `journey.html`.
+* Visible visitor entrance on `index.html` opens `journey.html`.
 * Normal cover background clicks do not navigate.
-* Hidden private entrance opens `login.html`.
+* Visible user entrance opens `login.html`.
+* `login.html` is a static private entrance placeholder that links onward to `hub.html`.
 * ICP footer opens `https://beian.miit.gov.cn/`.
 * `hub.html` links to child app prototypes.
-* Hidden entrances are navigation devices, not security mechanisms.
+* Homepage entrance buttons are navigation devices, not security mechanisms.
 * Direct URL access is still possible for placeholder private pages.
 
 ## Data Safety

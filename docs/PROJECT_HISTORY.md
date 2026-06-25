@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-06-25 - Make homepage entrance buttons visible
+
+### Goal
+
+* Replace the two quiet hidden homepage entrances with visible navigation buttons.
+* Keep the visitor route and user route separate.
+* Preserve existing static routing behavior.
+
+### Completed
+
+* Changed the journey entry into a visible `访客入口` button linking to `journey.html`.
+* Changed the private entry into a visible `用户入口` button linking to `login.html`.
+* Kept existing entrance classes so current homepage script diagnostics can still read the route hrefs.
+* Updated README and route/visual docs to describe the entries as visible navigation.
+
+### Safety boundaries
+
+* No authentication or authorization was added.
+* No backend integration was added.
+* No private data was added.
+* No homepage hero text or ICP footer behavior was changed.
+
 ## 2026-06-22 - Clean up obsolete journey curve experiments
 
 ### Goal

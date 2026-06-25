@@ -18,12 +18,12 @@ It should also prevent old navigation behavior from returning by accident.
 * The public cover homepage is not the journey prototype itself.
 * The ICP footer is subtle and visible.
 * The ICP footer links to `https://beian.miit.gov.cn/`.
-* The hidden lower-left journey entrance opens `journey.html`.
-* The hidden private entrance opens `login.html`.
+* The visible visitor entrance opens `journey.html`.
+* The visible user entrance opens `login.html`.
 * Normal cover background clicks do not navigate.
 * The cover should not feel like a giant button.
-* The hidden journey entrance should stay visually hidden or nearly invisible.
-* The hidden private entrance should remain separate from the journey entrance.
+* The visitor and user entrance buttons should stay quiet, compact, and visually separate from the hero text.
+* The entrance buttons are visible navigation only and are not security controls.
 
 ## Journey Page
 
@@ -91,7 +91,7 @@ It should also prevent old navigation behavior from returning by accident.
 * Do not remove the ICP footer.
 * Do not display a public security filing number until approval exists.
 * Do not expose private apps from the public cover page.
-* Do not turn hidden entrances into visible navigation unless requested.
+* Do not turn visible entrance buttons into a large app launcher unless requested.
 * Do not replace static prototypes with framework applications unless requested.
 * Do not add external libraries or CDNs for visual changes.
 
@@ -100,8 +100,8 @@ It should also prevent old navigation behavior from returning by accident.
 * [ ] `index.html` still looks like the public cover homepage.
 * [ ] Public hero text is unchanged unless the task requested it.
 * [ ] ICP footer remains visible and subtle.
-* [ ] Hidden journey entrance remains hidden and opens `journey.html`.
-* [ ] Hidden private entrance remains hidden and opens `login.html`.
+* [ ] Visible visitor entrance opens `journey.html`.
+* [ ] Visible user entrance opens `login.html`.
 * [ ] Normal cover background clicks do not navigate.
 * [ ] `journey.html` still opens as the timeline prototype.
 * [ ] `hub.html` still opens as a static placeholder.
