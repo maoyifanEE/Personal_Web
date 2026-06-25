@@ -28,9 +28,40 @@ Static private placeholders are visually private but not secure.
 
 Child apps live under `apps/` and are linked from the hub.
 
+Current child app folders include `apps/tasks/`, `apps/health/`, `apps/special-subscription/`, and `apps/messages/`.
+
 Prototype pages may include local-only editor behavior.
 
 Future backend/API areas must be planned before implementation.
+
+## Backend Folder Rules
+
+The backend lives under `backend/`.
+
+Backend code must not be placed in the repository root.
+
+Current backend areas:
+
+* `backend/app/` for FastAPI application code.
+* `backend/app/api/` for API routers.
+* `backend/app/core/` for configuration and safety helpers.
+* `backend/app/db/` for SQLAlchemy base and sessions.
+* `backend/app/models/` for ORM models.
+* `backend/app/schemas/` for Pydantic schemas.
+* `backend/app/services/` for service-layer logic.
+* `backend/app/scripts/` for local development helper scripts.
+* `backend/alembic/` for migration scripts.
+
+Backend rules:
+
+* Keep `.env.example` committed with fake placeholders only.
+* Do not commit `backend/.env`.
+* Do not commit database files, logs, uploads, or backups.
+* Development-only API routes must fail safely outside development.
+* Production auth and admin UI must be implemented in later dedicated tasks.
+* RBAC ORM models belong in `backend/app/models/`.
+* RBAC migrations may seed system role and permission definitions only.
+* RBAC migrations must not seed real users, real passwords, sessions, or tokens.
 
 ## Root Page Rules
 
@@ -68,6 +99,7 @@ Future backend/API areas must be planned before implementation.
 * `docs/06_VISUAL_STYLE_GUIDE.md` owns visual and navigation style rules.
 * `docs/07_ROUTE_AND_SECURITY_RULES.md` owns route and security boundaries.
 * `docs/09_BACKEND_DATABASE_PLAN.md` owns future backend planning.
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` owns target backend/database architecture before implementation.
 * `docs/PROJECT_HISTORY.md` records completed project changes.
 * Markdown source files must use real newline characters.
 * Tables must have one row per source line.
@@ -126,3 +158,14 @@ Future backend/API areas must be planned before implementation.
 * [ ] No unrelated app behavior changes are included.
 * [ ] Branch name matches the task type.
 * [ ] Commit scope matches the documented task.
+
+
+## Message App Structure Rule
+
+The message management prototype must remain under `apps/messages/`.
+
+Message management files must stay separate from task, health, and special subscription app files.
+
+Future backend message APIs must not be implemented inside the static child app folder.
+
+Future message persistence work must update the backend/database plan before implementation.

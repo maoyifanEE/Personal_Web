@@ -94,19 +94,23 @@ Code is developed locally, versioned in GitHub, and deployed to the server; real
 * Static pages can use placeholder content.
 * Static pages must not contain real long-term private records.
 * Real long-term private data requires backend, database, authentication, and authorization.
+* Static mock login pages are route previews only and must not store real passwords.
 * Data saved in one browser may not appear in another browser.
 * Clearing browser data may delete local prototype data.
 
 ## Backend Boundary
 
-* Backend is not implemented.
-* Database is not implemented.
-* API is not implemented.
+* Local backend skeleton exists for development.
+* Local PostgreSQL development foundation exists.
+* Local API endpoints exist for backend testing and development only.
 * Authentication is not implemented.
 * Authorization is not implemented.
 * Cloud sync is not implemented.
-* Future backend work must use a dedicated branch.
+* Production backend deployment is not implemented.
+* Frontend pages are not wired to the backend yet.
+* Future production backend work must use a dedicated branch.
 * Future backend work must include documentation updates.
+* Future backend/database implementation must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 * Future backend work must not introduce real private data into GitHub.
 * Future backend work must define storage, backup, and security boundaries before production use.
 
@@ -204,4 +208,20 @@ Real personal records should not be stored in the local repository.
 * `docs/07_ROUTE_AND_SECURITY_RULES.md`
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`
 * `docs/09_BACKEND_DATABASE_PLAN.md`
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`
 * `docs/PROJECT_HISTORY.md`
+
+
+## Visitor Message Data Boundary
+
+Visitor-submitted messages are private user-submitted data.
+
+Visitor message data must not be stored in GitHub.
+
+Visitor message data must not be hard-coded into static HTML, CSS, JavaScript, JSON, or Markdown files.
+
+The current visitor message UI is a front-end prototype only.
+
+Real visitor message submission requires backend, database, authentication for administrators, and authorization checks.
+
+The static prototype must not use localStorage, sessionStorage, or cookies as fake message persistence.

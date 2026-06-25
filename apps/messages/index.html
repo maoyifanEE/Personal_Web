@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="留言管理静态 UI 原型。真实留言列表需要后端、数据库、认证和管理员权限。"
+    >
+    <title>留言管理</title>
+    <link rel="icon" href="../../assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="./messages.css">
+    <script src="./messages.js" defer></script>
+  </head>
+  <body>
+    <main class="messages-shell" aria-labelledby="messages-title">
+      <header class="messages-header">
+        <a class="messages-back" href="../../hub.html">返回 Hub</a>
+        <p class="messages-kicker">管理端 UI 原型</p>
+        <h1 id="messages-title">留言管理</h1>
+        <p class="messages-lede">
+          当前仅为管理端 UI 原型；真实留言列表需要后端、数据库、认证和管理员权限。
+        </p>
+      </header>
+
+      <section class="messages-notice" aria-label="Prototype boundary">
+        <h2>原型边界</h2>
+        <p>
+          本页面不加载真实数据，不保存状态，不提供真实管理能力。下方内容均为示例占位，
+          用于预览未来留言管理界面的字段和布局。
+        </p>
+      </section>
+
+      <section class="messages-table-section" aria-labelledby="messages-table-title">
+        <div class="messages-section-heading">
+          <h2 id="messages-table-title">示例留言列表</h2>
+          <span>Sample data only</span>
+        </div>
+
+        <div class="messages-table-wrap">
+          <table class="messages-table">
+            <thead>
+              <tr>
+                <th>留言时间</th>
+                <th>昵称</th>
+                <th>联系方式</th>
+                <th>留言内容</th>
+                <th>已读状态</th>
+                <th>回复状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>示例时间 01</td>
+                <td>示例昵称</td>
+                <td>示例联系方式</td>
+                <td>这是一条示例留言，不是真实访客提交内容。</td>
+                <td><span class="status-pill status-pill--unread">未读示例</span></td>
+                <td><span class="status-pill status-pill--pending">未回复示例</span></td>
+                <td>
+                  <button type="button" disabled>查看详情</button>
+                  <button type="button" disabled>标记已读</button>
+                </td>
+              </tr>
+              <tr>
+                <td>示例时间 02</td>
+                <td>访客占位</td>
+                <td>未提供</td>
+                <td>这里展示未来留言字段结构，当前没有后端数据。</td>
+                <td><span class="status-pill status-pill--read">已读示例</span></td>
+                <td><span class="status-pill status-pill--replied">已回复示例</span></td>
+                <td>
+                  <button type="button" disabled>查看详情</button>
+                  <button type="button" disabled>标记已回复</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

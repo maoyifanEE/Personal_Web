@@ -8,8 +8,8 @@ The current project stage is a static front-end preview.
 
 Current implementation boundaries:
 
-* Backend is not implemented.
-* Database is not implemented.
+* Backend skeleton exists for local development only.
+* Local PostgreSQL development foundation exists.
 * Real login is not implemented.
 * Authentication is not implemented.
 * Authorization is not implemented.
@@ -27,11 +27,12 @@ The repository must not contain real private data, secrets, production database 
 | --- | --- | --- |
 | `index.html` | Public cover homepage | Implemented static page |
 | `journey.html` | Curved path timeline prototype | Static/local prototype |
-| `login.html` | Login placeholder | Not real authentication |
+| `login.html` | Static mock private entrance | Fixed test-password route only; not real authentication |
 | `hub.html` | Private hub placeholder | Not real authorization |
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
+| `apps/messages/index.html` | Visitor Message Management prototype | Static/front-end prototype |
 
 The journey prototype includes editable curve paths.
 Hand-drawn strokes are treated as full rough route input, not reduced to a few designer waypoints.
@@ -44,7 +45,7 @@ The journey editor can show and export front-end curve debug data for raw points
 * Visible visitor entrance on `index.html` opens `journey.html`.
 * Normal cover background clicks do not navigate.
 * Visible user entrance opens `login.html`.
-* `login.html` is a static private entrance placeholder that links onward to `hub.html`.
+* `login.html` accepts a fixed test password only to verify the route to `hub.html`.
 * ICP footer opens `https://beian.miit.gov.cn/`.
 * `hub.html` links to child app prototypes.
 * Homepage entrance buttons are navigation devices, not security mechanisms.
@@ -60,6 +61,7 @@ The following items must stay out of GitHub:
 
 * Real private data.
 * Real account passwords.
+* Real login credentials.
 * API keys.
 * Access tokens.
 * SSH private keys.
@@ -77,6 +79,12 @@ The following items must stay out of GitHub:
 
 Long-term private data should eventually move to a backend API and a server-side database.
 
+The `backend/` folder now contains a FastAPI + PostgreSQL local-development foundation.
+
+It is not deployed to production yet.
+
+It does not add real authentication or protected private pages yet.
+
 ## File Structure
 
 ```text
@@ -89,6 +97,13 @@ Personal_Web/
 |-- script.js
 |-- journey.css
 |-- journey.js
+|-- backend/
+|   |-- README.md
+|   |-- requirements.txt
+|   |-- .env.example
+|   |-- alembic.ini
+|   |-- alembic/
+|   `-- app/
 |-- apps/
 |   |-- tasks/
 |   |   `-- index.html
@@ -103,6 +118,7 @@ Personal_Web/
     |-- 07_ROUTE_AND_SECURITY_RULES.md
     |-- 08_PROJECT_STRUCTURE_STANDARD.md
     |-- 09_BACKEND_DATABASE_PLAN.md
+    |-- 10_BACKEND_DATABASE_ARCHITECTURE.md
     `-- PROJECT_HISTORY.md
 ```
 
@@ -114,6 +130,7 @@ Personal_Web/
 * `docs/07_ROUTE_AND_SECURITY_RULES.md`: route categories and security limits.
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`: structure and branch standards.
 * `docs/09_BACKEND_DATABASE_PLAN.md`: future backend and database planning.
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture before implementation.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 ## Development Rules
@@ -126,6 +143,7 @@ Personal_Web/
 * Read `docs/05_APP_MODULES.md` before adding child apps.
 * Read `docs/07_ROUTE_AND_SECURITY_RULES.md` before route or security work.
 * Do not add backend, database, or auth unless explicitly requested.
+* Do not treat the static `login.html` mock as real security.
 * Do not add real private data to static files.
 * Keep app-specific code inside the relevant app folder.
 * Keep documentation readable in raw Markdown source form.
@@ -147,13 +165,15 @@ Then open these URLs as needed:
 * `http://127.0.0.1:4173/apps/tasks/index.html`
 * `http://127.0.0.1:4173/apps/health/index.html`
 * `http://127.0.0.1:4173/apps/special-subscription/index.html`
+* `http://127.0.0.1:4173/apps/messages/index.html`
 
 ## Current Non-Goals
 
 * Real backend server.
-* Real database.
+* Production database.
 * Real login.
 * Real authorization.
+* Real sessions or protected private routes.
 * Real cloud synchronization.
 * Real payment or subscription integration.
 * Production CMS.
@@ -164,3 +184,18 @@ Then open these URLs as needed:
 Documentation fixes should not change website behavior.
 
 Application behavior should be verified separately when application files are changed.
+
+
+## Visitor Message Prototype
+
+The public cover page includes a bottom-right floating `留言` tool.
+
+This tool opens a front-end modal prototype for visitor messages.
+
+The current prototype validates nickname and message content only.
+
+Visitor messages are not saved in this static phase.
+
+The admin message page at `apps/messages/index.html` is also a front-end prototype only.
+
+Real message submission and management require future backend, database, authentication, and administrator authorization.

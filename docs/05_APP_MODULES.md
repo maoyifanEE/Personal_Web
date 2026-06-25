@@ -61,6 +61,20 @@ It also prevents placeholder pages from being mistaken for production systems.
 * Current limitation: no real subscription logic exists
 * Notes: no payment, account binding, external API, or backend logic exists
 
+### Visitor Messages
+
+* Chinese display name: 留言 / 留言管理
+* English/internal name: Visitor Messages / Message Management
+* Path: `apps/messages/index.html`
+* Current status: static/front-end prototype
+* Backend status: not implemented
+* Database status: not implemented
+* Cloud sync status: not implemented
+* Storage: none in current phase; no localStorage message persistence
+* Data sensitivity: visitor-submitted message data is private user-submitted data
+* Current limitation: visitor submissions are not saved
+* Notes: real persistence requires backend, database, authentication, and admin authorization
+
 ## Future / Proposed Modules
 
 * Future modules are planned only unless listed in Current Modules.

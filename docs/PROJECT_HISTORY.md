@@ -6,7 +6,7 @@
 
 * Replace the two quiet hidden homepage entrances with visible navigation buttons.
 * Keep the visitor route and user route separate.
-* Preserve existing static routing behavior.
+* Preserve existing static routing behavior while syncing with the latest backend main branch.
 
 ### Completed
 
@@ -14,13 +14,237 @@
 * Changed the private entry into a visible `用户入口` button linking to `login.html`.
 * Kept existing entrance classes so current homepage script diagnostics can still read the route hrefs.
 * Updated README and route/visual docs to describe the entries as visible navigation.
+* Preserved the backend skeleton, PostgreSQL foundation, RBAC foundation, and related documentation from `origin/main`.
 
 ### Safety boundaries
 
-* No authentication or authorization was added.
-* No backend integration was added.
+* No authentication or authorization behavior was added by the homepage entrance change.
+* No backend code was modified by the homepage entrance change.
+* No backend migrations or configuration were modified by the homepage entrance change.
 * No private data was added.
 * No homepage hero text or ICP footer behavior was changed.
+
+## 2026-06-25 - Add RBAC database foundation
+
+### Goal
+
+* Continue on `Feature/backend-skeleton-local-postgresql`.
+* Add database-level role and permission foundations for future admin-first access control.
+* Keep authentication, authorization behavior, frontend page protection, and login APIs out of scope.
+
+### Completed
+
+* Added ORM models for `app_users`, `roles`, `permissions`, `user_roles`, and `role_permissions`.
+* Added lifecycle enums for future user and role statuses.
+* Added an Alembic migration for RBAC foundation tables.
+* Seeded safe system role and permission definitions for the future `admin` role.
+* Assigned seeded permissions to the seeded `admin` role.
+* Added nullable `audit_logs.actor_user_id` for future user-linked audit records.
+* Updated backend and architecture documentation.
+
+### Safety boundaries
+
+* No real user was created.
+* No password hash was seeded.
+* No plaintext password was stored.
+* No login API was added.
+* No real authentication or authorization behavior was added.
+* No frontend behavior was changed.
+* No production deployment or server config was changed.
+
+### Verification
+
+* [ ] Python compileall passed.
+* [ ] Backend import smoke test passed.
+* [ ] Alembic upgrade was tested against local PostgreSQL.
+* [ ] RBAC role, permission, role-permission, and app-user SQL checks passed.
+* [ ] Existing health and admin summary API smoke checks passed.
+* [ ] Search and safety checks passed.
+
+## 2026-06-25 - Fix backend data scope semantics and PostgreSQL checks
+
+### Goal
+
+* Continue on `Feature/backend-skeleton-local-postgresql`.
+* Fix the reviewed `data_scope` semantics before merge.
+* Run real local PostgreSQL-backed checks where the local environment allows.
+
+### Completed
+
+* Removed `archived` from the canonical `DataScope` enum.
+* Kept `archived` as a visitor message status and lifecycle concept.
+* Added baseline migration check constraints for visitor message data scope, audit log data scope, and visitor message status.
+* Updated development seed data so the fake import preview record uses `data_scope=imported`.
+* Updated development reset wording and behavior for test, demo, and imported records.
+* Clarified local backend skeleton status versus production-not-implemented status in backend docs.
+* Clarified that the static visitor message frontend is not wired to the local backend API.
+
+### Safety boundaries
+
+* No production deployment was added.
+* No real authentication or authorization was added.
+* No frontend behavior was changed.
+* No production secrets or real private data were added.
+
+### Verification
+
+* [ ] Python compileall passed.
+* [ ] Backend import smoke test passed.
+* [ ] Alembic upgrade was tested against local PostgreSQL.
+* [ ] Local PostgreSQL-backed API checks were run.
+* [ ] Text format and search checks passed.
+
+## 2026-06-24 - Add FastAPI PostgreSQL backend skeleton
+
+### Goal
+
+* Work on `Feature/backend-skeleton-local-postgresql`.
+* Add the first real backend/database foundation for local development.
+* Provide a PostgreSQL-backed API foundation for future application data testing.
+* Keep production deployment, real auth, and existing front-end behavior unchanged.
+
+### Completed
+
+* Added a `backend/` FastAPI application skeleton.
+* Added local PostgreSQL configuration through `backend/.env.example`.
+* Added SQLAlchemy database session and model foundation.
+* Added Alembic baseline migration.
+* Added `visitor_messages` as the first business table for local database testing.
+* Added `audit_logs` as the first audit foundation table.
+* Added `/api/health`.
+* Added create/list/status/soft-delete visitor message endpoints.
+* Added development-only seed, reset, and export endpoints under `/api/dev/*`.
+* Added development-only `/api/admin/data/summary`.
+* Added local development helper scripts for seed, reset, and export.
+* Updated backend and project documentation.
+* Updated `.gitignore` for backend env files, Python cache, virtual environments, data, logs, uploads, and backups.
+
+### Safety boundaries
+
+* No production deployment was added.
+* No Nginx or server config was changed.
+* No real authentication was added.
+* No real authorization was added.
+* No real private data was added.
+* No real secrets were added.
+* No frontend behavior was changed.
+* `/api/dev/*` is disabled outside development tools mode.
+* Admin-like message list/status/delete and admin data summary are disabled outside development tools mode.
+
+### Verification
+
+* [ ] Python compileall passed.
+* [ ] Backend import smoke test passed.
+* [ ] Text format check passed.
+* [ ] Conflict marker check passed.
+* [ ] Secret scan was reviewed.
+* [ ] Implementation scope was reviewed.
+* [ ] Local PostgreSQL database-backed tests were run.
+
+## 2026-06-24 - Plan backend database architecture
+
+### Goal
+
+* Work on `Feature/backend-database-architecture-plan`.
+* Create a serious backend/database architecture plan for the next development stage.
+* Design the future path from static prototypes to a secure server-backed personal tools platform.
+* Keep this task documentation-only.
+
+### Completed
+
+* Added `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
+* Documented the target browser -> Nginx HTTPS -> backend API -> PostgreSQL architecture.
+* Compared Node.js / Express and Python / FastAPI for the backend service.
+* Recommended Python / FastAPI, PostgreSQL, SQLAlchemy, Alembic, server-side secrets, and Nginx reverse proxy.
+* Planned formal/test/demo/imported data classification with `data_scope`.
+* Planned archived state as lifecycle/status metadata, not as a data-scope value.
+* Planned soft delete, restore, purge, export, audit log, and backup rules.
+* Planned a future protected admin data center route and UI model.
+* Updated existing docs to point to the new architecture document.
+
+### Not implemented
+
+* No backend code was added.
+* No database files were added.
+* No migrations were added.
+* No API routes were added.
+* No authentication or authorization code was added.
+* No admin UI implementation was added.
+* No server deployment configuration was changed.
+* No real private data or secrets were added.
+
+### Verification
+
+* [x] Documentation diff was reviewed.
+* [x] Committed text format check passed.
+* [x] Conflict marker check passed.
+* [x] Accidental implementation scan was reviewed.
+* [x] Secret scan was reviewed.
+
+## 2026-06-24 - Minimal login entry mock
+
+### Goal
+
+* Work on `Feature/minimal-login-entry`.
+* Replace the old private entrance placeholder with a minimal static login card.
+* Verify the route `index.html` -> `login.html` -> `hub.html`.
+* Keep the page quiet, clear, and separate from the homepage journey/map visual language.
+
+### Completed
+
+* Rebuilt `login.html` as a centered minimal login form.
+* Added `login.js` for fixed test-password mock routing to `hub.html`.
+* Added focused login form styles to `styles.css` using the existing visual tokens.
+* Documented that the mock password route is not real authentication or security.
+* Kept `hub.html` as a static, directly accessible preview page.
+
+### Not implemented
+
+* No backend was added.
+* No database was added.
+* No API was added.
+* No authentication or authorization system was added.
+* No real session, token, cookie, or permission system was added.
+* No real passwords or account records were stored.
+
+### Verification
+
+* [x] `node --check login.js` passed.
+* [x] Text format check passed before commit.
+* [x] Conflict marker check passed.
+* [x] Broken question-mark placeholder check was reviewed.
+* [x] Forbidden auth/backend/persistence scan passed for login-related files.
+* [x] Browser smoke tests were run with local Chrome headless.
+
+## 2026-06-22 - Merge latest main into visitor message prototype branch
+
+### Goal
+
+* Merge `origin/main` into `Feature/visitor-message-prototype` before deciding merge readiness.
+* Preserve accepted journey curve history from latest main.
+* Preserve visitor message prototype history from this feature branch.
+* Keep the visitor message work as a static front-end prototype.
+
+### Completed
+
+* `origin/main` was merged into `Feature/visitor-message-prototype`.
+* The only conflict was in `docs/PROJECT_HISTORY.md`.
+* Journey history entries and visitor message prototype history entries were both preserved.
+* Conflict markers were removed from the project history file.
+* No backend, database, API, authentication, or authorization was added.
+* No real visitor message persistence was added.
+
+### Verification
+
+* [x] Merge conflict was limited to `docs/PROJECT_HISTORY.md`.
+* [x] Both sides of project history were preserved.
+* [ ] JavaScript syntax checks passed after merge.
+* [ ] Committed text format check passed after merge.
+* [ ] Conflict marker check passed after merge.
+* [ ] Broken question-mark placeholder check was reviewed after merge.
+* [ ] Forbidden persistence/backend scan was reviewed after merge.
+* [ ] Browser smoke tests were run after merge.
+
 
 ## 2026-06-22 - Clean up obsolete journey curve experiments
 
@@ -368,6 +592,149 @@
 * [x] 手绘 S 形曲线已在浏览器中验证。
 * [ ] debug JSON 导出已在浏览器中验证。
 * [ ] mobile width 已验证。
+
+## 2026-06-21 - Fix remaining visitor message prototype text
+
+### Goal
+
+* Fix the remaining broken Hub card text for the visitor message management entry.
+* Fix the visitor message modal close button visible text.
+* Keep the visitor message feature as a front-end prototype only.
+* Do not add backend, database, API, authentication, authorization, or storage persistence.
+
+### Completed
+
+* Updated the Hub message management card text so it renders as readable Simplified Chinese in the browser.
+* Updated the message modal close button to use a readable close symbol.
+* Cleaned this project history file so it no longer contains broken question-mark placeholders.
+* Preserved the prototype-only boundary for visitor messages.
+
+### Changed Files
+
+* hub.html
+* index.html
+* docs/PROJECT_HISTORY.md
+
+### Not Changed
+
+* No backend code was added.
+* No database files were added.
+* No API routes were added.
+* No authentication or authorization was added.
+* No localStorage, sessionStorage, or cookie persistence was added.
+* Existing task, health, and special subscription apps were not changed.
+
+### Test Results
+
+* [x] Broad broken question-mark scan passes.
+* [x] Forbidden storage pattern scan passes.
+* [x] JavaScript syntax checks pass.
+* [ ] Interactive browser behavior was not manually verified in the Codex environment.
+
+### Source Formatting Follow-up
+
+* This entry remains a documentation record only.
+* The Hub card wording fix did not change the destination URL.
+* The modal close button fix did not change modal behavior.
+* The visitor message form still does not persist data.
+* The visitor message form still does not call a backend API.
+* The admin message page still shows sample placeholder rows only.
+* The admin message page still does not load real messages.
+* The branch still requires review before any merge to main.
+
+### Verification Boundary
+
+* Automated source checks were used for this cleanup.
+* HTTP smoke checks were used for page availability.
+* Interactive browser behavior was not manually verified.
+* Browser interaction checkboxes must remain unchecked until actually tested.
+* Future manual testing should verify modal open and close behavior.
+* Future manual testing should verify validation copy in the modal.
+* Future manual testing should verify that no save behavior is implied.
+
+## 2026-06-21 - Add visitor message UI prototype
+
+### Goal
+
+* Create the Feature/visitor-message-prototype branch from latest main.
+* Add a bottom-right floating visitor message entry on the public homepage.
+* Add a visitor message modal UI prototype.
+* Add a static admin message management placeholder page.
+* Add a Hub entry for message management.
+* Clearly document that real visitor messages require backend, database, authentication, and admin authorization.
+* Do not implement localStorage, sessionStorage, cookie persistence, backend, database, API, authentication, or authorization.
+
+### Completed
+
+* Added the visitor message floating tool and modal structure to index.html.
+* Added modal styles and responsive layout to styles.css.
+* Added modal open, close, Escape, overlay, and validation behavior to script.js.
+* Added a Hub entry for message management.
+* Added apps/messages/index.html as the admin UI prototype.
+* Added apps/messages/messages.css for the admin prototype page.
+* Added apps/messages/messages.js for prototype initialization logging.
+* Updated README and docs to document the future backend and database requirements.
+
+### Changed Files
+
+* index.html
+* styles.css
+* script.js
+* hub.html
+* apps/messages/index.html
+* apps/messages/messages.css
+* apps/messages/messages.js
+* README.md
+* docs/00_DESIGN_GUIDE.md
+* docs/05_APP_MODULES.md
+* docs/06_VISUAL_STYLE_GUIDE.md
+* docs/07_ROUTE_AND_SECURITY_RULES.md
+* docs/08_PROJECT_STRUCTURE_STANDARD.md
+* docs/09_BACKEND_DATABASE_PLAN.md
+* docs/PROJECT_HISTORY.md
+
+### Test Results
+
+* [x] Homepage, Hub, and message admin page returned HTTP 200.
+* [x] JavaScript syntax checks passed.
+* [x] Forbidden storage pattern scan passed.
+* [x] No backend, database, API, auth, or message persistence was added.
+* [ ] Full interactive browser test was not completed in that task.
+
+### Visitor-Side Prototype Boundary
+
+* The floating button is a navigation and UI affordance only.
+* The modal is a front-end prototype only.
+* The nickname field is validated on the client for prototype feedback.
+* The message field is validated on the client for prototype feedback.
+* The contact field is optional in the prototype.
+* Successful validation shows a not-saved prototype notice.
+* Successful validation does not create a message record.
+* Successful validation does not send email.
+* Successful validation does not send notifications.
+* Successful validation does not call a server endpoint.
+
+### Admin-Side Prototype Boundary
+
+* The message management page is a static child app prototype.
+* The table rows are sample placeholders only.
+* The read status values are sample placeholders only.
+* The reply status values are sample placeholders only.
+* The action buttons do not perform real state changes.
+* The page does not fetch real visitor messages.
+* The page does not require real administrator authentication yet.
+* The page must not be treated as a protected admin console.
+
+### Future Implementation Notes
+
+* Real visitor messages require a backend API.
+* Real visitor messages require server-side database storage.
+* Real visitor messages require spam and abuse planning.
+* Real admin management requires authentication.
+* Real admin management requires authorization.
+* Real admin management requires read and reply status persistence.
+* Real admin management requires audit-friendly data handling.
+* Real admin management must not store private data in GitHub.
 
 ## 2026-06-21 - Replace failed global journey fairing with bounded local fitting
 
@@ -893,3 +1260,86 @@
 * [x] Area 和 Event 使用测试数据。
 * [x] Overview / Details 切换已实现。
 * [x] 未使用真实个人信息、真实城市或真实图片。
+
+## 2026-06-17 - Public homepage and journey page updates
+
+### Summary
+
+* Added ICP filing footer to the public homepage.
+* Split the curved path timeline prototype into journey.html.
+* Preserved the public cover homepage.
+* Changed journey entry to a hidden lower-left entrance.
+* Preserved the hidden private entrance to login.html.
+
+### Cover Page Notes
+
+* The public cover page remains the stable first page.
+* The ICP filing footer remains visible on the public cover page.
+* The hidden private entrance remains separate from the journey entrance.
+* Normal cover background clicks should not navigate to journey.html.
+* The journey entrance is visually hidden in the lower-left corner.
+* The private entrance links to login.html.
+* Hidden entrances are navigation devices only.
+* Hidden entrances are not access control.
+
+### Journey Page Notes
+
+* journey.html contains the curved path timeline prototype.
+* journey.css contains journey-specific styling.
+* journey.js contains journey-specific behavior.
+* The journey editor remains a local/static prototype.
+* The journey editor is not a secure admin system.
+* The journey page uses placeholder content only.
+
+## 2026-06-14 - Curved path timeline prototype work
+
+### Summary
+
+* Built the curved path timeline homepage prototype.
+* Added the local editor prototype.
+* Added freehand curve drawing and path-anchored node behavior.
+* Kept the work static and placeholder-only.
+* Did not add backend, database, auth, or real personal data.
+
+### Timeline Prototype Notes
+
+* The first timeline version used Area 01 through Area 04.
+* Major event nodes and minor event nodes were placeholder data.
+* Overview mode showed the main storyline.
+* Details mode showed additional minor nodes.
+* Later editor work added local editing controls.
+* Freehand curve drawing allowed direct route sketching.
+* Path percentage node anchoring let nodes follow the curve.
+* The timeline remained a front-end prototype.
+* The timeline did not add real personal biography data.
+* The timeline did not add real city names.
+* The timeline did not add real photos.
+* The timeline did not add backend persistence.
+
+## Ongoing Project Rules
+
+### Data Rules
+
+* Real private data must not be committed to GitHub.
+* Secrets must not be committed to GitHub.
+* Database files must not be committed to GitHub.
+* Uploads must not be committed to GitHub.
+* Logs must not be committed to GitHub.
+* Backups must not be committed to GitHub.
+* Production-only configuration must not be committed to GitHub.
+
+### Branch Rules
+
+* Feature work should use a Feature branch.
+* Fix work should use a BugFix branch when appropriate.
+* Work should not happen directly on main unless explicitly requested.
+* Merges should happen only when explicitly requested.
+* Pushes should happen only when explicitly requested or required by the task.
+
+### Verification Rules
+
+* Mark browser tests as passed only when they were actually run.
+* Mark source checks as passed only when commands actually passed.
+* Keep automated check output available in task summaries.
+* Keep manual test gaps visible instead of implying success.
+* Preserve application behavior during documentation-only changes.
