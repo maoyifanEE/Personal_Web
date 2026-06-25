@@ -10,7 +10,7 @@
 * Cloud sync: not implemented.
 * Real login: not implemented.
 * Real protected private routes: not implemented.
-* This document is planning only.
+* This document is a planning overview plus current local backend status.
 * No production backend is deployed yet.
 
 ## Why This Document Exists
@@ -19,7 +19,7 @@
 * Real private data should not stay in static files.
 * Real private data should not stay in long-term `localStorage`.
 * This document prevents future Codex work from inventing backend architecture freely.
-* This document marks future backend work as planned until explicitly implemented.
+* This document separates the local development backend foundation from future production backend work.
 * Detailed backend/database architecture now lives in `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 
 ## Architecture Reference
@@ -28,7 +28,11 @@ Read `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` before implementing backend, dat
 
 That document defines the target Nginx, backend API, PostgreSQL, admin data center, test-data classification, soft-delete, purge, and phased implementation plan.
 
-This file remains a concise planning overview and does not claim backend/database/auth exists.
+This file remains a concise planning overview.
+
+It now acknowledges that a local backend/database skeleton exists.
+
+It does not claim production backend, real authentication, or real authorization exists.
 
 ## Future Data Ownership Model
 
@@ -46,21 +50,20 @@ Refer to `docs/00_DESIGN_GUIDE.md` for the full ownership model.
 
 ## Planned Future Components
 
-The following components are planned only:
+The following components are planned only for production use:
 
-* Backend server.
 * Authentication.
 * Authorization.
-* Database.
 * Backup system.
-* API layer.
 * Admin/user roles.
 * Server-side validation.
 * Secret management.
 * Production deployment configuration.
 * Data migration tools.
 
-None of these components are implemented by this document.
+The local FastAPI, PostgreSQL, Alembic, and visitor-message API foundation exists for development testing only.
+
+It is not a production system.
 
 ## Phase 2 Local Foundation Status
 
@@ -76,6 +79,7 @@ Implemented for local development only:
 * `visitor_messages` table.
 * `audit_logs` table.
 * Development-only seed, reset, export, and admin summary endpoints.
+* Local development `POST /api/messages` endpoint for backend testing.
 
 Not implemented yet:
 
@@ -84,6 +88,7 @@ Not implemented yet:
 * Real authorization.
 * Production admin UI.
 * Front-end migration to backend APIs.
+* Production visitor message submission.
 * Task, health, subscription, or journey database persistence.
 
 ## Planned User Roles
@@ -176,34 +181,45 @@ This document is only a plan.
 * [ ] Production deployment boundaries are documented.
 
 
-## Planned Visitor Message Data Model
+## Visitor Message Data Model Status
 
-The following fields are planned only and are not implemented yet:
+The local development backend now implements a first `visitor_messages` table.
+
+The current local table includes fields for:
 
 * id
 * created_at
 * nickname
 * contact
-* message_content
-* read_status
-* reply_status
-* admin_reply
+* message
+* status
+* data_scope
+* source_app
+* soft-delete metadata
+* admin note
+
+Future production work may add:
+
+* reply status
+* admin reply
 * replied_at
-* visitor_ip_hash or anti-spam metadata if future requirements allow
+* anti-spam metadata if future requirements allow
 
-These fields are not a committed database schema.
+The current frontend visitor message modal is not wired to this backend yet.
 
-They document the expected future shape of visitor message storage.
+## Visitor Message API Status
 
-## Planned Visitor Message API Examples
-
-The following API routes are planned only and are not implemented:
+The local development backend now implements:
 
 * `POST /api/messages`
-* `GET /api/admin/messages`
-* `PATCH /api/admin/messages/:id/read`
-* `PATCH /api/admin/messages/:id/reply`
+* `GET /api/messages`
+* `PATCH /api/messages/{message_id}/status`
+* `POST /api/messages/{message_id}/soft-delete`
 
-Visitor submission must save to the server-side database only after backend, database, authentication, and authorization are implemented.
+These endpoints are for local backend testing.
+
+The existing static frontend does not submit to them yet.
+
+Production visitor submission must wait for deployment review, rate limiting, abuse controls, logging policy, and privacy review.
 
 Admin message management must require real administrator authorization before production use.

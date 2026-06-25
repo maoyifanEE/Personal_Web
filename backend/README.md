@@ -203,7 +203,15 @@ Local database data is not pushed to GitHub.
 
 `backend/.env` is ignored.
 
-Test records use `data_scope=test` or `data_scope=demo`.
+Development records may use:
+
+* `data_scope=test`
+* `data_scope=demo`
+* `data_scope=imported`
+
+Archived visitor messages use `status=archived`.
+
+Archived is not a `data_scope` value.
 
 Production data must use a separate production database later.
 

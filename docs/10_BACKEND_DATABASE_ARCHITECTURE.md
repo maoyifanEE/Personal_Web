@@ -218,15 +218,17 @@ Every user-created or admin-created data record should be identifiable as one of
 * `test`
 * `demo`
 * `imported`
-* `archived`
-
 Recommended canonical field:
 
 * `data_scope`
 
 Reason:
 
-`data_scope` is short, easy to filter, and broad enough to cover production, test, demo, imported, and archived data.
+`data_scope` is short, easy to filter, and describes why or how the data exists.
+
+It is a purpose and source classification field.
+
+It is not a lifecycle or status field.
 
 Recommended values:
 
@@ -235,8 +237,16 @@ production
 test
 demo
 imported
-archived
 ```
+
+Archived data must be represented by lifecycle or status fields.
+
+Examples include:
+
+* `status = archived`
+* `deleted_at`
+* `deleted_by`
+* `delete_reason`
 
 Recommended supporting fields:
 
@@ -254,13 +264,17 @@ Compatibility field:
 
 `is_test` may be useful as a derived or compatibility field.
 
-It should not be the canonical classification because it cannot represent demo, imported, or archived states.
+It should not be the canonical classification because it cannot represent demo or imported data.
+
+It also cannot represent lifecycle state.
+
+Archived is not a data scope.
 
 Admin filtering requirements:
 
 * Filter by app or module.
-* Filter by production, test, demo, imported, or archived data.
-* Filter by active, archived, soft-deleted, or purged eligibility.
+* Filter by `data_scope`: production, test, demo, or imported.
+* Filter by lifecycle or status: active, archived, soft-deleted, or purge-eligible.
 * Filter by owner or user.
 * Filter by creation time.
 * Filter by update time.
@@ -329,7 +343,8 @@ Required admin UI areas:
 * Filters.
 * Search.
 * Record detail panel.
-* Production, test, demo, imported, and archived badges.
+* Production, test, demo, and imported data-scope badges.
+* Lifecycle/status badges such as active, archived, soft-deleted, or purge-eligible.
 * Soft delete button.
 * Restore button.
 * Purge button.

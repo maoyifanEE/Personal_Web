@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Any
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.common import DataScope
 from app.models.visitor_message import VisitorMessageStatus
@@ -13,6 +15,17 @@ class VisitorMessageCreate(BaseModel):
     contact: str | None = Field(default=None, max_length=120)
     message: str = Field(..., max_length=2000)
     data_scope: DataScope | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_email_as_contact(cls, data: Any) -> Any:
+        """Accept email as a local-test alias while storing the canonical contact field."""
+
+        if isinstance(data, dict) and not data.get("contact") and data.get("email"):
+            normalized = dict(data)
+            normalized["contact"] = normalized["email"]
+            return normalized
+        return data
 
     @field_validator("nickname", "message")
     @classmethod

@@ -116,10 +116,18 @@ The visitor message modal on `index.html` is a front-end prototype only.
 
 Submitting the visitor message form does not persist data in the current project.
 
+The local backend `POST /api/messages` endpoint exists for backend testing only.
+
+The existing static frontend visitor message modal is not wired to that endpoint.
+
 `apps/messages/index.html` is an admin message management UI prototype only.
 
 It is not a real protected admin page yet.
 
 Direct URL access is possible until backend authentication and authorization exist.
 
-Real visitor messages require backend API routes, database storage, and admin authorization before production use.
+Production visitor message submission must not be enabled until rate limiting, abuse controls, logging policy, privacy review, and production deployment review are complete.
+
+Admin message reading, status changes, and soft delete must require real authentication and authorization before production use.
+
+The current static frontend must not be described as persisting visitor messages.

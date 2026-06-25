@@ -146,9 +146,24 @@ def seed_dev_messages(db: Session) -> int:
     """Insert safe fake test/demo visitor messages for local development."""
 
     fake_messages = [
-        VisitorMessage(nickname="Demo Visitor", contact="demo@example.test", message="Fake demo message.", data_scope="demo"),
-        VisitorMessage(nickname="Local Tester", contact="tester@example.test", message="Fake local test message.", data_scope="test"),
-        VisitorMessage(nickname="Import Preview", contact=None, message="Fake imported preview message.", data_scope="test"),
+        VisitorMessage(
+            nickname="Demo Visitor",
+            contact="demo@example.test",
+            message="Fake demo message.",
+            data_scope=DataScope.DEMO.value,
+        ),
+        VisitorMessage(
+            nickname="Local Tester",
+            contact="tester@example.test",
+            message="Fake local test message.",
+            data_scope=DataScope.TEST.value,
+        ),
+        VisitorMessage(
+            nickname="Import Preview",
+            contact=None,
+            message="Fake imported preview message.",
+            data_scope=DataScope.IMPORTED.value,
+        ),
     ]
     db.add_all(fake_messages)
     db.flush()
@@ -169,12 +184,20 @@ def seed_dev_messages(db: Session) -> int:
 
 
 def reset_dev_test_data(db: Session) -> int:
-    """Soft-delete development test/demo visitor messages only."""
+    """Soft-delete development test/demo/imported visitor messages only."""
 
     now = datetime.now(timezone.utc)
     result = db.execute(
         update(VisitorMessage)
-        .where(VisitorMessage.data_scope.in_([DataScope.TEST.value, DataScope.DEMO.value]))
+        .where(
+            VisitorMessage.data_scope.in_(
+                [
+                    DataScope.TEST.value,
+                    DataScope.DEMO.value,
+                    DataScope.IMPORTED.value,
+                ]
+            )
+        )
         .where(VisitorMessage.deleted_at.is_(None))
         .values(deleted_at=now, deleted_by="dev", delete_reason="development reset-test-data")
     )
@@ -186,7 +209,7 @@ def reset_dev_test_data(db: Session) -> int:
         target_table="visitor_messages",
         data_scope=DataScope.TEST.value,
         actor_type="dev",
-        summary=f"Development reset soft-deleted {affected} test/demo visitor messages.",
+        summary=f"Development reset soft-deleted {affected} test/demo/imported visitor messages.",
     )
     db.commit()
     logger.info("Development reset soft-deleted %s visitor messages", affected)

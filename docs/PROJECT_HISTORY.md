@@ -1,5 +1,38 @@
 # Project History
 
+## 2026-06-25 - Fix backend data scope semantics and PostgreSQL checks
+
+### Goal
+
+* Continue on `Feature/backend-skeleton-local-postgresql`.
+* Fix the reviewed `data_scope` semantics before merge.
+* Run real local PostgreSQL-backed checks where the local environment allows.
+
+### Completed
+
+* Removed `archived` from the canonical `DataScope` enum.
+* Kept `archived` as a visitor message status and lifecycle concept.
+* Added baseline migration check constraints for visitor message data scope, audit log data scope, and visitor message status.
+* Updated development seed data so the fake import preview record uses `data_scope=imported`.
+* Updated development reset wording and behavior for test, demo, and imported records.
+* Clarified local backend skeleton status versus production-not-implemented status in backend docs.
+* Clarified that the static visitor message frontend is not wired to the local backend API.
+
+### Safety boundaries
+
+* No production deployment was added.
+* No real authentication or authorization was added.
+* No frontend behavior was changed.
+* No production secrets or real private data were added.
+
+### Verification
+
+* [ ] Python compileall passed.
+* [ ] Backend import smoke test passed.
+* [ ] Alembic upgrade was tested against local PostgreSQL.
+* [ ] Local PostgreSQL-backed API checks were run.
+* [ ] Text format and search checks passed.
+
 ## 2026-06-24 - Add FastAPI PostgreSQL backend skeleton
 
 ### Goal
@@ -62,7 +95,8 @@
 * Documented the target browser -> Nginx HTTPS -> backend API -> PostgreSQL architecture.
 * Compared Node.js / Express and Python / FastAPI for the backend service.
 * Recommended Python / FastAPI, PostgreSQL, SQLAlchemy, Alembic, server-side secrets, and Nginx reverse proxy.
-* Planned formal/test/demo/imported/archived data classification with `data_scope`.
+* Planned formal/test/demo/imported data classification with `data_scope`.
+* Planned archived state as lifecycle/status metadata, not as a data-scope value.
 * Planned soft delete, restore, purge, export, audit log, and backup rules.
 * Planned a future protected admin data center route and UI model.
 * Updated existing docs to point to the new architecture document.

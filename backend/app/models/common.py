@@ -14,7 +14,6 @@ class DataScope(StrEnum):
     TEST = "test"
     DEMO = "demo"
     IMPORTED = "imported"
-    ARCHIVED = "archived"
 
 
 class TimestampMixin:

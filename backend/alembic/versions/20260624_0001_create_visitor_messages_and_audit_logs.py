@@ -33,6 +33,14 @@ def upgrade() -> None:
         sa.Column("deleted_by", sa.String(length=120), nullable=True),
         sa.Column("delete_reason", sa.Text(), nullable=True),
         sa.Column("admin_note", sa.Text(), nullable=True),
+        sa.CheckConstraint(
+            "data_scope IN ('production', 'test', 'demo', 'imported')",
+            name="ck_visitor_messages_data_scope",
+        ),
+        sa.CheckConstraint(
+            "status IN ('new', 'read', 'archived')",
+            name="ck_visitor_messages_status",
+        ),
     )
     op.create_index("ix_visitor_messages_id", "visitor_messages", ["id"])
     op.create_index("ix_visitor_messages_status", "visitor_messages", ["status"])
@@ -52,6 +60,10 @@ def upgrade() -> None:
         sa.Column("actor_id", sa.String(length=120), nullable=True),
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "data_scope IN ('production', 'test', 'demo', 'imported')",
+            name="ck_audit_logs_data_scope",
+        ),
     )
     op.create_index("ix_audit_logs_id", "audit_logs", ["id"])
     op.create_index("ix_audit_logs_action", "audit_logs", ["action"])
@@ -66,6 +78,7 @@ def downgrade() -> None:
     op.drop_index("ix_audit_logs_source_app", table_name="audit_logs")
     op.drop_index("ix_audit_logs_action", table_name="audit_logs")
     op.drop_index("ix_audit_logs_id", table_name="audit_logs")
+    op.drop_constraint("ck_audit_logs_data_scope", "audit_logs", type_="check")
     op.drop_table("audit_logs")
 
     op.drop_index("ix_visitor_messages_deleted_at", table_name="visitor_messages")
@@ -73,4 +86,6 @@ def downgrade() -> None:
     op.drop_index("ix_visitor_messages_data_scope", table_name="visitor_messages")
     op.drop_index("ix_visitor_messages_status", table_name="visitor_messages")
     op.drop_index("ix_visitor_messages_id", table_name="visitor_messages")
+    op.drop_constraint("ck_visitor_messages_status", "visitor_messages", type_="check")
+    op.drop_constraint("ck_visitor_messages_data_scope", "visitor_messages", type_="check")
     op.drop_table("visitor_messages")
