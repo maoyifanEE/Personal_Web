@@ -18,6 +18,10 @@ that will eventually store real long-term private data.
 
 The current project is still mostly a static front-end preview.
 
+Phase 2 has begun with a local FastAPI and PostgreSQL backend skeleton.
+
+That backend foundation is for local development and future data testing only.
+
 Current boundaries:
 
 * `index.html` is a public static homepage.
@@ -25,12 +29,14 @@ Current boundaries:
 * `hub.html` is a static private hub preview only.
 * `apps/messages/index.html` is a static admin message management prototype only.
 * Task, health, special subscription, and journey pages are static or local prototypes.
-* There is no real backend.
-* There is no real database.
-* There is no real API.
+* A local FastAPI backend skeleton exists for development testing.
+* A local PostgreSQL schema foundation exists for development testing.
+* Local backend API endpoints exist for development testing.
 * There is no real authentication.
 * There is no real authorization.
 * There is no real cloud sync.
+* There is no production backend deployment.
+* Existing static front-end pages are not wired to the backend.
 
 Hidden links are not security.
 
@@ -40,6 +46,21 @@ Direct URL access to private preview pages is still possible.
 
 No real private data should be stored until backend, database, authentication, authorization, backup,
 and admin data-management rules are implemented correctly.
+
+The first implemented business table is `visitor_messages`.
+
+A database-level RBAC foundation now exists with users, roles, permissions, user-role assignments,
+and role-permission assignments.
+
+The RBAC foundation is schema-only.
+
+It does not create a real user.
+
+It does not create a password.
+
+It does not implement login or authorization behavior.
+
+The `/api/dev/*` endpoints and `/api/admin/data/summary` are development-only until real authentication exists.
 
 ## 3. Target Architecture
 
@@ -209,15 +230,17 @@ Every user-created or admin-created data record should be identifiable as one of
 * `test`
 * `demo`
 * `imported`
-* `archived`
-
 Recommended canonical field:
 
 * `data_scope`
 
 Reason:
 
-`data_scope` is short, easy to filter, and broad enough to cover production, test, demo, imported, and archived data.
+`data_scope` is short, easy to filter, and describes why or how the data exists.
+
+It is a purpose and source classification field.
+
+It is not a lifecycle or status field.
 
 Recommended values:
 
@@ -226,8 +249,16 @@ production
 test
 demo
 imported
-archived
 ```
+
+Archived data must be represented by lifecycle or status fields.
+
+Examples include:
+
+* `status = archived`
+* `deleted_at`
+* `deleted_by`
+* `delete_reason`
 
 Recommended supporting fields:
 
@@ -245,13 +276,17 @@ Compatibility field:
 
 `is_test` may be useful as a derived or compatibility field.
 
-It should not be the canonical classification because it cannot represent demo, imported, or archived states.
+It should not be the canonical classification because it cannot represent demo or imported data.
+
+It also cannot represent lifecycle state.
+
+Archived is not a data scope.
 
 Admin filtering requirements:
 
 * Filter by app or module.
-* Filter by production, test, demo, imported, or archived data.
-* Filter by active, archived, soft-deleted, or purged eligibility.
+* Filter by `data_scope`: production, test, demo, or imported.
+* Filter by lifecycle or status: active, archived, soft-deleted, or purge-eligible.
 * Filter by owner or user.
 * Filter by creation time.
 * Filter by update time.
@@ -320,7 +355,8 @@ Required admin UI areas:
 * Filters.
 * Search.
 * Record detail panel.
-* Production, test, demo, imported, and archived badges.
+* Production, test, demo, and imported data-scope badges.
+* Lifecycle/status badges such as active, archived, soft-deleted, or purge-eligible.
 * Soft delete button.
 * Restore button.
 * Purge button.
@@ -390,27 +426,33 @@ Principles:
 
 ## 12. Database Schema Planning
 
-Do not write final SQL migrations yet.
+Initial local SQL migrations now exist for the backend skeleton.
+
+The schema is still not a production authentication or authorization system.
 
 Draft table groups:
 
-### `users`
+### `app_users`
 
 Purpose:
 
-* Store administrator and future allowed-user accounts.
+* Store future administrator and allowed-user accounts.
+* Support admin-first access without hard-coding the database as admin-only forever.
 
 Important fields:
 
 * `id`
-* `email`
+* `username`
 * `display_name`
+* `email`
 * `password_hash`
-* `role`
-* `is_active`
+* `status`
+* `is_system`
+* `last_login_at`
 * `created_at`
 * `updated_at`
-* `last_login_at`
+* `deleted_at`
+* `admin_note`
 
 Needs `data_scope`:
 
@@ -425,19 +467,56 @@ Security notes:
 * Store password hashes only.
 * Never store plaintext passwords.
 * Email uniqueness should be enforced.
+* No real users are seeded in the current schema foundation.
+* User status is lifecycle metadata, not `data_scope`.
 
-### `roles` or role enum
+### `roles`
 
 Purpose:
 
-* Define owner, administrator, and future allowed-user permissions.
+* Define administrator and future allowed-user roles.
 
 Important fields:
 
-* `id` or enum value.
-* `name`
+* `id`
+* `role_key`
+* `display_name`
 * `description`
+* `is_system`
+* `status`
 * `created_at`
+* `updated_at`
+
+Needs `data_scope`:
+
+* No.
+
+Needs lifecycle fields:
+
+* Yes, role `status` supports active, disabled, and archived.
+
+Security notes:
+
+* Role changes must be audited.
+* The current migration seeds only the system `admin` role definition.
+* It does not assign that role to a real user.
+
+### `permissions`
+
+Purpose:
+
+* Define actions that future roles may allow.
+
+Important fields:
+
+* `id`
+* `permission_key`
+* `resource`
+* `action`
+* `description`
+* `is_system`
+* `created_at`
+* `updated_at`
 
 Needs `data_scope`:
 
@@ -445,11 +524,60 @@ Needs `data_scope`:
 
 Needs soft delete fields:
 
-* Usually no for enum; maybe yes for table-based roles.
+* Not in the first local foundation.
 
 Security notes:
 
-* Role changes must be audited.
+* Current seeded permissions are definitions only.
+* They are not enforced by any route yet.
+
+### `user_roles`
+
+Purpose:
+
+* Assign future users to roles.
+
+Important fields:
+
+* `id`
+* `user_id`
+* `role_id`
+* `assigned_at`
+* `assigned_by_user_id`
+* `revoked_at`
+* `revoked_by_user_id`
+* `revoke_reason`
+
+Needs `data_scope`:
+
+* No.
+
+Security notes:
+
+* No user-role rows are seeded in the current foundation.
+* Future assignment changes must require admin authorization and audit logging.
+
+### `role_permissions`
+
+Purpose:
+
+* Assign permissions to roles.
+
+Important fields:
+
+* `id`
+* `role_id`
+* `permission_id`
+* `created_at`
+
+Needs `data_scope`:
+
+* No.
+
+Security notes:
+
+* The current migration assigns the seeded permissions to the seeded `admin` role.
+* This is reference data only until real authorization checks are implemented.
 
 ### `sessions`
 
@@ -770,7 +898,7 @@ Acceptance criteria:
 Goal:
 
 * Add backend service skeleton, environment config pattern, PostgreSQL connection, health check endpoint,
-  and migration baseline.
+  migration baseline, and database-level RBAC foundation.
 
 Files likely touched:
 
@@ -783,7 +911,8 @@ Must not do:
 
 * Do not store real private data.
 * Do not expose database publicly.
-* Do not implement private app data storage yet.
+* Do not implement real authentication or authorization behavior yet.
+* Do not wire static front-end pages to backend APIs yet.
 
 Acceptance criteria:
 
@@ -791,17 +920,19 @@ Acceptance criteria:
 * Health check works.
 * Database connection uses server-side config only.
 * Baseline migration exists.
+* RBAC schema exists without real users or passwords.
 
 ### Phase 3: Real admin login
 
 Goal:
 
-* Implement admin user table, password hashing, session or token design, and protected routes.
+* Build on the existing RBAC schema to implement real admin login, password hashing,
+  session or token design, and protected routes.
 
 Files likely touched:
 
 * Backend auth routes.
-* User model.
+* Existing user and RBAC models.
 * Session model.
 * Login UI integration.
 * Security docs.

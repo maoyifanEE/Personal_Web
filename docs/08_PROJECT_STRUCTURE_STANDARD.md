@@ -34,6 +34,35 @@ Prototype pages may include local-only editor behavior.
 
 Future backend/API areas must be planned before implementation.
 
+## Backend Folder Rules
+
+The backend lives under `backend/`.
+
+Backend code must not be placed in the repository root.
+
+Current backend areas:
+
+* `backend/app/` for FastAPI application code.
+* `backend/app/api/` for API routers.
+* `backend/app/core/` for configuration and safety helpers.
+* `backend/app/db/` for SQLAlchemy base and sessions.
+* `backend/app/models/` for ORM models.
+* `backend/app/schemas/` for Pydantic schemas.
+* `backend/app/services/` for service-layer logic.
+* `backend/app/scripts/` for local development helper scripts.
+* `backend/alembic/` for migration scripts.
+
+Backend rules:
+
+* Keep `.env.example` committed with fake placeholders only.
+* Do not commit `backend/.env`.
+* Do not commit database files, logs, uploads, or backups.
+* Development-only API routes must fail safely outside development.
+* Production auth and admin UI must be implemented in later dedicated tasks.
+* RBAC ORM models belong in `backend/app/models/`.
+* RBAC migrations may seed system role and permission definitions only.
+* RBAC migrations must not seed real users, real passwords, sessions, or tokens.
+
 ## Root Page Rules
 
 * Root pages stay in the project root.
