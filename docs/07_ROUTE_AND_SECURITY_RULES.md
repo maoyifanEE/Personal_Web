@@ -33,11 +33,11 @@ It explains what is public, what is a placeholder, and what must not be treated 
 
 ## Important Security Boundary
 
-* Hidden entrances are visual navigation only.
-* Hidden entrances are not authentication.
-* Hidden entrances are not authorization.
-* Hidden entrances are not access control.
-* Hidden entrances are not private data protection.
+* Homepage entrance buttons are visual navigation only.
+* Homepage entrance buttons are not authentication.
+* Homepage entrance buttons are not authorization.
+* Homepage entrance buttons are not access control.
+* Homepage entrance buttons are not private data protection.
 * `login.html` is a static mock private entrance.
 * The fixed test-password redirect is route verification only.
 * The fixed test-password redirect is not authentication.
@@ -45,8 +45,9 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * `hub.html` is a static placeholder.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.
-* Future backend, authentication, authorization, and security are planned only.
-* They are not implemented in the current project.
+* Local backend and database foundations exist for development.
+* Production backend deployment is not implemented.
+* Real authentication, session handling, authorization enforcement, and frontend backend integration are not implemented.
 * Future protected admin and data routes must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 * `/api/dev/*` must never be enabled in production.
 * Message list, status update, soft delete, and admin summary endpoints are disabled in production until real auth exists.
@@ -101,7 +102,7 @@ Real private data must wait for the future security model.
 
 * [ ] Public pages are clearly marked public.
 * [ ] Placeholder private pages are not described as secure.
-* [ ] Hidden entrances are described as navigation only.
+* [ ] Homepage entrance buttons are described as navigation only.
 * [ ] Static login is not described as real authentication.
 * [ ] Static mock login is not described as real session creation.
 * [ ] Static hub is not described as real authorization.

@@ -100,13 +100,15 @@ Code is developed locally, versioned in GitHub, and deployed to the server; real
 
 ## Backend Boundary
 
-* Backend is not implemented.
-* Database is not implemented.
-* API is not implemented.
+* Local backend skeleton exists for development.
+* Local PostgreSQL development foundation exists.
+* Local API endpoints exist for backend testing and development only.
 * Authentication is not implemented.
 * Authorization is not implemented.
 * Cloud sync is not implemented.
-* Future backend work must use a dedicated branch.
+* Production backend deployment is not implemented.
+* Frontend pages are not wired to the backend yet.
+* Future production backend work must use a dedicated branch.
 * Future backend work must include documentation updates.
 * Future backend/database implementation must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 * Future backend work must not introduce real private data into GitHub.

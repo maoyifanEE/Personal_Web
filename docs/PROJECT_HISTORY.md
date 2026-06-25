@@ -1,5 +1,29 @@
 # Project History
 
+## 2026-06-25 - Make homepage entrance buttons visible
+
+### Goal
+
+* Replace the two quiet hidden homepage entrances with visible navigation buttons.
+* Keep the visitor route and user route separate.
+* Preserve existing static routing behavior while syncing with the latest backend main branch.
+
+### Completed
+
+* Changed the journey entry into a visible `访客入口` button linking to `journey.html`.
+* Changed the private entry into a visible `用户入口` button linking to `login.html`.
+* Kept existing entrance classes so current homepage script diagnostics can still read the route hrefs.
+* Updated README and route/visual docs to describe the entries as visible navigation.
+* Preserved the backend skeleton, PostgreSQL foundation, RBAC foundation, and related documentation from `origin/main`.
+
+### Safety boundaries
+
+* No authentication or authorization behavior was added by the homepage entrance change.
+* No backend code was modified by the homepage entrance change.
+* No backend migrations or configuration were modified by the homepage entrance change.
+* No private data was added.
+* No homepage hero text or ICP footer behavior was changed.
+
 ## 2026-06-25 - Add RBAC database foundation
 
 ### Goal
@@ -220,6 +244,7 @@
 * [ ] Broken question-mark placeholder check was reviewed after merge.
 * [ ] Forbidden persistence/backend scan was reviewed after merge.
 * [ ] Browser smoke tests were run after merge.
+
 
 ## 2026-06-22 - Clean up obsolete journey curve experiments
 

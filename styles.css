@@ -74,49 +74,51 @@ h1 span {
   font-size: clamp(16px, 1.45vw, 19px);
 }
 
-.hidden-entrance {
-  position: absolute;
-  right: 24px;
-  bottom: 24px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  opacity: 0.04;
-  background: var(--teal);
+.visible-entrance {
+  position: fixed;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid rgba(21, 156, 165, 0.22);
+  border-radius: 999px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 12px 30px rgba(24, 42, 58, 0.1);
+  font-size: 14px;
+  font-weight: 800;
   text-decoration: none;
+  backdrop-filter: blur(10px);
   transition:
-    opacity 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
     transform 160ms ease;
 }
 
-.hidden-entrance:hover,
-.hidden-entrance:focus-visible {
-  opacity: 0.28;
+.visible-entrance--visitor {
+  left: 24px;
+  bottom: 24px;
+}
+
+.visible-entrance--user {
+  left: 126px;
+  bottom: 24px;
+}
+
+.visible-entrance:hover,
+.visible-entrance:focus-visible {
+  border-color: rgba(21, 156, 165, 0.38);
+  color: #ffffff;
+  background: var(--teal);
   transform: translateY(-1px);
 }
 
-.hidden-entrance:focus-visible {
-  outline: 2px solid rgba(21, 156, 165, 0.48);
-  outline-offset: 4px;
-}
-
-.journey-hidden-entrance {
-  position: fixed;
-  left: 16px;
-  bottom: 16px;
-  z-index: 3;
-  width: 44px;
-  height: 44px;
-  border: 0;
-  opacity: 0;
-  background: transparent;
-  text-decoration: none;
-}
-
-.journey-hidden-entrance:focus-visible {
-  opacity: 0.18;
-  outline: 2px solid rgba(21, 156, 165, 0.36);
-  outline-offset: 4px;
+.visible-entrance:focus-visible {
+  outline: 3px solid rgba(21, 156, 165, 0.18);
+  outline-offset: 3px;
 }
 
 .site-footer {
@@ -437,14 +439,20 @@ h1 span {
     font-size: 15px;
   }
 
-  .hidden-entrance {
-    right: 18px;
-    bottom: 18px;
+  .visible-entrance {
+    min-height: 38px;
+    padding: 8px 12px;
+    font-size: 13px;
   }
 
-  .journey-hidden-entrance {
-    left: 14px;
-    bottom: 14px;
+  .visible-entrance--visitor {
+    left: 16px;
+    bottom: 56px;
+  }
+
+  .visible-entrance--user {
+    left: 108px;
+    bottom: 56px;
   }
 
   .private-page {
