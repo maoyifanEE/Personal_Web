@@ -1,5 +1,42 @@
 # Project History
 
+## 2026-06-25 - Add RBAC database foundation
+
+### Goal
+
+* Continue on `Feature/backend-skeleton-local-postgresql`.
+* Add database-level role and permission foundations for future admin-first access control.
+* Keep authentication, authorization behavior, frontend page protection, and login APIs out of scope.
+
+### Completed
+
+* Added ORM models for `app_users`, `roles`, `permissions`, `user_roles`, and `role_permissions`.
+* Added lifecycle enums for future user and role statuses.
+* Added an Alembic migration for RBAC foundation tables.
+* Seeded safe system role and permission definitions for the future `admin` role.
+* Assigned seeded permissions to the seeded `admin` role.
+* Added nullable `audit_logs.actor_user_id` for future user-linked audit records.
+* Updated backend and architecture documentation.
+
+### Safety boundaries
+
+* No real user was created.
+* No password hash was seeded.
+* No plaintext password was stored.
+* No login API was added.
+* No real authentication or authorization behavior was added.
+* No frontend behavior was changed.
+* No production deployment or server config was changed.
+
+### Verification
+
+* [ ] Python compileall passed.
+* [ ] Backend import smoke test passed.
+* [ ] Alembic upgrade was tested against local PostgreSQL.
+* [ ] RBAC role, permission, role-permission, and app-user SQL checks passed.
+* [ ] Existing health and admin summary API smoke checks passed.
+* [ ] Search and safety checks passed.
+
 ## 2026-06-25 - Fix backend data scope semantics and PostgreSQL checks
 
 ### Goal

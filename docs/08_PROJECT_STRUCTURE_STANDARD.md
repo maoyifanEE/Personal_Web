@@ -59,6 +59,9 @@ Backend rules:
 * Do not commit database files, logs, uploads, or backups.
 * Development-only API routes must fail safely outside development.
 * Production auth and admin UI must be implemented in later dedicated tasks.
+* RBAC ORM models belong in `backend/app/models/`.
+* RBAC migrations may seed system role and permission definitions only.
+* RBAC migrations must not seed real users, real passwords, sessions, or tokens.
 
 ## Root Page Rules
 

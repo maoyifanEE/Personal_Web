@@ -23,6 +23,13 @@ Implemented in this phase:
 * Database health endpoint.
 * First business table: `visitor_messages`.
 * Audit foundation table: `audit_logs`.
+* Database-level RBAC foundation tables:
+  * `app_users`
+  * `roles`
+  * `permissions`
+  * `user_roles`
+  * `role_permissions`
+* Safe system role and permission definitions for future admin access planning.
 * Development-only seed, reset, export, and admin summary endpoints.
 
 Not implemented yet:
@@ -31,6 +38,9 @@ Not implemented yet:
 * Real sessions.
 * Real authentication.
 * Real authorization.
+* Login API.
+* Route permission checks.
+* Real administrator user.
 * Production admin UI.
 * Production deployment.
 * Front-end visitor message API integration.
@@ -112,10 +122,25 @@ From `backend/`:
 alembic upgrade head
 ```
 
-This creates the first local PostgreSQL tables:
+This creates the local PostgreSQL tables:
 
 * `visitor_messages`
 * `audit_logs`
+* `app_users`
+* `roles`
+* `permissions`
+* `user_roles`
+* `role_permissions`
+
+The RBAC tables are schema foundation only.
+
+The migration seeds system role and permission definitions.
+
+It does not create an `app_users` row.
+
+It does not create any password hash.
+
+It does not implement login or permission checks.
 
 ## Start Backend
 
@@ -212,6 +237,14 @@ Development records may use:
 Archived visitor messages use `status=archived`.
 
 Archived is not a `data_scope` value.
+
+RBAC records answer a separate question: who can do what.
+
+Status and lifecycle fields answer whether a record is active, disabled, locked, archived, or soft-deleted.
+
+Plaintext passwords must never be stored.
+
+`app_users.password_hash` is nullable until real authentication is designed and must only store future secure password hashes.
 
 Production data must use a separate production database later.
 

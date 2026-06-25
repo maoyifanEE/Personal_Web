@@ -7,6 +7,7 @@
 * API: local development endpoints started.
 * Authentication: not implemented.
 * Authorization: not implemented.
+* RBAC database foundation: implemented for local development schema only.
 * Cloud sync: not implemented.
 * Real login: not implemented.
 * Real protected private routes: not implemented.
@@ -80,20 +81,66 @@ Implemented for local development only:
 * `audit_logs` table.
 * Development-only seed, reset, export, and admin summary endpoints.
 * Local development `POST /api/messages` endpoint for backend testing.
+* Database-level RBAC foundation tables:
+  * `app_users`
+  * `roles`
+  * `permissions`
+  * `user_roles`
+  * `role_permissions`
+* Safe system `admin` role and permission definitions.
 
 Not implemented yet:
 
 * Production backend deployment.
 * Real authentication.
 * Real authorization.
+* Login API.
+* Route permission checks.
+* Real administrator user.
+* Real password creation or password reset.
 * Production admin UI.
 * Front-end migration to backend APIs.
 * Production visitor message submission.
 * Task, health, subscription, or journey database persistence.
 
+## RBAC Foundation Status
+
+The local database now includes a small RBAC foundation.
+
+It is designed for an admin-first account system without hard-coding the project as admin-only forever.
+
+Current schema groups:
+
+* `app_users`: future account records.
+* `roles`: role definitions such as `admin`.
+* `permissions`: permission definitions such as `visitor_messages:read`.
+* `user_roles`: future user-to-role assignments.
+* `role_permissions`: role-to-permission assignments.
+
+Seeded reference data:
+
+* `admin` role.
+* Admin data read/manage permissions.
+* Visitor message read/manage permissions.
+* Audit log read permission.
+
+Not seeded:
+
+* No real user.
+* No fake admin account.
+* No password hash.
+* No session.
+* No token.
+
+Conceptual separation:
+
+* `data_scope` answers what kind of data a record is: production, test, demo, or imported.
+* RBAC answers who can do what.
+* Status and lifecycle fields answer whether a record is active, disabled, locked, archived, or soft-deleted.
+
 ## Planned User Roles
 
-The following roles are planned only:
+The following user modes remain planned at the application behavior layer:
 
 * Owner / administrator.
 * Allowed user / member.

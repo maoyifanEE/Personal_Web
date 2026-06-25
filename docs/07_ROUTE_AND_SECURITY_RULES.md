@@ -50,6 +50,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Future protected admin and data routes must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 * `/api/dev/*` must never be enabled in production.
 * Message list, status update, soft delete, and admin summary endpoints are disabled in production until real auth exists.
+* The database now has RBAC foundation tables, but route permission checks are not implemented yet.
+* RBAC schema does not make any static page or API route production-secure by itself.
 
 ## Current Data Rule
 
@@ -79,6 +81,7 @@ The following items are planned and not implemented yet:
 * User-specific data isolation.
 * Secure server-side database.
 * Server-side permission checks.
+* RBAC enforcement on private/admin APIs.
 * Backup and recovery rules.
 * Production secret management.
 
