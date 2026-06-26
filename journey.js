@@ -78,6 +78,22 @@ const LOCAL_REDRAW_PICK_DISTANCE = 42;
 const LOCAL_REDRAW_MIN_INTERVAL_POINTS = 8;
 const LOCAL_REDRAW_CONTEXT_OFFSET = 6;
 const LOCAL_REDRAW_PATCH_ID = "patch-area-01-area-02-main";
+const STROKE_TOPOLOGY_MIN_DRAW_DISTANCE = 7;
+const DEFAULT_ROUTE_STROKES = {
+  enabled: false,
+  activeMode: "draw",
+  snapRadius: 34,
+  eraseRadius: 22,
+  joinRadius: 58,
+  joinStrength: 0.42,
+  inputSmoothIterations: 1,
+  resampleSpacing: 7,
+  renderResampleSpacing: 6,
+  strokes: [],
+  history: [],
+  drawingPreviewPoints: [],
+  snapPreview: null
+};
 const getBoundaryConnectionId = (fromAreaId, toAreaId) => `${fromAreaId}__${toAreaId}`;
 const DEFAULT_BOUNDARY_CONNECTIONS = {
   [getBoundaryConnectionId("area-01", "area-02")]: {
@@ -123,6 +139,7 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
   dirty: false,
   boundaryConnections: clone(DEFAULT_BOUNDARY_CONNECTIONS),
   routePatches: {},
+  routeStrokes: clone(DEFAULT_ROUTE_STROKES),
   hero: {
     eyebrow: "Hello, World!",
     title: "A simple curved path timeline prototype."
@@ -523,6 +540,47 @@ const sanitizeRoutePatches = (rawPatches = {}) =>
     .map(([id, patch]) => [id, sanitizeRoutePatch({ ...patch, id: patch?.id || id })])
     .filter(([, patch]) => patch));
 
+const createStrokeId = () => `stroke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const sanitizeRouteStroke = (stroke) => {
+  const points = sanitizePointList(stroke?.points || []);
+  if (points.length < 2) {
+    return null;
+  }
+  return {
+    id: stroke.id || createStrokeId(),
+    points: removeConsecutiveDuplicatePoints(points),
+    width: Math.round(clamp(Number(stroke.width) || 34, 8, 80)),
+    strokeColor: stroke.strokeColor || "#ffffff",
+    shadowColor: stroke.shadowColor || "rgba(20, 40, 60, 0.12)",
+    source: stroke.source || "manual",
+    createdAt: stroke.createdAt || new Date().toISOString(),
+    updatedAt: stroke.updatedAt || stroke.createdAt || new Date().toISOString()
+  };
+};
+
+const sanitizeRouteStrokes = (rawRouteStrokes = {}) => {
+  const merged = { ...clone(DEFAULT_ROUTE_STROKES), ...(rawRouteStrokes || {}) };
+  return {
+    ...merged,
+    enabled: merged.enabled === true,
+    activeMode: ["draw", "erase", "edit"].includes(merged.activeMode) ? merged.activeMode : "draw",
+    snapRadius: Math.round(clamp(Number(merged.snapRadius) || DEFAULT_ROUTE_STROKES.snapRadius, 12, 96)),
+    eraseRadius: Math.round(clamp(Number(merged.eraseRadius) || DEFAULT_ROUTE_STROKES.eraseRadius, 8, 80)),
+    joinRadius: Math.round(clamp(Number(merged.joinRadius) || DEFAULT_ROUTE_STROKES.joinRadius, 18, 160)),
+    joinStrength: clamp(Number(merged.joinStrength) || DEFAULT_ROUTE_STROKES.joinStrength, 0.12, 0.8),
+    inputSmoothIterations: Math.round(clamp(Number(merged.inputSmoothIterations) || 1, 0, 4)),
+    resampleSpacing: Math.round(clamp(Number(merged.resampleSpacing) || 7, 3, 32)),
+    renderResampleSpacing: Math.round(clamp(Number(merged.renderResampleSpacing) || 6, 3, 32)),
+    strokes: (Array.isArray(merged.strokes) ? merged.strokes : [])
+      .map(sanitizeRouteStroke)
+      .filter(Boolean),
+    history: [],
+    drawingPreviewPoints: [],
+    snapPreview: null
+  };
+};
+
 const getNodeById = (nodeId) => {
   for (const area of editorState.areas) {
     const node = area.nodes.find((item) => item.id === nodeId);
@@ -562,6 +620,7 @@ const sanitizeState = (rawState) => {
 
   nextState.boundaryConnections = sanitizeBoundaryConnections(rawState.boundaryConnections);
   nextState.routePatches = sanitizeRoutePatches(rawState.routePatches);
+  nextState.routeStrokes = sanitizeRouteStrokes(rawState.routeStrokes);
   nextState.localRedrawDraft = clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft);
   alignAdjacentAreaPaths(nextState.areas, "sanitize");
   nextState.areas.forEach((area) => migrateAreaNodes(area));
@@ -736,6 +795,107 @@ const getPolylineLength = (points) =>
     index === 0 ? total : total + distanceBetweenPoints(points[index - 1], point)
   ), 0);
 
+const lerpPoint = (a, b, t) => ({
+  x: a.x + (b.x - a.x) * t,
+  y: a.y + (b.y - a.y) * t
+});
+
+const subtractPoints = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+const addPoints = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
+const multiplyPoint = (point, scalar) => ({ x: point.x * scalar, y: point.y * scalar });
+
+const normalizeVector = (vector, fallback = { x: 1, y: 0 }) => {
+  const length = Math.hypot(vector.x, vector.y);
+  if (!Number.isFinite(length) || length < 0.0001) {
+    return fallback;
+  }
+  return { x: vector.x / length, y: vector.y / length };
+};
+
+const pointToSegmentDistance = (point, start, end) => {
+  const segment = subtractPoints(end, start);
+  const lengthSquared = segment.x * segment.x + segment.y * segment.y;
+  if (lengthSquared < 0.0001) {
+    return distanceBetweenPoints(point, start);
+  }
+  const t = clamp(
+    ((point.x - start.x) * segment.x + (point.y - start.y) * segment.y) / lengthSquared,
+    0,
+    1
+  );
+  return distanceBetweenPoints(point, lerpPoint(start, end, t));
+};
+
+const removeNearDuplicatePoints = (points, minDistance = 1.5) => {
+  const cleaned = [];
+  sanitizePointList(points).forEach((point) => {
+    const previous = cleaned[cleaned.length - 1];
+    if (!previous || distanceBetweenPoints(previous, point) >= minDistance) {
+      cleaned.push(point);
+    }
+  });
+  return cleaned;
+};
+
+const resamplePolyline = (points, spacing = 8) =>
+  resamplePointsByDistance(removeNearDuplicatePoints(points), spacing);
+
+const chaikinSmooth = (points, iterations = 1, keepEnds = true) => {
+  let smoothed = removeNearDuplicatePoints(points);
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    if (smoothed.length < 3) {
+      return smoothed;
+    }
+    const next = keepEnds ? [smoothed[0]] : [];
+    for (let index = 0; index < smoothed.length - 1; index += 1) {
+      const p0 = smoothed[index];
+      const p1 = smoothed[index + 1];
+      next.push(lerpPoint(p0, p1, 0.25), lerpPoint(p0, p1, 0.75));
+    }
+    if (keepEnds) {
+      next.push(smoothed[smoothed.length - 1]);
+    }
+    smoothed = removeNearDuplicatePoints(next);
+  }
+  return smoothed.map(normalizePoint);
+};
+
+const cubicBezierPoints = (p0, c1, c2, p3, steps = 24) => {
+  const samples = [];
+  for (let step = 0; step <= steps; step += 1) {
+    const t = step / steps;
+    const inverse = 1 - t;
+    samples.push(normalizePoint({
+      x: inverse ** 3 * p0.x + 3 * inverse ** 2 * t * c1.x + 3 * inverse * t ** 2 * c2.x + t ** 3 * p3.x,
+      y: inverse ** 3 * p0.y + 3 * inverse ** 2 * t * c1.y + 3 * inverse * t ** 2 * c2.y + t ** 3 * p3.y
+    }));
+  }
+  return removeNearDuplicatePoints(samples);
+};
+
+const directionAtIndex = (points, index, fallback = { x: 1, y: 0 }) => {
+  const previous = points[Math.max(0, index - 2)];
+  const next = points[Math.min(points.length - 1, index + 2)];
+  if (!previous || !next || previous === next) {
+    return fallback;
+  }
+  return normalizeVector(subtractPoints(next, previous), fallback);
+};
+
+const indexByArcDistance = (points, startIndex, direction, targetDistance) => {
+  const step = direction < 0 ? -1 : 1;
+  let currentIndex = startIndex;
+  let distance = 0;
+  while (currentIndex + step >= 0 && currentIndex + step < points.length) {
+    distance += distanceBetweenPoints(points[currentIndex], points[currentIndex + step]);
+    currentIndex += step;
+    if (distance >= targetDistance) {
+      break;
+    }
+  }
+  return currentIndex;
+};
+
 const gaussianWeights = (radius, sigma) => {
   const weights = [];
   let total = 0;
@@ -841,6 +1001,20 @@ const globalToLocalPoint = (point, layout) => ({
   x: Math.round(point.x),
   y: Math.round(point.y - layout.top)
 });
+
+const clientPointToJourneyGlobalPoint = (event) => {
+  const container = document.querySelector("#journey-areas");
+  const layouts = getAreaLayouts(getOrderedAreas());
+  const totalHeight = layouts[layouts.length - 1]?.bottom || 1;
+  const rect = container?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    return { x: 0, y: 0 };
+  }
+  return {
+    x: Math.round(clamp(((event.clientX - rect.left) / rect.width) * SVG_WIDTH, 0, SVG_WIDTH)),
+    y: Math.round(clamp(((event.clientY - rect.top) / rect.height) * totalHeight, 0, totalHeight))
+  };
+};
 
 const getLayoutByAreaId = (layouts, areaId) =>
   layouts.find((layout) => layout.area.id === areaId) || null;
@@ -1034,6 +1208,403 @@ const buildRoutePatchDebugData = () => ({
   })),
   draft: editorState.localRedrawDraft
 });
+
+const getRouteStrokesState = () => {
+  if (!editorState.routeStrokes) {
+    editorState.routeStrokes = clone(DEFAULT_ROUTE_STROKES);
+  }
+  return editorState.routeStrokes;
+};
+
+const isClosedStroke = (stroke) =>
+  stroke.points.length > 2 && distanceBetweenPoints(stroke.points[0], stroke.points[stroke.points.length - 1]) <= 6;
+
+const getStrokeEndpointTargets = (exclude = {}) => {
+  const routeStrokes = getRouteStrokesState();
+  return routeStrokes.strokes.flatMap((stroke, strokeIndex) => {
+    if (isClosedStroke(stroke)) {
+      return [];
+    }
+    return [
+      { strokeId: stroke.id, strokeIndex, endpoint: "start", point: stroke.points[0] },
+      { strokeId: stroke.id, strokeIndex, endpoint: "end", point: stroke.points[stroke.points.length - 1] }
+    ].filter((target) => !(
+      exclude.strokeId === target.strokeId &&
+      exclude.endpoint === target.endpoint
+    ));
+  });
+};
+
+const findNearestStrokeEndpoint = (globalPoint, options = {}) => {
+  const radius = Number(options.radius) || getRouteStrokesState().snapRadius;
+  let nearest = null;
+  getStrokeEndpointTargets(options.exclude || {}).forEach((target) => {
+    const distance = distanceBetweenPoints(globalPoint, target.point);
+    if (distance <= radius && (!nearest || distance < nearest.distance)) {
+      nearest = { ...target, distance: Math.round(distance) };
+    }
+  });
+  return nearest;
+};
+
+const pathEndingAtTarget = (stroke, target) => {
+  const points = stroke.points.map(normalizePoint);
+  return target.endpoint === "end" ? points : points.reverse();
+};
+
+const pathStartingAtTarget = (stroke, target) => {
+  const points = stroke.points.map(normalizePoint);
+  return target.endpoint === "start" ? points : points.reverse();
+};
+
+const smoothJoinBetweenTwoPaths = (pathA, pathB, options = {}) => {
+  if (!pathA?.length) {
+    return removeNearDuplicatePoints(pathB || []);
+  }
+  if (!pathB?.length) {
+    return removeNearDuplicatePoints(pathA || []);
+  }
+  if (pathA.length < 2 || pathB.length < 2) {
+    return removeNearDuplicatePoints([...pathA, ...pathB]);
+  }
+
+  const smoothRadius = Number(options.smoothRadius) || getRouteStrokesState().joinRadius;
+  const strength = Number(options.strength) || getRouteStrokesState().joinStrength;
+  const left = pathA.map(normalizePoint);
+  const right = pathB.map(normalizePoint);
+  const snap = normalizePoint(lerpPoint(left[left.length - 1], right[0], 0.5));
+  left[left.length - 1] = snap;
+  right[0] = snap;
+  const combined = removeNearDuplicatePoints([...left, ...right.slice(1)]);
+  const joinIndex = left.length - 1;
+
+  if (combined.length < 5) {
+    return combined;
+  }
+
+  const leftIndex = indexByArcDistance(combined, joinIndex, -1, smoothRadius);
+  const rightIndex = indexByArcDistance(combined, joinIndex, 1, smoothRadius);
+  if (rightIndex - leftIndex < 3) {
+    return combined;
+  }
+
+  const p0 = combined[leftIndex];
+  const p3 = combined[rightIndex];
+  const t0 = directionAtIndex(combined, leftIndex);
+  const t1 = directionAtIndex(combined, rightIndex);
+  const chord = Math.max(1, distanceBetweenPoints(p0, p3));
+  const handleLen = clamp(chord * strength, smoothRadius * 0.35, smoothRadius * 1.25);
+  const c1 = addPoints(p0, multiplyPoint(t0, handleLen));
+  const c2 = addPoints(p3, multiplyPoint(t1, -handleLen));
+  const bridge = cubicBezierPoints(p0, c1, c2, p3, 28);
+  return removeNearDuplicatePoints([
+    ...combined.slice(0, leftIndex),
+    ...bridge,
+    ...combined.slice(rightIndex + 1)
+  ]);
+};
+
+const getStrokeStyleFromTargets = (...targets) => {
+  const routeStrokes = getRouteStrokesState();
+  const target = targets.find(Boolean);
+  const stroke = target ? routeStrokes.strokes[target.strokeIndex] : null;
+  const area = getSelectedArea();
+  return {
+    width: stroke?.width || area?.path?.strokeWidth || 34,
+    strokeColor: stroke?.strokeColor || area?.path?.strokeColor || "#ffffff",
+    shadowColor: stroke?.shadowColor || area?.path?.shadowColor || "rgba(20, 40, 60, 0.12)"
+  };
+};
+
+const createRouteStroke = (points, style = {}, source = "manual") => ({
+  id: createStrokeId(),
+  points: removeNearDuplicatePoints(points),
+  width: style.width || 34,
+  strokeColor: style.strokeColor || "#ffffff",
+  shadowColor: style.shadowColor || "rgba(20, 40, 60, 0.12)",
+  source,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+});
+
+const pushRouteStrokesHistory = () => {
+  const routeStrokes = getRouteStrokesState();
+  routeStrokes.history = [
+    routeStrokes.strokes.map((stroke) => clone(stroke)),
+    ...(routeStrokes.history || [])
+  ].slice(0, 12);
+};
+
+const replaceRouteStrokes = (nextStrokes, reason) => {
+  const routeStrokes = getRouteStrokesState();
+  routeStrokes.strokes = nextStrokes
+    .map(sanitizeRouteStroke)
+    .filter(Boolean);
+  routeStrokes.drawingPreviewPoints = [];
+  routeStrokes.snapPreview = null;
+  markDirty(reason);
+  renderTimeline();
+  renderEditorPanel();
+};
+
+const mergeNewLineToOneStrokeAtStart = (newPoints, target) => {
+  const routeStrokes = getRouteStrokesState();
+  const stroke = routeStrokes.strokes[target.strokeIndex];
+  const style = getStrokeStyleFromTargets(target);
+  const base = pathStartingAtTarget(stroke, target);
+  const merged = smoothJoinBetweenTwoPaths(newPoints, base, {
+    smoothRadius: routeStrokes.joinRadius,
+    strength: routeStrokes.joinStrength
+  });
+  return createRouteStroke(resamplePolyline(merged, routeStrokes.renderResampleSpacing), style, "merged");
+};
+
+const mergeNewLineToOneStrokeAtEnd = (newPoints, target) => {
+  const routeStrokes = getRouteStrokesState();
+  const stroke = routeStrokes.strokes[target.strokeIndex];
+  const style = getStrokeStyleFromTargets(target);
+  const base = pathEndingAtTarget(stroke, target);
+  const merged = smoothJoinBetweenTwoPaths(base, newPoints, {
+    smoothRadius: routeStrokes.joinRadius,
+    strength: routeStrokes.joinStrength
+  });
+  return createRouteStroke(resamplePolyline(merged, routeStrokes.renderResampleSpacing), style, "merged");
+};
+
+const mergeNewLineBetweenTwoStrokes = (newPoints, startTarget, endTarget) => {
+  const routeStrokes = getRouteStrokesState();
+  const style = getStrokeStyleFromTargets(startTarget, endTarget);
+  const startStroke = routeStrokes.strokes[startTarget.strokeIndex];
+  const endStroke = routeStrokes.strokes[endTarget.strokeIndex];
+  const left = pathEndingAtTarget(startStroke, startTarget);
+  const right = pathStartingAtTarget(endStroke, endTarget);
+  const withNew = smoothJoinBetweenTwoPaths(left, newPoints, {
+    smoothRadius: routeStrokes.joinRadius,
+    strength: routeStrokes.joinStrength
+  });
+  const merged = smoothJoinBetweenTwoPaths(withNew, right, {
+    smoothRadius: routeStrokes.joinRadius,
+    strength: routeStrokes.joinStrength
+  });
+  return createRouteStroke(resamplePolyline(merged, routeStrokes.renderResampleSpacing), style, "merged");
+};
+
+const mergeNewLineIntoSameStroke = (newPoints, startTarget, endTarget) => {
+  const routeStrokes = getRouteStrokesState();
+  const stroke = routeStrokes.strokes[startTarget.strokeIndex];
+  const style = getStrokeStyleFromTargets(startTarget);
+  const ordered = startTarget.endpoint === "end"
+    ? [...stroke.points, ...newPoints.slice(1)]
+    : [...newPoints, ...stroke.points.slice(1)];
+  const merged = smoothJoinBetweenTwoPaths(ordered.slice(0, Math.max(2, stroke.points.length)), ordered.slice(Math.max(1, stroke.points.length - 1)), {
+    smoothRadius: routeStrokes.joinRadius,
+    strength: routeStrokes.joinStrength
+  });
+  return createRouteStroke(resamplePolyline(merged, routeStrokes.renderResampleSpacing), style, "merged");
+};
+
+const commitRouteStrokeDraw = (rawPoints, startTarget, endTarget) => {
+  const routeStrokes = getRouteStrokesState();
+  let newPoints = chaikinSmooth(
+    resamplePolyline(rawPoints, routeStrokes.resampleSpacing),
+    routeStrokes.inputSmoothIterations,
+    true
+  );
+  if (newPoints.length < 2) {
+    showEditorMessage("Stroke 线条太短，请重新绘制。", true);
+    return;
+  }
+  if (startTarget) {
+    newPoints[0] = normalizePoint(startTarget.point);
+  }
+  if (endTarget) {
+    newPoints[newPoints.length - 1] = normalizePoint(endTarget.point);
+  }
+
+  pushRouteStrokesHistory();
+  const nextStrokes = routeStrokes.strokes.map((stroke) => clone(stroke));
+  let resultStroke = null;
+  const removeIndexes = new Set();
+
+  if (startTarget && endTarget && startTarget.strokeId !== endTarget.strokeId) {
+    resultStroke = mergeNewLineBetweenTwoStrokes(newPoints, startTarget, endTarget);
+    removeIndexes.add(startTarget.strokeIndex);
+    removeIndexes.add(endTarget.strokeIndex);
+  } else if (startTarget && endTarget && startTarget.strokeId === endTarget.strokeId) {
+    resultStroke = mergeNewLineIntoSameStroke(newPoints, startTarget, endTarget);
+    removeIndexes.add(startTarget.strokeIndex);
+  } else if (startTarget) {
+    resultStroke = mergeNewLineToOneStrokeAtStart(newPoints, startTarget);
+    removeIndexes.add(startTarget.strokeIndex);
+  } else if (endTarget) {
+    resultStroke = mergeNewLineToOneStrokeAtEnd(newPoints, endTarget);
+    removeIndexes.add(endTarget.strokeIndex);
+  } else {
+    resultStroke = createRouteStroke(
+      newPoints,
+      getStrokeStyleFromTargets(),
+      "manual"
+    );
+  }
+
+  const mergedStrokes = nextStrokes.filter((_, index) => !removeIndexes.has(index));
+  mergedStrokes.push(resultStroke);
+  replaceRouteStrokes(mergedStrokes, "route stroke drawn");
+  logHomepage("Committed route stroke topology draw.", {
+    startSnap: Boolean(startTarget),
+    endSnap: Boolean(endTarget),
+    strokeCount: mergedStrokes.length,
+    pointCount: resultStroke.points.length
+  });
+};
+
+const initializeRouteStrokesFromAreas = () => {
+  const routeStrokes = getRouteStrokesState();
+  pushRouteStrokesHistory();
+  const layouts = getAreaLayouts(getOrderedAreas());
+  routeStrokes.strokes = layouts.map((layout) => {
+    const points = getRenderablePathPoints(layout.area)
+      .map((point) => localToGlobalPoint(point, layout));
+    return createRouteStroke(points, {
+      width: layout.area.path.strokeWidth,
+      strokeColor: layout.area.path.strokeColor,
+      shadowColor: layout.area.path.shadowColor
+    }, "area-path-import");
+  }).filter((stroke) => stroke.points.length >= 2);
+  routeStrokes.enabled = true;
+  routeStrokes.activeMode = "draw";
+  markDirty("route strokes initialized");
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage("已从当前区域路线生成 Stroke。");
+  logHomepage("Initialized route topology strokes from area paths.", {
+    strokeCount: routeStrokes.strokes.length
+  });
+};
+
+const toggleRouteStrokes = (enabled) => {
+  const routeStrokes = getRouteStrokesState();
+  routeStrokes.enabled = Boolean(enabled);
+  if (routeStrokes.enabled && !routeStrokes.strokes.length) {
+    initializeRouteStrokesFromAreas();
+    return;
+  }
+  markDirty("route stroke mode toggled");
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(routeStrokes.enabled ? "Stroke 路线已启用。" : "Stroke 路线已关闭，恢复 area route。");
+};
+
+const updateRouteStrokeMode = (mode) => {
+  const routeStrokes = getRouteStrokesState();
+  if (!["draw", "erase", "edit"].includes(mode) || mode === "edit") {
+    showEditorMessage("端点模式将在后续版本开放。", true);
+    return;
+  }
+  routeStrokes.activeMode = mode;
+  routeStrokes.drawingPreviewPoints = [];
+  routeStrokes.snapPreview = null;
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage(mode === "draw" ? "Stroke 画线模式。" : "Stroke 擦除模式。");
+};
+
+const updateRouteStrokeField = (field, options = {}) => {
+  const routeStrokes = getRouteStrokesState();
+  const key = field.dataset.routeStrokeField;
+  const value = Number(field.value);
+  if (!Number.isFinite(value)) {
+    return;
+  }
+  routeStrokes[key] = key === "joinStrength" ? value : Math.round(value);
+  markDirty("route stroke setting changed");
+  renderTimeline();
+  if (options.rerenderPanel) {
+    renderEditorPanel();
+  }
+};
+
+const handleRouteStrokeAction = (action) => {
+  const routeStrokes = getRouteStrokesState();
+  if (action === "init") {
+    initializeRouteStrokesFromAreas();
+    return;
+  }
+  if (action === "clear") {
+    pushRouteStrokesHistory();
+    routeStrokes.strokes = [];
+    routeStrokes.drawingPreviewPoints = [];
+    routeStrokes.snapPreview = null;
+    markDirty("route strokes cleared");
+    renderTimeline();
+    renderEditorPanel();
+    showEditorMessage("已清空 Stroke。");
+    return;
+  }
+  if (action === "undo") {
+    const [previous, ...rest] = routeStrokes.history || [];
+    if (!previous) {
+      showEditorMessage("没有可撤销的 Stroke 操作。", true);
+      return;
+    }
+    routeStrokes.strokes = previous.map((stroke) => clone(stroke));
+    routeStrokes.history = rest;
+    markDirty("route strokes undo");
+    renderTimeline();
+    renderEditorPanel();
+    showEditorMessage("已撤销最后一步 Stroke 操作。");
+  }
+};
+
+const eraseRouteStrokesAtPoint = (globalPoint) => {
+  const routeStrokes = getRouteStrokesState();
+  const radius = routeStrokes.eraseRadius;
+  let changed = false;
+  const nextStrokes = [];
+  routeStrokes.strokes.forEach((stroke) => {
+    const keep = stroke.points.map((point, index) => {
+      if (distanceBetweenPoints(point, globalPoint) <= radius) {
+        return false;
+      }
+      const previous = stroke.points[index - 1];
+      const next = stroke.points[index + 1];
+      return !(
+        previous && pointToSegmentDistance(globalPoint, previous, point) <= radius ||
+        next && pointToSegmentDistance(globalPoint, point, next) <= radius
+      );
+    });
+
+    if (keep.every(Boolean)) {
+      nextStrokes.push(stroke);
+      return;
+    }
+
+    changed = true;
+    let run = [];
+    const flushRun = () => {
+      const cleanRun = removeNearDuplicatePoints(run);
+      if (cleanRun.length >= 2 && getPolylineLength(cleanRun) >= 24) {
+        nextStrokes.push(createRouteStroke(cleanRun, stroke, "erase-split"));
+      }
+      run = [];
+    };
+    stroke.points.forEach((point, index) => {
+      if (keep[index]) {
+        run.push(point);
+      } else {
+        flushRun();
+      }
+    });
+    flushRun();
+  });
+
+  if (changed) {
+    routeStrokes.strokes = nextStrokes;
+    markDirty("route stroke erased");
+    renderTimeline();
+    renderEditorPanel();
+  }
+};
 
 const findNearestPoint = (points, target) => points.reduce((nearest, point) => {
   const distance = distanceBetweenPoints(point, target);
@@ -1632,19 +2203,24 @@ const renderTimeline = () => {
   const root = document.querySelector(".timeline-home");
   if (root) {
     root.dataset.activeTool = editorState.activeTool || "select";
+    root.dataset.routeStrokesEnabled = String(getRouteStrokesState().enabled);
   }
 
   container.innerHTML = "";
   const orderedAreas = getOrderedAreas();
   const layouts = getAreaLayouts(orderedAreas);
   const routeIndex = buildGlobalRenderableRouteIndex(layouts);
-  const routePatches = getEnabledRoutePatches();
+  const routePatches = getRouteStrokesState().enabled ? [] : getEnabledRoutePatches();
   orderedAreas.forEach((area, index) => {
     container.append(renderArea(area, index, layouts[index], routeIndex, routePatches));
   });
   const routePatchOverlay = renderRoutePatchLayer(layouts, routePatches);
   if (routePatchOverlay) {
     container.append(routePatchOverlay);
+  }
+  const strokeLayer = renderRouteStrokesLayer(layouts);
+  if (strokeLayer) {
+    container.append(strokeLayer);
   }
 
   setTimelineView(editorState.view || "overview");
@@ -1653,6 +2229,78 @@ const renderTimeline = () => {
     nodeCount: editorState.areas.reduce((total, area) => total + area.nodes.length, 0),
     mode: editorState.mode
   });
+};
+
+const renderRouteStrokesLayer = (layouts) => {
+  const routeStrokes = getRouteStrokesState();
+  if (!routeStrokes.enabled && editorState.activeTool !== "stroke-topology") {
+    return null;
+  }
+  const totalHeight = layouts[layouts.length - 1]?.bottom || 0;
+  if (!totalHeight) {
+    return null;
+  }
+  const svg = createSvgElement("svg", {
+    class: "journey-route-strokes-layer",
+    viewBox: `0 0 ${SVG_WIDTH} ${totalHeight}`,
+    preserveAspectRatio: "none",
+    "aria-hidden": "true",
+    focusable: "false"
+  });
+  svg.style.height = `${totalHeight}px`;
+
+  if (routeStrokes.enabled) {
+    routeStrokes.strokes.forEach((stroke) => {
+      const points = resamplePolyline(stroke.points, routeStrokes.renderResampleSpacing);
+      const d = buildDensePolylinePathD(points);
+      if (!d) {
+        return;
+      }
+      svg.append(
+        createSvgElement("path", {
+          class: "journey-route-stroke__shadow",
+          d,
+          stroke: stroke.shadowColor,
+          "stroke-width": String(stroke.width + 10)
+        }),
+        createSvgElement("path", {
+          class: "journey-route-stroke__main",
+          d,
+          stroke: stroke.strokeColor,
+          "stroke-width": String(stroke.width)
+        })
+      );
+      if (editorState.mode === "edit" && !isClosedStroke(stroke)) {
+        [points[0], points[points.length - 1]].forEach((point) => {
+          svg.append(createSvgElement("circle", {
+            class: "journey-route-stroke-endpoint",
+            cx: String(point.x),
+            cy: String(point.y),
+            r: "7"
+          }));
+        });
+      }
+    });
+  }
+
+  if (editorState.mode === "edit" && editorState.activeTool === "stroke-topology") {
+    if (routeStrokes.drawingPreviewPoints?.length >= 2) {
+      svg.append(createSvgElement("path", {
+        class: "journey-route-stroke-preview",
+        d: buildDensePolylinePathD(routeStrokes.drawingPreviewPoints)
+      }));
+    }
+    if (routeStrokes.snapPreview?.point) {
+      svg.append(createSvgElement("circle", {
+        class: "journey-route-stroke-snap",
+        cx: String(routeStrokes.snapPreview.point.x),
+        cy: String(routeStrokes.snapPreview.point.y),
+        r: String(routeStrokes.snapRadius)
+      }));
+    }
+  }
+
+  return svg.childNodes.length ? svg : null;
 };
 
 const renderRoutePatchLayer = (layouts, routePatches) => {
@@ -1768,6 +2416,10 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
       }
       if (editorState.activeTool === "local-redraw") {
         handleLocalRedrawPointerDown(event, section, area);
+        return;
+      }
+      if (editorState.activeTool === "stroke-topology") {
+        handleRouteStrokePointerDown(event);
       }
     });
 
@@ -1775,7 +2427,7 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
       if (event.target.closest(".journey-event") || event.target.closest(".curve-handle") || event.target.closest(".area-resize-handle")) {
         return;
       }
-      if (editorState.activeTool === "local-redraw") {
+      if (editorState.activeTool === "local-redraw" || editorState.activeTool === "stroke-topology") {
         return;
       }
       editorState.selectedAreaId = area.id;
@@ -2229,6 +2881,9 @@ const renderAreaResizeHandle = (area) => {
 const setActiveTool = (tool) => {
   editorState.activeTool = tool;
   editorState.drawingPreviewPoints = [];
+  const routeStrokes = getRouteStrokesState();
+  routeStrokes.drawingPreviewPoints = [];
+  routeStrokes.snapPreview = null;
   if (tool === "local-redraw") {
     editorState.localRedrawDraft = {
       ...clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft),
@@ -2236,6 +2891,10 @@ const setActiveTool = (tool) => {
     };
     uiState.popover = null;
     showEditorMessage("点击路线上的起点。");
+  } else if (tool === "stroke-topology") {
+    resetLocalRedrawDraft();
+    uiState.popover = null;
+    showEditorMessage("Stroke 拓扑编辑已开启。");
   } else {
     resetLocalRedrawDraft();
   }
@@ -2360,6 +3019,63 @@ const handleLocalRedrawPointerDown = (event, areaElement, area) => {
       endAnchor: draft.endAnchor
     });
   }
+};
+
+const handleRouteStrokePointerDown = (event) => {
+  const routeStrokes = getRouteStrokesState();
+  if (!routeStrokes.enabled) {
+    showEditorMessage("请先启用 Stroke 路线，或从当前区域路线生成 Stroke。", true);
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  const point = clientPointToJourneyGlobalPoint(event);
+  if (routeStrokes.activeMode === "erase") {
+    pushRouteStrokesHistory();
+    eraseRouteStrokesAtPoint(point);
+    dragState = {
+      kind: "route-stroke-erase",
+      pointerId: event.pointerId
+    };
+    logHomepage("Started route stroke erasing.", { point });
+    return;
+  }
+  if (routeStrokes.activeMode !== "draw") {
+    showEditorMessage("端点模式将在后续版本开放。", true);
+    return;
+  }
+  const startTarget = findNearestStrokeEndpoint(point);
+  const startPoint = startTarget ? normalizePoint(startTarget.point) : point;
+  routeStrokes.drawingPreviewPoints = [startPoint];
+  routeStrokes.snapPreview = startTarget;
+  dragState = {
+    kind: "route-stroke-draw",
+    pointerId: event.pointerId,
+    startTarget,
+    endTarget: null
+  };
+  logHomepage("Started route stroke topology draw.", {
+    snapped: Boolean(startTarget),
+    point: startPoint
+  });
+  renderTimeline();
+  renderEditorPanel();
+};
+
+const finishRouteStrokeDrawing = () => {
+  const routeStrokes = getRouteStrokesState();
+  const rawPoints = removeNearDuplicatePoints(routeStrokes.drawingPreviewPoints || []);
+  const startTarget = dragState?.startTarget || null;
+  const endTarget = dragState?.endTarget || routeStrokes.snapPreview || null;
+  routeStrokes.drawingPreviewPoints = [];
+  routeStrokes.snapPreview = null;
+  if (rawPoints.length < 2) {
+    showEditorMessage("Stroke 线条太短，请重新绘制。", true);
+    renderTimeline();
+    renderEditorPanel();
+    return;
+  }
+  commitRouteStrokeDraw(rawPoints, startTarget, endTarget);
 };
 
 const finishLocalRedrawDrawing = () => {
@@ -2800,6 +3516,7 @@ const importJson = () => {
 const getCurveDebugExport = () => {
   const area = getSelectedArea();
   alignAdjacentAreaPaths(editorState.areas, "debug export");
+  const routeStrokes = getRouteStrokesState();
   const debugData = curveDebugDataByArea.get(area.id) || {
     areaId: area.id,
     areaTitle: area.title,
@@ -2844,7 +3561,27 @@ const getCurveDebugExport = () => {
       gaussianPasses: stats.gaussianPasses
     },
     boundaryDiagnostics: debugData.boundaryDiagnostics || [],
-    localRouteRedraw: buildRoutePatchDebugData()
+    localRouteRedraw: buildRoutePatchDebugData(),
+    routeStrokes: {
+      engine: "stroke-topology-layer",
+      enabled: routeStrokes.enabled,
+      activeMode: routeStrokes.activeMode,
+      strokeCount: routeStrokes.strokes.length,
+      snapRadius: routeStrokes.snapRadius,
+      eraseRadius: routeStrokes.eraseRadius,
+      joinRadius: routeStrokes.joinRadius,
+      joinStrength: routeStrokes.joinStrength,
+      resampleSpacing: routeStrokes.resampleSpacing,
+      renderResampleSpacing: routeStrokes.renderResampleSpacing,
+      strokes: routeStrokes.strokes.map((stroke) => ({
+        id: stroke.id,
+        pointCount: stroke.points.length,
+        points: stroke.points,
+        source: stroke.source || "manual",
+        createdAt: stroke.createdAt,
+        updatedAt: stroke.updatedAt
+      }))
+    }
   };
 };
 
@@ -2929,6 +3666,9 @@ const renderEditorPanel = () => {
   if (editorState.activeTool === "local-redraw") {
     root.append(renderLocalRedrawPanel());
   }
+  if (editorState.activeTool === "stroke-topology") {
+    root.append(renderStrokeTopologyPanel());
+  }
   if (uiState.contextMenu) {
     root.append(renderContextMenu());
   }
@@ -2992,6 +3732,73 @@ const renderLocalRedrawPanel = () => {
   return panel;
 };
 
+const renderStrokeTopologyPanel = () => {
+  const routeStrokes = getRouteStrokesState();
+  const panel = document.createElement("section");
+  panel.className = "stroke-topology-panel";
+  panel.innerHTML = `
+    <h2>路线拓扑编辑</h2>
+    <p>
+      新线靠近自由端点会吸附；吸附后会在数据层合并成一条路线，连接处不再是端点。
+    </p>
+    <label class="stroke-topology-panel__toggle">
+      <input type="checkbox" data-route-stroke-toggle ${routeStrokes.enabled ? "checked" : ""}>
+      启用 Stroke 路线
+    </label>
+    <div class="stroke-topology-panel__actions">
+      <button type="button" data-route-stroke-action="init">从当前区域路线生成 Stroke</button>
+      <button type="button" data-route-stroke-action="clear" ${routeStrokes.strokes.length ? "" : "disabled"}>清空 Stroke</button>
+      <button type="button" data-route-stroke-action="undo" ${routeStrokes.history?.length ? "" : "disabled"}>撤销最后一步</button>
+    </div>
+    <div class="stroke-topology-panel__actions">
+      ${["draw", "erase", "edit"].map((mode) => `
+        <button
+          type="button"
+          data-route-stroke-mode="${mode}"
+          aria-pressed="${routeStrokes.activeMode === mode}"
+          ${mode === "edit" ? "disabled title=\"端点拖动将在后续版本开放\"" : ""}
+        >${mode === "draw" ? "画线" : mode === "erase" ? "擦除" : "端点"}</button>
+      `).join("")}
+    </div>
+    ${[
+      ["snapRadius", "吸附半径", 8, 90, 1],
+      ["eraseRadius", "擦除半径", 6, 70, 1],
+      ["joinRadius", "连接平滑长度", 18, 140, 1],
+      ["joinStrength", "连接柔度", 0.18, 0.75, 0.01]
+    ].map(([key, label, min, max, step]) => `
+      <label class="stroke-topology-panel__slider">
+        <span>${label}: ${Number(routeStrokes[key]).toFixed(step < 1 ? 2 : 0)}</span>
+        <input
+          type="range"
+          min="${min}"
+          max="${max}"
+          step="${step}"
+          data-route-stroke-field="${key}"
+          value="${routeStrokes[key]}"
+        >
+      </label>
+    `).join("")}
+    <p class="stroke-topology-panel__status">
+      当前 Stroke 数：${routeStrokes.strokes.length}。
+      ${routeStrokes.enabled ? "Stroke 路线正在渲染，旧 area road 已隐藏。" : "未启用时仍显示原 area route。"}
+    </p>
+  `;
+  panel.querySelector("[data-route-stroke-toggle]")?.addEventListener("change", (event) => {
+    toggleRouteStrokes(event.target.checked);
+  });
+  panel.querySelectorAll("[data-route-stroke-action]").forEach((button) => {
+    button.addEventListener("click", () => handleRouteStrokeAction(button.dataset.routeStrokeAction));
+  });
+  panel.querySelectorAll("[data-route-stroke-mode]").forEach((button) => {
+    button.addEventListener("click", () => updateRouteStrokeMode(button.dataset.routeStrokeMode));
+  });
+  panel.querySelectorAll("[data-route-stroke-field]").forEach((field) => {
+    field.addEventListener("input", () => updateRouteStrokeField(field));
+    field.addEventListener("change", () => updateRouteStrokeField(field, { rerenderPanel: true }));
+  });
+  return panel;
+};
+
 const renderFloatingToolbar = () => {
   const toolbar = document.createElement("div");
   toolbar.className = "context-toolbar";
@@ -3000,7 +3807,7 @@ const renderFloatingToolbar = () => {
   toolbar.innerHTML = `
     <button type="button" data-context-action="select" aria-pressed="${editorState.activeTool === "select"}">选择</button>
     <button type="button" data-context-action="draw" aria-pressed="${editorState.activeTool === "freehand"}">手绘曲线</button>
-    <button type="button" data-context-action="local-redraw" aria-pressed="${editorState.activeTool === "local-redraw"}">局部重画连接处</button>
+    <button type="button" data-context-action="stroke-topology" aria-pressed="${editorState.activeTool === "stroke-topology"}">Stroke 编辑</button>
     <button type="button" data-context-action="curve-tuning">曲线调参</button>
     <button type="button" data-context-action="debug" aria-pressed="${uiState.debugOverlay}">调试曲线</button>
     ${uiState.debugOverlay ? `
@@ -3024,7 +3831,7 @@ const handleContextAction = (action) => {
   const actions = {
     select: () => setActiveTool("select"),
     draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
-    "local-redraw": () => setActiveTool(editorState.activeTool === "local-redraw" ? "select" : "local-redraw"),
+    "stroke-topology": () => setActiveTool(editorState.activeTool === "stroke-topology" ? "select" : "stroke-topology"),
     "curve-tuning": () => openContextPopover("curve", { areaId: editorState.selectedAreaId }, window.innerWidth - 360, 72),
     debug: toggleCurveDebugOverlay,
     "debug-raw": () => toggleCurveDebugLayer("raw"),
@@ -4035,6 +4842,30 @@ const handlePointerMove = (event) => {
     return;
   }
 
+  if (dragState.kind === "route-stroke-draw") {
+    const routeStrokes = getRouteStrokesState();
+    const point = clientPointToJourneyGlobalPoint(event);
+    const endTarget = findNearestStrokeEndpoint(point, {
+      exclude: dragState.startTarget || {}
+    });
+    const nextPoint = endTarget ? normalizePoint(endTarget.point) : point;
+    const previous = routeStrokes.drawingPreviewPoints[routeStrokes.drawingPreviewPoints.length - 1];
+    if (!previous || distanceBetweenPoints(previous, nextPoint) >= STROKE_TOPOLOGY_MIN_DRAW_DISTANCE) {
+      routeStrokes.drawingPreviewPoints.push(nextPoint);
+    } else if (routeStrokes.drawingPreviewPoints.length) {
+      routeStrokes.drawingPreviewPoints[routeStrokes.drawingPreviewPoints.length - 1] = nextPoint;
+    }
+    routeStrokes.snapPreview = endTarget;
+    dragState.endTarget = endTarget;
+    renderTimeline();
+    return;
+  }
+
+  if (dragState.kind === "route-stroke-erase") {
+    eraseRouteStrokesAtPoint(clientPointToJourneyGlobalPoint(event));
+    return;
+  }
+
   if (dragState.kind === "curve") {
     const point = {
       x: Math.round(((event.clientX - dragState.svgRect.left) / dragState.svgRect.width) * dragState.svgWidth),
@@ -4107,6 +4938,9 @@ const handlePointerUp = () => {
     }
     if (dragState.kind === "local-redraw") {
       finishLocalRedrawDrawing();
+    }
+    if (dragState.kind === "route-stroke-draw") {
+      finishRouteStrokeDrawing();
     }
     logHomepage("Completed drag interaction.", dragState);
     dragState = null;

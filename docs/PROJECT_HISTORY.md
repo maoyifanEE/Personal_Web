@@ -1,5 +1,35 @@
 # Project History
 
+## 2026-06-26 - Add stroke topology route editing
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the remaining overlay-style route repair direction with an editable stroke topology layer.
+* Preserve the accepted `simple-strong-smooth` freehand route smoothing pipeline.
+* Keep backend, database, RBAC, migrations, configuration, and deployment unchanged.
+
+### Completed
+
+* Added a Stroke topology editor panel for journey route repair.
+* Added ordered route stroke storage in journey-global coordinates.
+* Added endpoint snapping so drawn strokes can connect to true free endpoints.
+* Added data-level stroke merging when a new line connects existing stroke endpoints.
+* Added a cubic Bezier join window that uses incoming and outgoing tangents around the merge point.
+* Added eraser splitting so removing part of a stroke creates independent remaining stroke runs.
+* Added true free endpoint dots in editor mode.
+* Kept the normal overview clean by hiding raw editing helpers outside editor/debug mode.
+* Added Stroke topology data to the front-end curve debug export.
+
+### Safety boundaries
+
+* The existing freehand smoothing route remains active for ordinary drawing.
+* The old visual connector/patch approach is not the active route repair UI.
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-26 - Add local route interval redraw
 
 ### Goal
