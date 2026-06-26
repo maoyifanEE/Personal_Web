@@ -74,6 +74,10 @@ const CURVE_TUNING_PRESETS = {
 };
 const DRAW_POINT_MIN_DISTANCE = 10;
 const PATH_ALIGNMENT_HANDLE_DISTANCE = 96;
+const LOCAL_REDRAW_PICK_DISTANCE = 42;
+const LOCAL_REDRAW_MIN_INTERVAL_POINTS = 8;
+const LOCAL_REDRAW_CONTEXT_OFFSET = 6;
+const LOCAL_REDRAW_PATCH_ID = "patch-area-01-area-02-main";
 const getBoundaryConnectionId = (fromAreaId, toAreaId) => `${fromAreaId}__${toAreaId}`;
 const DEFAULT_BOUNDARY_CONNECTIONS = {
   [getBoundaryConnectionId("area-01", "area-02")]: {
@@ -107,9 +111,18 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
   addNodeType: "major",
   activeTool: "select",
   drawingPreviewPoints: [],
+  localRedrawDraft: {
+    mode: "idle",
+    startAnchor: null,
+    endAnchor: null,
+    rawPointsGlobal: [],
+    smoothPointsGlobal: [],
+    error: ""
+  },
   resetConfirmPending: false,
   dirty: false,
   boundaryConnections: clone(DEFAULT_BOUNDARY_CONNECTIONS),
+  routePatches: {},
   hero: {
     eyebrow: "Hello, World!",
     title: "A simple curved path timeline prototype."
@@ -433,8 +446,6 @@ const getOrderedAreas = () => [...editorState.areas].sort((a, b) => a.order - b.
 const getAreaById = (areaId) => editorState.areas.find((area) => area.id === areaId);
 const getSelectedArea = () => getAreaById(editorState.selectedAreaId) || getOrderedAreas()[0];
 const getBoundaryConnections = () => editorState.boundaryConnections || {};
-const getBoundaryConnection = (fromAreaId, toAreaId) =>
-  getBoundaryConnections()[getBoundaryConnectionId(fromAreaId, toAreaId)] || null;
 
 const sanitizeBoundaryConnection = (connection, defaults) => {
   const merged = { ...defaults, ...(connection || {}) };
@@ -460,11 +471,57 @@ const sanitizeBoundaryConnections = (rawConnections = {}) => {
   const defaults = clone(DEFAULT_BOUNDARY_CONNECTIONS);
   Object.entries(rawConnections || {}).forEach(([id, connection]) => {
     if (defaults[id]) {
-      defaults[id] = sanitizeBoundaryConnection(connection, defaults[id]);
+      defaults[id] = {
+        ...sanitizeBoundaryConnection(connection, defaults[id]),
+        enabled: false
+      };
     }
   });
   return defaults;
 };
+
+const sanitizeRoutePatchAnchor = (anchor) => {
+  if (!anchor?.areaId || !Number.isFinite(Number(anchor.globalIndex))) {
+    return null;
+  }
+  return {
+    areaId: anchor.areaId,
+    areaIndex: Math.max(0, Math.round(Number(anchor.areaIndex) || 0)),
+    pointIndex: Math.max(0, Math.round(Number(anchor.pointIndex) || 0)),
+    globalIndex: Math.max(0, Math.round(Number(anchor.globalIndex))),
+    localPoint: normalizePoint(anchor.localPoint || anchor.globalPoint || { x: 0, y: 0 }),
+    globalPoint: normalizePoint(anchor.globalPoint || anchor.localPoint || { x: 0, y: 0 })
+  };
+};
+
+const sanitizeRoutePatch = (patch) => {
+  if (!patch || patch.type !== "local-redraw") {
+    return null;
+  }
+  const startAnchor = sanitizeRoutePatchAnchor(patch.startAnchor);
+  const endAnchor = sanitizeRoutePatchAnchor(patch.endAnchor);
+  if (!startAnchor || !endAnchor) {
+    return null;
+  }
+  return {
+    id: patch.id || LOCAL_REDRAW_PATCH_ID,
+    type: "local-redraw",
+    enabled: patch.enabled === true,
+    fromAreaId: patch.fromAreaId || startAnchor.areaId,
+    toAreaId: patch.toAreaId || endAnchor.areaId,
+    startAnchor,
+    endAnchor,
+    rawPointsGlobal: sanitizePointList(patch.rawPointsGlobal || []),
+    smoothPointsGlobal: sanitizePointList(patch.smoothPointsGlobal || []),
+    createdAt: patch.createdAt || new Date().toISOString(),
+    updatedAt: patch.updatedAt || patch.createdAt || new Date().toISOString()
+  };
+};
+
+const sanitizeRoutePatches = (rawPatches = {}) =>
+  Object.fromEntries(Object.entries(rawPatches || {})
+    .map(([id, patch]) => [id, sanitizeRoutePatch({ ...patch, id: patch?.id || id })])
+    .filter(([, patch]) => patch));
 
 const getNodeById = (nodeId) => {
   for (const area of editorState.areas) {
@@ -504,6 +561,8 @@ const sanitizeState = (rawState) => {
   });
 
   nextState.boundaryConnections = sanitizeBoundaryConnections(rawState.boundaryConnections);
+  nextState.routePatches = sanitizeRoutePatches(rawState.routePatches);
+  nextState.localRedrawDraft = clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft);
   alignAdjacentAreaPaths(nextState.areas, "sanitize");
   nextState.areas.forEach((area) => migrateAreaNodes(area));
 
@@ -590,6 +649,11 @@ const normalizePoint = (point, fallback = { x: SVG_WIDTH / 2, y: 0 }) => ({
   x: Math.round(Number.isFinite(point?.x) ? point.x : fallback.x),
   y: Math.round(Number.isFinite(point?.y) ? point.y : fallback.y)
 });
+
+const sanitizePointList = (points = []) =>
+  (Array.isArray(points) ? points : [])
+    .filter((point) => Number.isFinite(point?.x) && Number.isFinite(point?.y))
+    .map((point) => normalizePoint(point));
 
 const getBezierPoint = (p0, p1, p2, p3, t) => {
   const inverse = 1 - t;
@@ -773,206 +837,203 @@ const localToGlobalPoint = (point, layout) => ({
   areaId: layout.area.id
 });
 
+const globalToLocalPoint = (point, layout) => ({
+  x: Math.round(point.x),
+  y: Math.round(point.y - layout.top)
+});
+
 const getLayoutByAreaId = (layouts, areaId) =>
   layouts.find((layout) => layout.area.id === areaId) || null;
 
-const takeTailPointsByDistance = (points, distancePx, minPoints, maxPoints) => {
-  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
-  if (!cleanPoints.length) {
+const getRoutePatches = () => editorState.routePatches || {};
+const getEnabledRoutePatches = () =>
+  Object.values(getRoutePatches()).filter(
+    (patch) =>
+      patch?.enabled &&
+      patch.type === "local-redraw" &&
+      patch.startAnchor &&
+      patch.endAnchor &&
+      patch.smoothPointsGlobal?.length >= 2
+  );
+
+const resetLocalRedrawDraft = () => {
+  editorState.localRedrawDraft = clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft);
+};
+
+const buildGlobalRenderableRouteIndex = (layouts = getAreaLayouts(getOrderedAreas())) => {
+  let globalIndex = 0;
+  return layouts.flatMap((layout, areaIndex) =>
+    getRenderablePathPoints(layout.area).map((localPoint, pointIndex) => {
+      const normalizedLocal = normalizePoint(localPoint);
+      const item = {
+        areaId: layout.area.id,
+        areaIndex,
+        pointIndex,
+        globalIndex,
+        localPoint: normalizedLocal,
+        globalPoint: localToGlobalPoint(normalizedLocal, layout)
+      };
+      globalIndex += 1;
+      return item;
+    })
+  );
+};
+
+const findNearestRouteAnchor = (globalPoint, routeIndex, maxDistance = LOCAL_REDRAW_PICK_DISTANCE) => {
+  let nearest = null;
+  routeIndex.forEach((item) => {
+    const distance = distanceBetweenPoints(globalPoint, item.globalPoint);
+    if (distance <= maxDistance && (!nearest || distance < nearest.distance)) {
+      nearest = {
+        ...item,
+        distance: Math.round(distance)
+      };
+    }
+  });
+  return nearest;
+};
+
+const getGlobalPointFromPointer = (event, areaElement, area) => {
+  const localPoint = getAreaPointFromPointer(event, areaElement, area);
+  const layout = getLayoutByAreaId(getAreaLayouts(getOrderedAreas()), area.id);
+  return layout ? localToGlobalPoint(localPoint, layout) : { ...localPoint, areaId: area.id };
+};
+
+const getRouteContextPointBefore = (routeIndex, anchor, offset = LOCAL_REDRAW_CONTEXT_OFFSET) =>
+  routeIndex[Math.max(0, anchor.globalIndex - offset)]?.globalPoint || anchor.globalPoint;
+
+const getRouteContextPointAfter = (routeIndex, anchor, offset = LOCAL_REDRAW_CONTEXT_OFFSET) =>
+  routeIndex[Math.min(routeIndex.length - 1, anchor.globalIndex + offset)]?.globalPoint || anchor.globalPoint;
+
+const getLocalRedrawSmoothingSettings = () => {
+  const area = getAreaById(editorState.localRedrawDraft?.startAnchor?.areaId) || getSelectedArea();
+  return normalizeSmoothing(area?.path?.simpleSmooth || area?.path?.smoothing || DEFAULT_SIMPLE_SMOOTH);
+};
+
+const cropSmoothPointsToAnchors = (points, startPoint, endPoint) => {
+  if (!points?.length) {
+    return [];
+  }
+  let startIndex = 0;
+  let endIndex = points.length - 1;
+  points.forEach((point, index) => {
+    if (distanceBetweenPoints(point, startPoint) < distanceBetweenPoints(points[startIndex], startPoint)) {
+      startIndex = index;
+    }
+    if (distanceBetweenPoints(point, endPoint) < distanceBetweenPoints(points[endIndex], endPoint)) {
+      endIndex = index;
+    }
+  });
+  if (startIndex > endIndex) {
+    [startIndex, endIndex] = [endIndex, startIndex];
+  }
+  const cropped = points.slice(startIndex, endIndex + 1);
+  return removeConsecutiveDuplicatePoints([
+    normalizePoint(startPoint),
+    ...cropped.map((point) => normalizePoint(point)),
+    normalizePoint(endPoint)
+  ]);
+};
+
+const smoothLocalRedrawSegment = (draft, routeIndex) => {
+  const startAnchor = draft?.startAnchor;
+  const endAnchor = draft?.endAnchor;
+  if (!startAnchor || !endAnchor) {
     return [];
   }
 
-  const selected = [cleanPoints[cleanPoints.length - 1]];
-  let accumulated = 0;
-  for (let index = cleanPoints.length - 1; index > 0; index -= 1) {
-    accumulated += distanceBetweenPoints(cleanPoints[index], cleanPoints[index - 1]);
-    selected.push(cleanPoints[index - 1]);
-    if (
-      selected.length >= minPoints &&
-      (accumulated >= distancePx || selected.length >= maxPoints)
-    ) {
-      break;
-    }
-  }
-
-  return selected.slice(0, maxPoints).reverse();
-};
-
-const takeHeadPointsByDistance = (points, distancePx, minPoints, maxPoints) => {
-  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
-  if (!cleanPoints.length) {
-    return [];
-  }
-
-  const selected = [cleanPoints[0]];
-  let accumulated = 0;
-  for (let index = 1; index < cleanPoints.length; index += 1) {
-    accumulated += distanceBetweenPoints(cleanPoints[index - 1], cleanPoints[index]);
-    selected.push(cleanPoints[index]);
-    if (
-      selected.length >= minPoints &&
-      (accumulated >= distancePx || selected.length >= maxPoints)
-    ) {
-      break;
-    }
-  }
-
-  return selected.slice(0, maxPoints);
-};
-
-const buildBoundaryConnectorSourcePoints = (connection, layouts) => {
-  const fromLayout = getLayoutByAreaId(layouts, connection.fromAreaId);
-  const toLayout = getLayoutByAreaId(layouts, connection.toAreaId);
-  if (!fromLayout || !toLayout) {
-    return null;
-  }
-
-  const minPoints = connection.minPointsPerSide || 3;
-  const maxPoints = connection.maxPointsPerSide || 8;
-  const tailPoints = takeTailPointsByDistance(
-    getRenderablePathPoints(fromLayout.area),
-    connection.tailDistance,
-    minPoints,
-    maxPoints
-  );
-  const headPoints = takeHeadPointsByDistance(
-    getRenderablePathPoints(toLayout.area),
-    connection.headDistance,
-    minPoints,
-    maxPoints
-  );
-  const sourcePoints = removeConsecutiveDuplicatePoints([
-    ...tailPoints.map((point) => localToGlobalPoint(point, fromLayout)),
-    ...headPoints.map((point) => localToGlobalPoint(point, toLayout))
+  const startPoint = normalizePoint(startAnchor.globalPoint);
+  const endPoint = normalizePoint(endAnchor.globalPoint);
+  const rawMiddle = sanitizePointList(draft.rawPointsGlobal || [])
+    .filter((point) => (
+      distanceBetweenPoints(point, startPoint) > DRAW_POINT_MIN_DISTANCE &&
+      distanceBetweenPoints(point, endPoint) > DRAW_POINT_MIN_DISTANCE
+    ));
+  const contextBefore = getRouteContextPointBefore(routeIndex, startAnchor);
+  const contextAfter = getRouteContextPointAfter(routeIndex, endAnchor);
+  const smoothingInput = removeConsecutiveDuplicatePoints([
+    normalizePoint(contextBefore),
+    startPoint,
+    ...rawMiddle,
+    endPoint,
+    normalizePoint(contextAfter)
   ]);
 
-  return sourcePoints.length >= 4 ? sourcePoints : null;
+  const processed = processRawFreehandPoints(smoothingInput, getLocalRedrawSmoothingSettings());
+  const smoothPoints = processed?.smoothPoints?.length >= 3
+    ? cropSmoothPointsToAnchors(processed.smoothPoints, startPoint, endPoint)
+    : catmullRomInterpolate([startPoint, ...rawMiddle, endPoint], 18);
+  const safePoints = removeConsecutiveDuplicatePoints(smoothPoints);
+  if (safePoints.length < 2) {
+    return [startPoint, endPoint];
+  }
+  safePoints[0] = startPoint;
+  safePoints[safePoints.length - 1] = endPoint;
+  return safePoints;
 };
 
-const extendBefore = (first, second) => ({
-  x: first.x + (first.x - second.x),
-  y: first.y + (first.y - second.y)
-});
+const getRoutePatchAreaItems = (routeIndex, areaId) =>
+  routeIndex.filter((item) => item.areaId === areaId);
 
-const extendAfter = (last, previous) => ({
-  x: last.x + (last.x - previous.x),
-  y: last.y + (last.y - previous.y)
-});
-
-const getCatmullTime = (previousTime, p0, p1, alpha) =>
-  previousTime + Math.max(Math.pow(distanceBetweenPoints(p0, p1), alpha), 0.0001);
-
-const interpolateByTime = (p0, p1, t0, t1, t) => {
-  const denominator = t1 - t0;
-  if (Math.abs(denominator) < 0.0001) {
-    return normalizePoint(p1);
-  }
-  const a = (t1 - t) / denominator;
-  const b = (t - t0) / denominator;
-  return {
-    x: a * p0.x + b * p1.x,
-    y: a * p0.y + b * p1.y
-  };
-};
-
-const centripetalCatmullRomInterpolate = (points, samplesPerSegment = 18, alpha = 0.5) => {
-  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
-  if (cleanPoints.length < 4) {
-    return cleanPoints;
+const buildPatchedRenderablePointsForArea = (area, layout, routeIndex, patches) => {
+  const areaItems = getRoutePatchAreaItems(routeIndex, area.id);
+  if (!areaItems.length) {
+    return getRenderablePathPoints(area);
   }
 
-  const safeSamples = Math.round(clamp(Number(samplesPerSegment) || 18, 6, 36));
-  const safeAlpha = clamp(Number(alpha) || 0.5, 0.25, 1);
-  const extendedPoints = [
-    extendBefore(cleanPoints[0], cleanPoints[1]),
-    ...cleanPoints,
-    extendAfter(cleanPoints[cleanPoints.length - 1], cleanPoints[cleanPoints.length - 2])
-  ].map((point) => normalizePoint(point));
-  const samples = [normalizePoint(cleanPoints[0])];
-
-  for (let index = 0; index < extendedPoints.length - 3; index += 1) {
-    const p0 = extendedPoints[index];
-    const p1 = extendedPoints[index + 1];
-    const p2 = extendedPoints[index + 2];
-    const p3 = extendedPoints[index + 3];
-    const t0 = 0;
-    const t1 = getCatmullTime(t0, p0, p1, safeAlpha);
-    const t2 = getCatmullTime(t1, p1, p2, safeAlpha);
-    const t3 = getCatmullTime(t2, p2, p3, safeAlpha);
-
-    if (![t1, t2, t3].every(Number.isFinite) || t2 <= t1) {
-      return cleanPoints;
+  let localPoints = areaItems.map((item) => item.localPoint);
+  patches.forEach((patch) => {
+    const start = patch.startAnchor.globalIndex;
+    const end = patch.endAnchor.globalIndex;
+    if (area.id === patch.startAnchor.areaId && area.id === patch.endAnchor.areaId) {
+      localPoints = [
+        ...areaItems.filter((item) => item.globalIndex <= start).map((item) => item.localPoint),
+        ...patch.smoothPointsGlobal.map((point) => globalToLocalPoint(point, layout)),
+        ...areaItems.filter((item) => item.globalIndex >= end).map((item) => item.localPoint)
+      ];
+      return;
     }
-
-    for (let step = 1; step <= safeSamples; step += 1) {
-      const t = t1 + (t2 - t1) * (step / safeSamples);
-      const a1 = interpolateByTime(p0, p1, t0, t1, t);
-      const a2 = interpolateByTime(p1, p2, t1, t2, t);
-      const a3 = interpolateByTime(p2, p3, t2, t3, t);
-      const b1 = interpolateByTime(a1, a2, t0, t2, t);
-      const b2 = interpolateByTime(a2, a3, t1, t3, t);
-      const point = normalizePoint(interpolateByTime(b1, b2, t1, t2, t));
-      if (Number.isFinite(point.x) && Number.isFinite(point.y)) {
-        samples.push(point);
-      }
+    if (area.id === patch.startAnchor.areaId) {
+      localPoints = areaItems
+        .filter((item) => item.globalIndex <= start)
+        .map((item) => item.localPoint);
+      return;
     }
-  }
-
-  const smoothed = removeConsecutiveDuplicatePoints(samples);
-  if (!smoothed.length) {
-    return cleanPoints;
-  }
-  smoothed[0] = normalizePoint(cleanPoints[0]);
-  smoothed[smoothed.length - 1] = normalizePoint(cleanPoints[cleanPoints.length - 1]);
-  return smoothed;
-};
-
-const buildBoundaryConnectorPathD = (sourcePoints, connection) => {
-  const smoothPoints = centripetalCatmullRomInterpolate(
-    sourcePoints,
-    connection.samplesPerSegment || 18,
-    connection.alpha || 0.5
-  );
-  return {
-    d: buildDensePolylinePathD(smoothPoints),
-    smoothPoints
-  };
-};
-
-const getBoundaryConnectorDebugData = () => {
-  const layouts = getAreaLayouts(getOrderedAreas());
-  return Object.values(getBoundaryConnections()).map((connection) => {
-    const sourcePoints = buildBoundaryConnectorSourcePoints(connection, layouts) || [];
-    const { d, smoothPoints } = sourcePoints.length >= 4
-      ? buildBoundaryConnectorPathD(sourcePoints, connection)
-      : { d: "", smoothPoints: [] };
-    return {
-      ...connection,
-      engine: "boundary-visual-connector",
-      sourcePointCount: sourcePoints.length,
-      smoothPointCount: smoothPoints.length,
-      sourcePoints,
-      smoothPoints,
-      finalSvgPath: d
-    };
+    if (area.id === patch.endAnchor.areaId) {
+      localPoints = areaItems
+        .filter((item) => item.globalIndex >= end)
+        .map((item) => item.localPoint);
+      return;
+    }
+    if (
+      areaItems[0].globalIndex > start &&
+      areaItems[areaItems.length - 1].globalIndex < end
+    ) {
+      localPoints = [];
+    }
   });
+
+  return removeConsecutiveDuplicatePoints(localPoints);
 };
 
-const getRoughLocalPointsForArea = (area) => {
-  if (area.path.mode === "freehand") {
-    if (area.path.rawPoints?.length >= 3) {
-      return area.path.rawPoints.map((point) => normalizePoint(point));
-    }
-    if (area.path.resampledPoints?.length >= 3) {
-      return area.path.resampledPoints.map((point) => normalizePoint(point));
-    }
-    if (area.path.smoothPoints?.length >= 3) {
-      return area.path.smoothPoints.map((point) => normalizePoint(point));
-    }
-  }
+const getPatchStyleSourceArea = (patch) =>
+  getAreaById(patch.startAnchor?.areaId || patch.fromAreaId) || getSelectedArea();
 
-  return pointsFromBezierAnchors(area.path.points || [], 18);
-};
+const buildRoutePatchDebugData = () => ({
+  patches: Object.values(getRoutePatches()).map((patch) => ({
+    id: patch.id,
+    enabled: patch.enabled,
+    type: patch.type,
+    fromAreaId: patch.fromAreaId,
+    toAreaId: patch.toAreaId,
+    startAnchor: patch.startAnchor,
+    endAnchor: patch.endAnchor,
+    rawPointCount: patch.rawPointsGlobal?.length || 0,
+    smoothPointCount: patch.smoothPointsGlobal?.length || 0,
+    engine: SIMPLE_SMOOTH_ENGINE
+  })),
+  draft: editorState.localRedrawDraft
+});
 
 const findNearestPoint = (points, target) => points.reduce((nearest, point) => {
   const distance = distanceBetweenPoints(point, target);
@@ -1575,12 +1636,15 @@ const renderTimeline = () => {
 
   container.innerHTML = "";
   const orderedAreas = getOrderedAreas();
+  const layouts = getAreaLayouts(orderedAreas);
+  const routeIndex = buildGlobalRenderableRouteIndex(layouts);
+  const routePatches = getEnabledRoutePatches();
   orderedAreas.forEach((area, index) => {
-    container.append(renderArea(area, index));
+    container.append(renderArea(area, index, layouts[index], routeIndex, routePatches));
   });
-  const connectorOverlay = renderBoundaryConnectionOverlay(getAreaLayouts(orderedAreas));
-  if (connectorOverlay) {
-    container.append(connectorOverlay);
+  const routePatchOverlay = renderRoutePatchLayer(layouts, routePatches);
+  if (routePatchOverlay) {
+    container.append(routePatchOverlay);
   }
 
   setTimelineView(editorState.view || "overview");
@@ -1591,15 +1655,28 @@ const renderTimeline = () => {
   });
 };
 
-const renderBoundaryConnectionOverlay = (layouts) => {
-  const enabledConnections = Object.values(getBoundaryConnections()).filter((connection) => connection.enabled);
-  if (!enabledConnections.length || !layouts.length) {
+const renderRoutePatchLayer = (layouts, routePatches) => {
+  const draft = editorState.localRedrawDraft || {};
+  const hasDraftVisual =
+    editorState.mode === "edit" &&
+    editorState.activeTool === "local-redraw" &&
+    (
+      draft.startAnchor ||
+      draft.endAnchor ||
+      draft.rawPointsGlobal?.length ||
+      draft.smoothPointsGlobal?.length
+    );
+  if (!routePatches.length && !hasDraftVisual) {
     return null;
   }
 
-  const totalHeight = layouts[layouts.length - 1].bottom;
+  const totalHeight = layouts[layouts.length - 1]?.bottom || 0;
+  if (!totalHeight) {
+    return null;
+  }
+
   const svg = createSvgElement("svg", {
-    class: "journey-boundary-connector-layer",
+    class: "journey-route-patch-layer",
     viewBox: `0 0 ${SVG_WIDTH} ${totalHeight}`,
     preserveAspectRatio: "none",
     "aria-hidden": "true",
@@ -1607,53 +1684,60 @@ const renderBoundaryConnectionOverlay = (layouts) => {
   });
   svg.style.height = `${totalHeight}px`;
 
-  enabledConnections.forEach((connection) => {
-    const sourcePoints = buildBoundaryConnectorSourcePoints(connection, layouts);
-    if (!sourcePoints) {
-      logHomepage("Boundary connector skipped because source points are insufficient.", {
-        connectionId: connection.id
-      });
-      return;
-    }
-
-    const fromArea = getAreaById(connection.fromAreaId);
-    const { d, smoothPoints } = buildBoundaryConnectorPathD(sourcePoints, connection);
+  const appendPatchPath = (points, styleArea, classSuffix = "") => {
+    const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
+    const d = buildDensePolylinePathD(cleanPoints);
     if (!d) {
-      logHomepage("Boundary connector skipped because no path data was generated.", {
-        connectionId: connection.id
-      });
       return;
     }
-
-    const strokeWidth = Number(fromArea?.path?.strokeWidth) || 34;
-    const shadowColor = fromArea?.path?.shadowColor || "rgba(20, 40, 60, 0.12)";
-    const strokeColor = fromArea?.path?.strokeColor || "#ffffff";
+    const strokeWidth = Number(styleArea?.path?.strokeWidth) || 34;
     svg.append(
       createSvgElement("path", {
-        class: "journey-boundary-connector-shadow",
+        class: `journey-route-patch__shadow${classSuffix}`,
         d,
-        stroke: shadowColor,
+        stroke: styleArea?.path?.shadowColor || "rgba(20, 40, 60, 0.12)",
         "stroke-width": String(strokeWidth + 10)
       }),
       createSvgElement("path", {
-        class: "journey-boundary-connector-road",
+        class: `journey-route-patch__main${classSuffix}`,
         d,
-        stroke: strokeColor,
-        "stroke-width": String(strokeWidth),
-        "data-boundary-connection-id": connection.id
+        stroke: styleArea?.path?.strokeColor || "#ffffff",
+        "stroke-width": String(strokeWidth)
       })
     );
+  };
 
-    if (editorState.mode === "edit" && uiState.debugOverlay && uiState.debugLayers.anchors) {
-      appendDebugPoints(svg, sourcePoints, "curve-debug__resampled", 5);
-      appendDebugPoints(svg, smoothPoints, "curve-debug__control-point", 3);
-    }
+  routePatches.forEach((patch) => {
+    appendPatchPath(patch.smoothPointsGlobal, getPatchStyleSourceArea(patch));
   });
+
+  if (hasDraftVisual) {
+    const draftStyleArea = getPatchStyleSourceArea({
+      startAnchor: draft.startAnchor,
+      fromAreaId: draft.startAnchor?.areaId
+    });
+    if (draft.smoothPointsGlobal?.length >= 2) {
+      appendPatchPath(draft.smoothPointsGlobal, draftStyleArea, " journey-route-patch__main--preview");
+    } else if (draft.rawPointsGlobal?.length >= 2) {
+      svg.append(createSvgElement("path", {
+        class: "journey-route-redraw-preview",
+        d: buildDensePolylinePathD(draft.rawPointsGlobal)
+      }));
+    }
+    [draft.startAnchor, draft.endAnchor].filter(Boolean).forEach((anchor, index) => {
+      svg.append(createSvgElement("circle", {
+        class: `journey-route-redraw-marker journey-route-redraw-marker--${index === 0 ? "start" : "end"}`,
+        cx: String(anchor.globalPoint.x),
+        cy: String(anchor.globalPoint.y),
+        r: "11"
+      }));
+    });
+  }
 
   return svg.childNodes.length ? svg : null;
 };
 
-const renderArea = (area, index) => {
+const renderArea = (area, index, layout, routeIndex, routePatches) => {
   const section = document.createElement("section");
   section.className = `journey-area pattern-${area.background.pattern}`;
   section.dataset.areaId = area.id;
@@ -1667,7 +1751,7 @@ const renderArea = (area, index) => {
   section.style.setProperty("--major-node-color", area.areaStyles.majorNodeColor);
   section.style.setProperty("--minor-node-color", area.areaStyles.minorNodeColor);
 
-  section.append(renderAreaCopy(area), renderAreaSvg(area), renderAreaNodes(area));
+  section.append(renderAreaCopy(area), renderAreaSvg(area, layout, routeIndex, routePatches), renderAreaNodes(area));
   if (editorState.mode === "edit") {
     section.append(renderAreaEditBadge(area));
     section.append(renderAreaResizeHandle(area));
@@ -1675,17 +1759,23 @@ const renderArea = (area, index) => {
 
   if (editorState.mode === "edit") {
     section.addEventListener("pointerdown", (event) => {
-      if (editorState.activeTool !== "freehand" || editorState.selectedAreaId !== area.id) {
-        return;
-      }
       if (event.target.closest(".journey-event") || event.target.closest(".curve-handle")) {
         return;
       }
-      beginFreehandDrawing(event, section, area);
+      if (editorState.activeTool === "freehand" && editorState.selectedAreaId === area.id) {
+        beginFreehandDrawing(event, section, area);
+        return;
+      }
+      if (editorState.activeTool === "local-redraw") {
+        handleLocalRedrawPointerDown(event, section, area);
+      }
     });
 
     section.addEventListener("click", (event) => {
       if (event.target.closest(".journey-event") || event.target.closest(".curve-handle") || event.target.closest(".area-resize-handle")) {
+        return;
+      }
+      if (editorState.activeTool === "local-redraw") {
         return;
       }
       editorState.selectedAreaId = area.id;
@@ -1734,7 +1824,7 @@ const renderAreaCopy = (area) => {
   return copy;
 };
 
-const renderAreaSvg = (area) => {
+const renderAreaSvg = (area, layout, routeIndex, routePatches) => {
   const svg = createSvgElement("svg", {
     class: "area-path",
     viewBox: `0 0 ${SVG_WIDTH} ${area.height}`,
@@ -1744,9 +1834,14 @@ const renderAreaSvg = (area) => {
     focusable: "false"
   });
 
-  const d = area.path.mode === "freehand"
-    ? area.path.d || buildFreehandPathD(area.path.smoothPoints || [], area.path.smoothing)
-    : buildPathD(area.path.points);
+  const patchedPoints = routePatches?.length && layout && routeIndex?.length
+    ? buildPatchedRenderablePointsForArea(area, layout, routeIndex, routePatches)
+    : null;
+  const d = patchedPoints
+    ? buildDensePolylinePathD(patchedPoints)
+    : area.path.mode === "freehand"
+      ? area.path.d || buildFreehandPathD(area.path.smoothPoints || [], area.path.smoothing)
+      : buildPathD(area.path.points);
   const shadow = createSvgElement("path", {
     class: "area-path__shadow",
     d,
@@ -2134,6 +2229,16 @@ const renderAreaResizeHandle = (area) => {
 const setActiveTool = (tool) => {
   editorState.activeTool = tool;
   editorState.drawingPreviewPoints = [];
+  if (tool === "local-redraw") {
+    editorState.localRedrawDraft = {
+      ...clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft),
+      mode: "select-start"
+    };
+    uiState.popover = null;
+    showEditorMessage("点击路线上的起点。");
+  } else {
+    resetLocalRedrawDraft();
+  }
   const root = document.querySelector(".timeline-home");
   if (root) {
     root.dataset.activeTool = tool;
@@ -2167,6 +2272,204 @@ const beginFreehandDrawing = (event, areaElement, area) => {
   areaElement.setPointerCapture(event.pointerId);
   renderTimeline();
   logHomepage("Started freehand curve drawing.", { areaId: area.id, firstPoint });
+};
+
+const setLocalRedrawError = (message) => {
+  editorState.localRedrawDraft.error = message;
+  showEditorMessage(message, true);
+  renderTimeline();
+  renderEditorPanel();
+};
+
+const handleLocalRedrawPointerDown = (event, areaElement, area) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const draft = editorState.localRedrawDraft || clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft);
+  const layouts = getAreaLayouts(getOrderedAreas());
+  const routeIndex = buildGlobalRenderableRouteIndex(layouts);
+  const globalPoint = getGlobalPointFromPointer(event, areaElement, area);
+
+  if (draft.mode === "select-start" || draft.mode === "select-end") {
+    const anchor = findNearestRouteAnchor(globalPoint, routeIndex);
+    if (!anchor) {
+      setLocalRedrawError("点击位置离路线太远，请点在线路附近。");
+      logHomepage("Local route redraw anchor pick missed route.", { globalPoint });
+      return;
+    }
+
+    if (draft.mode === "select-start") {
+      editorState.localRedrawDraft = {
+        ...draft,
+        mode: "select-end",
+        startAnchor: anchor,
+        endAnchor: null,
+        rawPointsGlobal: [],
+        smoothPointsGlobal: [],
+        error: ""
+      };
+      showEditorMessage("起点已选择，请点击路线上的终点。");
+      logHomepage("Selected local redraw start anchor.", anchor);
+    } else {
+      let startAnchor = draft.startAnchor;
+      let endAnchor = anchor;
+      if (!startAnchor) {
+        setLocalRedrawError("请先选择起点。");
+        return;
+      }
+      if (startAnchor.globalIndex > endAnchor.globalIndex) {
+        [startAnchor, endAnchor] = [endAnchor, startAnchor];
+      }
+      if (endAnchor.globalIndex - startAnchor.globalIndex < LOCAL_REDRAW_MIN_INTERVAL_POINTS) {
+        setLocalRedrawError("两个点太近，请重新选择更长的路线区间。");
+        return;
+      }
+      editorState.localRedrawDraft = {
+        ...draft,
+        mode: "drawing",
+        startAnchor,
+        endAnchor,
+        rawPointsGlobal: [],
+        smoothPointsGlobal: [],
+        error: ""
+      };
+      showEditorMessage("请在两点之间重新手绘线条。");
+      logHomepage("Selected local redraw end anchor.", {
+        startAnchor,
+        endAnchor,
+        intervalPoints: endAnchor.globalIndex - startAnchor.globalIndex
+      });
+    }
+    renderTimeline();
+    renderEditorPanel();
+    return;
+  }
+
+  if (draft.mode === "drawing") {
+    const startPoint = normalizePoint(draft.startAnchor.globalPoint);
+    editorState.localRedrawDraft.rawPointsGlobal = [startPoint, globalPoint];
+    dragState = {
+      kind: "local-redraw",
+      areaRect: areaElement.getBoundingClientRect(),
+      areaId: area.id,
+      pointerId: event.pointerId
+    };
+    areaElement.setPointerCapture(event.pointerId);
+    renderTimeline();
+    logHomepage("Started local route redraw stroke.", {
+      startAnchor: draft.startAnchor,
+      endAnchor: draft.endAnchor
+    });
+  }
+};
+
+const finishLocalRedrawDrawing = () => {
+  const draft = editorState.localRedrawDraft;
+  if (!draft?.startAnchor || !draft?.endAnchor) {
+    setLocalRedrawError("局部重画缺少起点或终点。");
+    return;
+  }
+
+  const routeIndex = buildGlobalRenderableRouteIndex(getAreaLayouts(getOrderedAreas()));
+  const startPoint = normalizePoint(draft.startAnchor.globalPoint);
+  const endPoint = normalizePoint(draft.endAnchor.globalPoint);
+  const fallbackMidPoint = {
+    x: Math.round((startPoint.x + endPoint.x) / 2 + Math.sign(endPoint.x - startPoint.x || 1) * 36),
+    y: Math.round((startPoint.y + endPoint.y) / 2)
+  };
+  const rawPointsGlobal = removeConsecutiveDuplicatePoints([
+    startPoint,
+    ...sanitizePointList(draft.rawPointsGlobal || []),
+    endPoint
+  ]);
+  const smoothingRawPoints = rawPointsGlobal.length >= 3
+    ? rawPointsGlobal
+    : [startPoint, fallbackMidPoint, endPoint];
+
+  const smoothPointsGlobal = smoothLocalRedrawSegment(
+    { ...draft, rawPointsGlobal: smoothingRawPoints },
+    routeIndex
+  );
+  editorState.localRedrawDraft = {
+    ...draft,
+    mode: "preview",
+    rawPointsGlobal: smoothingRawPoints,
+    smoothPointsGlobal,
+    error: ""
+  };
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage("局部重画预览已生成。");
+  logHomepage("Generated local route redraw preview.", {
+    rawPointCount: rawPointsGlobal.length,
+    smoothPointCount: smoothPointsGlobal.length,
+    startAnchor: draft.startAnchor,
+    endAnchor: draft.endAnchor
+  });
+};
+
+const handleLocalRedrawAction = (action) => {
+  const draft = editorState.localRedrawDraft || clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft);
+  if (action === "restart-start") {
+    editorState.localRedrawDraft = {
+      ...clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft),
+      mode: "select-start"
+    };
+    showEditorMessage("请重新点击路线上的起点。");
+  }
+  if (action === "restart-end") {
+    editorState.localRedrawDraft = {
+      ...draft,
+      mode: "select-end",
+      endAnchor: null,
+      rawPointsGlobal: [],
+      smoothPointsGlobal: [],
+      error: ""
+    };
+    showEditorMessage("请重新点击路线上的终点。");
+  }
+  if (action === "cancel") {
+    resetLocalRedrawDraft();
+    setActiveTool("select");
+    showEditorMessage("已取消局部重画。");
+  }
+  if (action === "clear") {
+    delete editorState.routePatches[LOCAL_REDRAW_PATCH_ID];
+    resetLocalRedrawDraft();
+    markDirty("local route redraw cleared");
+    showEditorMessage("已清除局部重画，恢复原路线。");
+  }
+  if (action === "apply") {
+    if (draft.mode !== "preview" || draft.smoothPointsGlobal?.length < 2) {
+      setLocalRedrawError("请先完成局部重画预览。");
+      return;
+    }
+    const timestamp = new Date().toISOString();
+    editorState.routePatches[LOCAL_REDRAW_PATCH_ID] = {
+      id: LOCAL_REDRAW_PATCH_ID,
+      type: "local-redraw",
+      enabled: true,
+      fromAreaId: draft.startAnchor.areaId,
+      toAreaId: draft.endAnchor.areaId,
+      startAnchor: draft.startAnchor,
+      endAnchor: draft.endAnchor,
+      rawPointsGlobal: draft.rawPointsGlobal,
+      smoothPointsGlobal: draft.smoothPointsGlobal,
+      createdAt: editorState.routePatches[LOCAL_REDRAW_PATCH_ID]?.createdAt || timestamp,
+      updatedAt: timestamp
+    };
+    resetLocalRedrawDraft();
+    markDirty("local route interval redraw applied");
+    showEditorMessage("已应用局部重画。");
+    logHomepage("Applied local route interval redraw patch.", {
+      patchId: LOCAL_REDRAW_PATCH_ID,
+      fromAreaId: draft.startAnchor.areaId,
+      toAreaId: draft.endAnchor.areaId,
+      rawPointCount: draft.rawPointsGlobal.length,
+      smoothPointCount: draft.smoothPointsGlobal.length
+    });
+  }
+  renderTimeline();
+  renderEditorPanel();
 };
 
 const finishFreehandDrawing = () => {
@@ -2541,7 +2844,7 @@ const getCurveDebugExport = () => {
       gaussianPasses: stats.gaussianPasses
     },
     boundaryDiagnostics: debugData.boundaryDiagnostics || [],
-    boundaryConnections: getBoundaryConnectorDebugData()
+    localRouteRedraw: buildRoutePatchDebugData()
   };
 };
 
@@ -2623,6 +2926,9 @@ const renderEditorPanel = () => {
   }
 
   root.append(renderFloatingToolbar());
+  if (editorState.activeTool === "local-redraw") {
+    root.append(renderLocalRedrawPanel());
+  }
   if (uiState.contextMenu) {
     root.append(renderContextMenu());
   }
@@ -2634,6 +2940,58 @@ const renderEditorPanel = () => {
   }
 };
 
+const getLocalRedrawStepText = () => {
+  const mode = editorState.localRedrawDraft?.mode || "idle";
+  const messages = {
+    idle: "点击“局部重画连接处”开始。",
+    "select-start": "第 1 步：点击路线上的起点。",
+    "select-end": "第 2 步：点击路线上的终点。",
+    drawing: "第 3 步：在两点之间重新手绘线条，松开后预览。",
+    preview: "第 4 步：检查预览，然后应用或取消。"
+  };
+  return messages[mode] || messages.idle;
+};
+
+const formatAnchorLabel = (anchor) => {
+  if (!anchor) {
+    return "未选择";
+  }
+  return `${anchor.areaId} / point ${anchor.pointIndex}`;
+};
+
+const renderLocalRedrawPanel = () => {
+  const draft = editorState.localRedrawDraft || {};
+  const appliedPatch = getRoutePatches()[LOCAL_REDRAW_PATCH_ID];
+  const canApply = draft.mode === "preview" && draft.smoothPointsGlobal?.length >= 2;
+  const hasPatch = Boolean(appliedPatch?.enabled);
+  const panel = document.createElement("section");
+  panel.className = "local-redraw-panel";
+  panel.innerHTML = `
+    <h2>局部重画连接处</h2>
+    <p>${getLocalRedrawStepText()}</p>
+    <p class="local-redraw-panel__hint">
+      只替换两个选中点之间的路线；普通手绘曲线仍会自动平滑。
+    </p>
+    ${draft.error ? `<p class="local-redraw-panel__error">${escapeHtml(draft.error)}</p>` : ""}
+    <dl>
+      <div><dt>起点</dt><dd>${escapeHtml(formatAnchorLabel(draft.startAnchor))}</dd></div>
+      <div><dt>终点</dt><dd>${escapeHtml(formatAnchorLabel(draft.endAnchor))}</dd></div>
+      <div><dt>补丁</dt><dd>${hasPatch ? "已应用" : "未应用"}</dd></div>
+    </dl>
+    <div class="local-redraw-panel__actions">
+      <button type="button" data-local-redraw-action="restart-start">重新选择起点</button>
+      <button type="button" data-local-redraw-action="restart-end" ${draft.startAnchor ? "" : "disabled"}>重新选择终点</button>
+      <button type="button" data-local-redraw-action="apply" ${canApply ? "" : "disabled"}>应用局部重画</button>
+      <button type="button" data-local-redraw-action="cancel">取消</button>
+      <button type="button" data-local-redraw-action="clear" ${hasPatch ? "" : "disabled"}>清除局部重画</button>
+    </div>
+  `;
+  panel.querySelectorAll("[data-local-redraw-action]").forEach((button) => {
+    button.addEventListener("click", () => handleLocalRedrawAction(button.dataset.localRedrawAction));
+  });
+  return panel;
+};
+
 const renderFloatingToolbar = () => {
   const toolbar = document.createElement("div");
   toolbar.className = "context-toolbar";
@@ -2642,6 +3000,7 @@ const renderFloatingToolbar = () => {
   toolbar.innerHTML = `
     <button type="button" data-context-action="select" aria-pressed="${editorState.activeTool === "select"}">选择</button>
     <button type="button" data-context-action="draw" aria-pressed="${editorState.activeTool === "freehand"}">手绘曲线</button>
+    <button type="button" data-context-action="local-redraw" aria-pressed="${editorState.activeTool === "local-redraw"}">局部重画连接处</button>
     <button type="button" data-context-action="curve-tuning">曲线调参</button>
     <button type="button" data-context-action="debug" aria-pressed="${uiState.debugOverlay}">调试曲线</button>
     ${uiState.debugOverlay ? `
@@ -2665,6 +3024,7 @@ const handleContextAction = (action) => {
   const actions = {
     select: () => setActiveTool("select"),
     draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
+    "local-redraw": () => setActiveTool(editorState.activeTool === "local-redraw" ? "select" : "local-redraw"),
     "curve-tuning": () => openContextPopover("curve", { areaId: editorState.selectedAreaId }, window.innerWidth - 360, 72),
     debug: toggleCurveDebugOverlay,
     "debug-raw": () => toggleCurveDebugLayer("raw"),
@@ -2834,38 +3194,6 @@ const renderTuningMetrics = () => {
   `;
 };
 
-const renderBoundaryConnectionControls = () => {
-  const connection = getBoundaryConnection("area-01", "area-02");
-  if (!connection) {
-    return "";
-  }
-
-  const action = connection.enabled ? "disable" : "enable";
-  const label = connection.enabled
-    ? "\u53d6\u6d88 Area 01 \u2192 Area 02 \u8fde\u63a5\u4f18\u5316"
-    : "\u786e\u8ba4 Area 01 \u2192 Area 02 \u4e1d\u6ed1\u8fde\u63a5";
-  const status = connection.enabled
-    ? "\u5df2\u542f\u7528\uff1a\u53ea\u5728\u4e24\u4e2a\u533a\u57df\u4ea4\u754c\u5904\u7ed8\u5236\u89c6\u89c9\u6865\u63a5\u5c42\u3002"
-    : "\u672a\u542f\u7528\uff1a\u666e\u901a\u624b\u7ed8\u8def\u7ebf\u4ecd\u6309\u539f\u6765\u7684\u81ea\u52a8\u5e73\u6ed1\u903b\u8f91\u5904\u7406\u3002";
-
-  return `
-    <section class="journey-boundary-control" data-boundary-connection-id="${connection.id}">
-      <h3>\u533a\u57df\u8fde\u63a5</h3>
-      <p class="context-note">
-        \u53ea\u4f18\u5316 Area 01 \u548c Area 02 \u4ea4\u754c\u5904\u7684\u89c6\u89c9\u6865\u63a5\uff1b
-        \u4e0d\u8986\u76d6\u624b\u7ed8\u539f\u59cb\u70b9\u3001\u5e73\u6ed1\u70b9\u6216\u533a\u57df\u8def\u5f84\u6570\u636e\u3002
-      </p>
-      <button
-        type="button"
-        data-boundary-connection-action="${action}"
-        data-boundary-connection-id="${connection.id}"
-        aria-pressed="${connection.enabled}"
-      >${label}</button>
-      <p class="journey-boundary-control__status">${status}</p>
-    </section>
-  `;
-};
-
 const renderTuningSlider = (slider, smoothing) => {
   const value = smoothing[slider.key];
   return `
@@ -2922,7 +3250,6 @@ const renderCurvePopoverContent = () => {
         ${TUNING_SLIDERS.map((slider) => renderTuningSlider(slider, smoothing)).join("")}
       </div>
       ${renderTuningMetrics()}
-      ${renderBoundaryConnectionControls()}
     </div>
     <label>\u66f2\u7ebf\u989c\u8272<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
     <label>\u9634\u5f71\u989c\u8272<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
@@ -3011,61 +3338,12 @@ const bindContextPopoverEvents = (popover) => {
   popover.querySelectorAll("[data-curve-preset]").forEach((button) => {
     button.addEventListener("click", () => applyCurveTuningPreset(button.dataset.curvePreset));
   });
-  popover.querySelectorAll("[data-boundary-connection-action]").forEach((button) => {
-    button.addEventListener("click", () => handleBoundaryConnectionAction(
-      button.dataset.boundaryConnectionAction,
-      button.dataset.boundaryConnectionId
-    ));
-  });
   popover.querySelectorAll("[data-node-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeField(field));
     field.addEventListener("change", () => updateNodeField(field));
   });
   popover.querySelectorAll("[data-node-style-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeStyleField(field));
-  });
-};
-
-const getPathMutationSnapshot = (areaIds) =>
-  Object.fromEntries(areaIds.map((areaId) => {
-    const area = getAreaById(areaId);
-    return [
-      areaId,
-      JSON.stringify({
-        rawPoints: area?.path.rawPoints || [],
-        smoothPoints: area?.path.smoothPoints || [],
-        finalSmoothPoints: area?.path.finalSmoothPoints || [],
-        finalSvgPath: area?.path.finalSvgPath || "",
-        d: area?.path.d || ""
-      })
-    ];
-  }));
-
-const handleBoundaryConnectionAction = (action, connectionId) => {
-  const connection = getBoundaryConnections()[connectionId];
-  if (!connection) {
-    showEditorMessage("\u672a\u627e\u5230\u8fb9\u754c\u8fde\u63a5\u914d\u7f6e\u3002", true);
-    return;
-  }
-
-  const beforeSnapshot = getPathMutationSnapshot([connection.fromAreaId, connection.toAreaId]);
-  connection.enabled = action === "enable";
-  markDirty(`boundary connector ${connection.enabled ? "enabled" : "disabled"}`);
-  renderTimeline();
-  renderEditorPanel();
-  const afterSnapshot = getPathMutationSnapshot([connection.fromAreaId, connection.toAreaId]);
-  const sourceDataUnchanged = Object.keys(beforeSnapshot).every(
-    (areaId) => beforeSnapshot[areaId] === afterSnapshot[areaId]
-  );
-  showEditorMessage(
-    connection.enabled
-      ? "\u5df2\u542f\u7528 Area 01 \u2192 Area 02 \u89c6\u89c9\u8fde\u63a5\u5c42\u3002"
-      : "\u5df2\u5173\u95ed Area 01 \u2192 Area 02 \u89c6\u89c9\u8fde\u63a5\u5c42\u3002"
-  );
-  logHomepage(`Toggled boundary-only journey connector. sourceDataUnchanged=${sourceDataUnchanged}`, {
-    connectionId,
-    enabled: connection.enabled,
-    sourceDataUnchanged
   });
 };
 
@@ -3734,6 +4012,29 @@ const handlePointerMove = (event) => {
     return;
   }
 
+  if (dragState.kind === "local-redraw") {
+    const area = getAreaById(dragState.areaId);
+    const draft = editorState.localRedrawDraft;
+    if (!area || !draft?.startAnchor || !draft?.endAnchor) {
+      return;
+    }
+    const layout = getLayoutByAreaId(getAreaLayouts(getOrderedAreas()), area.id);
+    if (!layout) {
+      return;
+    }
+    const localPoint = {
+      x: Math.max(0, Math.min(SVG_WIDTH, Math.round(((event.clientX - dragState.areaRect.left) / dragState.areaRect.width) * SVG_WIDTH))),
+      y: Math.max(0, Math.min(area.height, Math.round(((event.clientY - dragState.areaRect.top) / dragState.areaRect.height) * area.height)))
+    };
+    const point = localToGlobalPoint(localPoint, layout);
+    const previous = draft.rawPointsGlobal[draft.rawPointsGlobal.length - 1];
+    if (!previous || distanceBetweenPoints(previous, point) >= DRAW_POINT_MIN_DISTANCE) {
+      draft.rawPointsGlobal.push(point);
+      renderTimeline();
+    }
+    return;
+  }
+
   if (dragState.kind === "curve") {
     const point = {
       x: Math.round(((event.clientX - dragState.svgRect.left) / dragState.svgRect.width) * dragState.svgWidth),
@@ -3803,6 +4104,9 @@ const handlePointerUp = () => {
   if (dragState) {
     if (dragState.kind === "freehand") {
       finishFreehandDrawing();
+    }
+    if (dragState.kind === "local-redraw") {
+      finishLocalRedrawDrawing();
     }
     logHomepage("Completed drag interaction.", dragState);
     dragState = null;

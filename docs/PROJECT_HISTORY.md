@@ -1,5 +1,34 @@
 # Project History
 
+## 2026-06-26 - Add local route interval redraw
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the previous boundary overlay connector because it looked like a white patch.
+* Let the journey editor select two route points and redraw only the route interval between them.
+* Preserve the existing automatic `simple-strong-smooth` freehand pipeline for ordinary route drawing.
+* Keep backend, database, RBAC, migrations, configuration, and deployment unchanged.
+
+### Completed
+
+* Added `routePatches` state for local route interval replacement.
+* Added a transient local redraw draft flow for selecting a start point, selecting an end point, drawing a replacement stroke, previewing it, applying it, cancelling it, or clearing the saved patch.
+* Added a global renderable route index so clicks can snap to the nearest existing route point.
+* Replaced the old Area 01 -> Area 02 boundary overlay control with a local redraw editor tool.
+* Updated route rendering so the original selected interval is removed from the affected area paths before the replacement segment is drawn.
+* Smoothed the replacement segment with endpoint context from the existing route so both joins inherit nearby route direction.
+
+### Safety boundaries
+
+* The ordinary hand-drawn route smoothing workflow remains automatic.
+* The local redraw patch does not rewrite the whole area route or global route.
+* The old overlay connector is no longer rendered by the timeline.
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-26 - Add boundary-only journey connection smoothing
 
 ### Goal

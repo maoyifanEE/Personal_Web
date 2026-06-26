@@ -297,7 +297,7 @@ select {
   overflow: visible;
 }
 
-.journey-boundary-connector-layer {
+.journey-route-patch-layer {
   position: absolute;
   inset: 0;
   z-index: 2;
@@ -308,8 +308,8 @@ select {
 
 .area-path__shadow,
 .area-path__main,
-.journey-boundary-connector-shadow,
-.journey-boundary-connector-road {
+.journey-route-patch__shadow,
+.journey-route-patch__main {
   fill: none;
   vector-effect: non-scaling-stroke;
   stroke-linejoin: round;
@@ -317,8 +317,31 @@ select {
 }
 
 .area-path__shadow,
-.journey-boundary-connector-shadow {
+.journey-route-patch__shadow {
   transform: translateY(3px);
+}
+
+.journey-route-redraw-preview {
+  fill: none;
+  stroke: rgba(22, 143, 144, 0.72);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 12 10;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.journey-route-redraw-marker {
+  fill: #ffffff;
+  stroke: #168f90;
+  stroke-width: 4;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.journey-route-redraw-marker--end {
+  stroke: #d27b34;
 }
 
 .journey-events {
@@ -775,6 +798,80 @@ select {
   white-space: nowrap;
 }
 
+.local-redraw-panel {
+  position: fixed;
+  z-index: 69;
+  top: 68px;
+  right: 14px;
+  width: min(360px, calc(100vw - 28px));
+  padding: 14px;
+  border: 1px solid rgba(23, 37, 52, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.94);
+  box-shadow: 0 18px 48px rgba(23, 37, 52, 0.13);
+  backdrop-filter: blur(16px);
+}
+
+.local-redraw-panel h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.local-redraw-panel p {
+  margin: 6px 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.local-redraw-panel__error {
+  color: #ad3c2d;
+}
+
+.local-redraw-panel dl {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.local-redraw-panel dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.local-redraw-panel dt {
+  color: var(--ink-soft);
+}
+
+.local-redraw-panel dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.local-redraw-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.local-redraw-panel button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 8px;
+  color: var(--ink);
+  background: #ffffff;
+  font-weight: 750;
+}
+
+.local-redraw-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .context-popover,
 .context-menu,
 .node-hover-preview {
@@ -955,28 +1052,6 @@ select {
   color: #9a5a19;
   border-color: rgba(154, 90, 25, 0.22);
   background: rgba(214, 155, 76, 0.12);
-}
-
-.journey-boundary-control {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid rgba(22, 143, 144, 0.16);
-  border-radius: 8px;
-  background: rgba(22, 143, 144, 0.07);
-}
-
-.journey-boundary-control h3 {
-  margin: 0;
-  color: var(--ink);
-  font-size: 13px;
-}
-
-.journey-boundary-control__status {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .context-note,
