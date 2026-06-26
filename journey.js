@@ -74,6 +74,21 @@ const CURVE_TUNING_PRESETS = {
 };
 const DRAW_POINT_MIN_DISTANCE = 10;
 const PATH_ALIGNMENT_HANDLE_DISTANCE = 96;
+const getBoundaryConnectionId = (fromAreaId, toAreaId) => `${fromAreaId}__${toAreaId}`;
+const DEFAULT_BOUNDARY_CONNECTIONS = {
+  [getBoundaryConnectionId("area-01", "area-02")]: {
+    id: getBoundaryConnectionId("area-01", "area-02"),
+    fromAreaId: "area-01",
+    toAreaId: "area-02",
+    enabled: false,
+    tailDistance: 180,
+    headDistance: 180,
+    minPointsPerSide: 3,
+    maxPointsPerSide: 8,
+    samplesPerSegment: 18,
+    alpha: 0.5
+  }
+};
 
 const logHomepage = (message, details = {}) => {
   console.log(`[Personal_Web][HomepageEditor] ${message}`, details);
@@ -94,6 +109,7 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
   drawingPreviewPoints: [],
   resetConfirmPending: false,
   dirty: false,
+  boundaryConnections: clone(DEFAULT_BOUNDARY_CONNECTIONS),
   hero: {
     eyebrow: "Hello, World!",
     title: "A simple curved path timeline prototype."
@@ -416,6 +432,39 @@ let globalCurveDebugData = null;
 const getOrderedAreas = () => [...editorState.areas].sort((a, b) => a.order - b.order);
 const getAreaById = (areaId) => editorState.areas.find((area) => area.id === areaId);
 const getSelectedArea = () => getAreaById(editorState.selectedAreaId) || getOrderedAreas()[0];
+const getBoundaryConnections = () => editorState.boundaryConnections || {};
+const getBoundaryConnection = (fromAreaId, toAreaId) =>
+  getBoundaryConnections()[getBoundaryConnectionId(fromAreaId, toAreaId)] || null;
+
+const sanitizeBoundaryConnection = (connection, defaults) => {
+  const merged = { ...defaults, ...(connection || {}) };
+  const numberOrDefault = (value, fallback) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+  };
+  return {
+    id: merged.id || defaults.id,
+    fromAreaId: merged.fromAreaId || defaults.fromAreaId,
+    toAreaId: merged.toAreaId || defaults.toAreaId,
+    enabled: merged.enabled === true,
+    tailDistance: Math.round(clamp(numberOrDefault(merged.tailDistance, defaults.tailDistance), 80, 420)),
+    headDistance: Math.round(clamp(numberOrDefault(merged.headDistance, defaults.headDistance), 80, 420)),
+    minPointsPerSide: Math.round(clamp(numberOrDefault(merged.minPointsPerSide, defaults.minPointsPerSide), 2, 8)),
+    maxPointsPerSide: Math.round(clamp(numberOrDefault(merged.maxPointsPerSide, defaults.maxPointsPerSide), 4, 16)),
+    samplesPerSegment: Math.round(clamp(numberOrDefault(merged.samplesPerSegment, defaults.samplesPerSegment), 6, 36)),
+    alpha: clamp(numberOrDefault(merged.alpha, defaults.alpha), 0.25, 1)
+  };
+};
+
+const sanitizeBoundaryConnections = (rawConnections = {}) => {
+  const defaults = clone(DEFAULT_BOUNDARY_CONNECTIONS);
+  Object.entries(rawConnections || {}).forEach(([id, connection]) => {
+    if (defaults[id]) {
+      defaults[id] = sanitizeBoundaryConnection(connection, defaults[id]);
+    }
+  });
+  return defaults;
+};
 
 const getNodeById = (nodeId) => {
   for (const area of editorState.areas) {
@@ -454,6 +503,7 @@ const sanitizeState = (rawState) => {
     return migratedArea;
   });
 
+  nextState.boundaryConnections = sanitizeBoundaryConnections(rawState.boundaryConnections);
   alignAdjacentAreaPaths(nextState.areas, "sanitize");
   nextState.areas.forEach((area) => migrateAreaNodes(area));
 
@@ -722,6 +772,191 @@ const localToGlobalPoint = (point, layout) => ({
   y: Math.round(point.y + layout.top),
   areaId: layout.area.id
 });
+
+const getLayoutByAreaId = (layouts, areaId) =>
+  layouts.find((layout) => layout.area.id === areaId) || null;
+
+const takeTailPointsByDistance = (points, distancePx, minPoints, maxPoints) => {
+  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
+  if (!cleanPoints.length) {
+    return [];
+  }
+
+  const selected = [cleanPoints[cleanPoints.length - 1]];
+  let accumulated = 0;
+  for (let index = cleanPoints.length - 1; index > 0; index -= 1) {
+    accumulated += distanceBetweenPoints(cleanPoints[index], cleanPoints[index - 1]);
+    selected.push(cleanPoints[index - 1]);
+    if (
+      selected.length >= minPoints &&
+      (accumulated >= distancePx || selected.length >= maxPoints)
+    ) {
+      break;
+    }
+  }
+
+  return selected.slice(0, maxPoints).reverse();
+};
+
+const takeHeadPointsByDistance = (points, distancePx, minPoints, maxPoints) => {
+  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
+  if (!cleanPoints.length) {
+    return [];
+  }
+
+  const selected = [cleanPoints[0]];
+  let accumulated = 0;
+  for (let index = 1; index < cleanPoints.length; index += 1) {
+    accumulated += distanceBetweenPoints(cleanPoints[index - 1], cleanPoints[index]);
+    selected.push(cleanPoints[index]);
+    if (
+      selected.length >= minPoints &&
+      (accumulated >= distancePx || selected.length >= maxPoints)
+    ) {
+      break;
+    }
+  }
+
+  return selected.slice(0, maxPoints);
+};
+
+const buildBoundaryConnectorSourcePoints = (connection, layouts) => {
+  const fromLayout = getLayoutByAreaId(layouts, connection.fromAreaId);
+  const toLayout = getLayoutByAreaId(layouts, connection.toAreaId);
+  if (!fromLayout || !toLayout) {
+    return null;
+  }
+
+  const minPoints = connection.minPointsPerSide || 3;
+  const maxPoints = connection.maxPointsPerSide || 8;
+  const tailPoints = takeTailPointsByDistance(
+    getRenderablePathPoints(fromLayout.area),
+    connection.tailDistance,
+    minPoints,
+    maxPoints
+  );
+  const headPoints = takeHeadPointsByDistance(
+    getRenderablePathPoints(toLayout.area),
+    connection.headDistance,
+    minPoints,
+    maxPoints
+  );
+  const sourcePoints = removeConsecutiveDuplicatePoints([
+    ...tailPoints.map((point) => localToGlobalPoint(point, fromLayout)),
+    ...headPoints.map((point) => localToGlobalPoint(point, toLayout))
+  ]);
+
+  return sourcePoints.length >= 4 ? sourcePoints : null;
+};
+
+const extendBefore = (first, second) => ({
+  x: first.x + (first.x - second.x),
+  y: first.y + (first.y - second.y)
+});
+
+const extendAfter = (last, previous) => ({
+  x: last.x + (last.x - previous.x),
+  y: last.y + (last.y - previous.y)
+});
+
+const getCatmullTime = (previousTime, p0, p1, alpha) =>
+  previousTime + Math.max(Math.pow(distanceBetweenPoints(p0, p1), alpha), 0.0001);
+
+const interpolateByTime = (p0, p1, t0, t1, t) => {
+  const denominator = t1 - t0;
+  if (Math.abs(denominator) < 0.0001) {
+    return normalizePoint(p1);
+  }
+  const a = (t1 - t) / denominator;
+  const b = (t - t0) / denominator;
+  return {
+    x: a * p0.x + b * p1.x,
+    y: a * p0.y + b * p1.y
+  };
+};
+
+const centripetalCatmullRomInterpolate = (points, samplesPerSegment = 18, alpha = 0.5) => {
+  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
+  if (cleanPoints.length < 4) {
+    return cleanPoints;
+  }
+
+  const safeSamples = Math.round(clamp(Number(samplesPerSegment) || 18, 6, 36));
+  const safeAlpha = clamp(Number(alpha) || 0.5, 0.25, 1);
+  const extendedPoints = [
+    extendBefore(cleanPoints[0], cleanPoints[1]),
+    ...cleanPoints,
+    extendAfter(cleanPoints[cleanPoints.length - 1], cleanPoints[cleanPoints.length - 2])
+  ].map((point) => normalizePoint(point));
+  const samples = [normalizePoint(cleanPoints[0])];
+
+  for (let index = 0; index < extendedPoints.length - 3; index += 1) {
+    const p0 = extendedPoints[index];
+    const p1 = extendedPoints[index + 1];
+    const p2 = extendedPoints[index + 2];
+    const p3 = extendedPoints[index + 3];
+    const t0 = 0;
+    const t1 = getCatmullTime(t0, p0, p1, safeAlpha);
+    const t2 = getCatmullTime(t1, p1, p2, safeAlpha);
+    const t3 = getCatmullTime(t2, p2, p3, safeAlpha);
+
+    if (![t1, t2, t3].every(Number.isFinite) || t2 <= t1) {
+      return cleanPoints;
+    }
+
+    for (let step = 1; step <= safeSamples; step += 1) {
+      const t = t1 + (t2 - t1) * (step / safeSamples);
+      const a1 = interpolateByTime(p0, p1, t0, t1, t);
+      const a2 = interpolateByTime(p1, p2, t1, t2, t);
+      const a3 = interpolateByTime(p2, p3, t2, t3, t);
+      const b1 = interpolateByTime(a1, a2, t0, t2, t);
+      const b2 = interpolateByTime(a2, a3, t1, t3, t);
+      const point = normalizePoint(interpolateByTime(b1, b2, t1, t2, t));
+      if (Number.isFinite(point.x) && Number.isFinite(point.y)) {
+        samples.push(point);
+      }
+    }
+  }
+
+  const smoothed = removeConsecutiveDuplicatePoints(samples);
+  if (!smoothed.length) {
+    return cleanPoints;
+  }
+  smoothed[0] = normalizePoint(cleanPoints[0]);
+  smoothed[smoothed.length - 1] = normalizePoint(cleanPoints[cleanPoints.length - 1]);
+  return smoothed;
+};
+
+const buildBoundaryConnectorPathD = (sourcePoints, connection) => {
+  const smoothPoints = centripetalCatmullRomInterpolate(
+    sourcePoints,
+    connection.samplesPerSegment || 18,
+    connection.alpha || 0.5
+  );
+  return {
+    d: buildDensePolylinePathD(smoothPoints),
+    smoothPoints
+  };
+};
+
+const getBoundaryConnectorDebugData = () => {
+  const layouts = getAreaLayouts(getOrderedAreas());
+  return Object.values(getBoundaryConnections()).map((connection) => {
+    const sourcePoints = buildBoundaryConnectorSourcePoints(connection, layouts) || [];
+    const { d, smoothPoints } = sourcePoints.length >= 4
+      ? buildBoundaryConnectorPathD(sourcePoints, connection)
+      : { d: "", smoothPoints: [] };
+    return {
+      ...connection,
+      engine: "boundary-visual-connector",
+      sourcePointCount: sourcePoints.length,
+      smoothPointCount: smoothPoints.length,
+      sourcePoints,
+      smoothPoints,
+      finalSvgPath: d
+    };
+  });
+};
 
 const getRoughLocalPointsForArea = (area) => {
   if (area.path.mode === "freehand") {
@@ -1339,9 +1574,14 @@ const renderTimeline = () => {
   }
 
   container.innerHTML = "";
-  getOrderedAreas().forEach((area, index) => {
+  const orderedAreas = getOrderedAreas();
+  orderedAreas.forEach((area, index) => {
     container.append(renderArea(area, index));
   });
+  const connectorOverlay = renderBoundaryConnectionOverlay(getAreaLayouts(orderedAreas));
+  if (connectorOverlay) {
+    container.append(connectorOverlay);
+  }
 
   setTimelineView(editorState.view || "overview");
   logHomepage("Rendered editable timeline.", {
@@ -1349,6 +1589,68 @@ const renderTimeline = () => {
     nodeCount: editorState.areas.reduce((total, area) => total + area.nodes.length, 0),
     mode: editorState.mode
   });
+};
+
+const renderBoundaryConnectionOverlay = (layouts) => {
+  const enabledConnections = Object.values(getBoundaryConnections()).filter((connection) => connection.enabled);
+  if (!enabledConnections.length || !layouts.length) {
+    return null;
+  }
+
+  const totalHeight = layouts[layouts.length - 1].bottom;
+  const svg = createSvgElement("svg", {
+    class: "journey-boundary-connector-layer",
+    viewBox: `0 0 ${SVG_WIDTH} ${totalHeight}`,
+    preserveAspectRatio: "none",
+    "aria-hidden": "true",
+    focusable: "false"
+  });
+  svg.style.height = `${totalHeight}px`;
+
+  enabledConnections.forEach((connection) => {
+    const sourcePoints = buildBoundaryConnectorSourcePoints(connection, layouts);
+    if (!sourcePoints) {
+      logHomepage("Boundary connector skipped because source points are insufficient.", {
+        connectionId: connection.id
+      });
+      return;
+    }
+
+    const fromArea = getAreaById(connection.fromAreaId);
+    const { d, smoothPoints } = buildBoundaryConnectorPathD(sourcePoints, connection);
+    if (!d) {
+      logHomepage("Boundary connector skipped because no path data was generated.", {
+        connectionId: connection.id
+      });
+      return;
+    }
+
+    const strokeWidth = Number(fromArea?.path?.strokeWidth) || 34;
+    const shadowColor = fromArea?.path?.shadowColor || "rgba(20, 40, 60, 0.12)";
+    const strokeColor = fromArea?.path?.strokeColor || "#ffffff";
+    svg.append(
+      createSvgElement("path", {
+        class: "journey-boundary-connector-shadow",
+        d,
+        stroke: shadowColor,
+        "stroke-width": String(strokeWidth + 10)
+      }),
+      createSvgElement("path", {
+        class: "journey-boundary-connector-road",
+        d,
+        stroke: strokeColor,
+        "stroke-width": String(strokeWidth),
+        "data-boundary-connection-id": connection.id
+      })
+    );
+
+    if (editorState.mode === "edit" && uiState.debugOverlay && uiState.debugLayers.anchors) {
+      appendDebugPoints(svg, sourcePoints, "curve-debug__resampled", 5);
+      appendDebugPoints(svg, smoothPoints, "curve-debug__control-point", 3);
+    }
+  });
+
+  return svg.childNodes.length ? svg : null;
 };
 
 const renderArea = (area, index) => {
@@ -2238,7 +2540,8 @@ const getCurveDebugExport = () => {
       gaussianSigma: stats.gaussianSigma,
       gaussianPasses: stats.gaussianPasses
     },
-    boundaryDiagnostics: debugData.boundaryDiagnostics || []
+    boundaryDiagnostics: debugData.boundaryDiagnostics || [],
+    boundaryConnections: getBoundaryConnectorDebugData()
   };
 };
 
@@ -2531,6 +2834,38 @@ const renderTuningMetrics = () => {
   `;
 };
 
+const renderBoundaryConnectionControls = () => {
+  const connection = getBoundaryConnection("area-01", "area-02");
+  if (!connection) {
+    return "";
+  }
+
+  const action = connection.enabled ? "disable" : "enable";
+  const label = connection.enabled
+    ? "\u53d6\u6d88 Area 01 \u2192 Area 02 \u8fde\u63a5\u4f18\u5316"
+    : "\u786e\u8ba4 Area 01 \u2192 Area 02 \u4e1d\u6ed1\u8fde\u63a5";
+  const status = connection.enabled
+    ? "\u5df2\u542f\u7528\uff1a\u53ea\u5728\u4e24\u4e2a\u533a\u57df\u4ea4\u754c\u5904\u7ed8\u5236\u89c6\u89c9\u6865\u63a5\u5c42\u3002"
+    : "\u672a\u542f\u7528\uff1a\u666e\u901a\u624b\u7ed8\u8def\u7ebf\u4ecd\u6309\u539f\u6765\u7684\u81ea\u52a8\u5e73\u6ed1\u903b\u8f91\u5904\u7406\u3002";
+
+  return `
+    <section class="journey-boundary-control" data-boundary-connection-id="${connection.id}">
+      <h3>\u533a\u57df\u8fde\u63a5</h3>
+      <p class="context-note">
+        \u53ea\u4f18\u5316 Area 01 \u548c Area 02 \u4ea4\u754c\u5904\u7684\u89c6\u89c9\u6865\u63a5\uff1b
+        \u4e0d\u8986\u76d6\u624b\u7ed8\u539f\u59cb\u70b9\u3001\u5e73\u6ed1\u70b9\u6216\u533a\u57df\u8def\u5f84\u6570\u636e\u3002
+      </p>
+      <button
+        type="button"
+        data-boundary-connection-action="${action}"
+        data-boundary-connection-id="${connection.id}"
+        aria-pressed="${connection.enabled}"
+      >${label}</button>
+      <p class="journey-boundary-control__status">${status}</p>
+    </section>
+  `;
+};
+
 const renderTuningSlider = (slider, smoothing) => {
   const value = smoothing[slider.key];
   return `
@@ -2587,6 +2922,7 @@ const renderCurvePopoverContent = () => {
         ${TUNING_SLIDERS.map((slider) => renderTuningSlider(slider, smoothing)).join("")}
       </div>
       ${renderTuningMetrics()}
+      ${renderBoundaryConnectionControls()}
     </div>
     <label>\u66f2\u7ebf\u989c\u8272<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
     <label>\u9634\u5f71\u989c\u8272<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
@@ -2675,12 +3011,61 @@ const bindContextPopoverEvents = (popover) => {
   popover.querySelectorAll("[data-curve-preset]").forEach((button) => {
     button.addEventListener("click", () => applyCurveTuningPreset(button.dataset.curvePreset));
   });
+  popover.querySelectorAll("[data-boundary-connection-action]").forEach((button) => {
+    button.addEventListener("click", () => handleBoundaryConnectionAction(
+      button.dataset.boundaryConnectionAction,
+      button.dataset.boundaryConnectionId
+    ));
+  });
   popover.querySelectorAll("[data-node-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeField(field));
     field.addEventListener("change", () => updateNodeField(field));
   });
   popover.querySelectorAll("[data-node-style-field]").forEach((field) => {
     field.addEventListener("input", () => updateNodeStyleField(field));
+  });
+};
+
+const getPathMutationSnapshot = (areaIds) =>
+  Object.fromEntries(areaIds.map((areaId) => {
+    const area = getAreaById(areaId);
+    return [
+      areaId,
+      JSON.stringify({
+        rawPoints: area?.path.rawPoints || [],
+        smoothPoints: area?.path.smoothPoints || [],
+        finalSmoothPoints: area?.path.finalSmoothPoints || [],
+        finalSvgPath: area?.path.finalSvgPath || "",
+        d: area?.path.d || ""
+      })
+    ];
+  }));
+
+const handleBoundaryConnectionAction = (action, connectionId) => {
+  const connection = getBoundaryConnections()[connectionId];
+  if (!connection) {
+    showEditorMessage("\u672a\u627e\u5230\u8fb9\u754c\u8fde\u63a5\u914d\u7f6e\u3002", true);
+    return;
+  }
+
+  const beforeSnapshot = getPathMutationSnapshot([connection.fromAreaId, connection.toAreaId]);
+  connection.enabled = action === "enable";
+  markDirty(`boundary connector ${connection.enabled ? "enabled" : "disabled"}`);
+  renderTimeline();
+  renderEditorPanel();
+  const afterSnapshot = getPathMutationSnapshot([connection.fromAreaId, connection.toAreaId]);
+  const sourceDataUnchanged = Object.keys(beforeSnapshot).every(
+    (areaId) => beforeSnapshot[areaId] === afterSnapshot[areaId]
+  );
+  showEditorMessage(
+    connection.enabled
+      ? "\u5df2\u542f\u7528 Area 01 \u2192 Area 02 \u89c6\u89c9\u8fde\u63a5\u5c42\u3002"
+      : "\u5df2\u5173\u95ed Area 01 \u2192 Area 02 \u89c6\u89c9\u8fde\u63a5\u5c42\u3002"
+  );
+  logHomepage(`Toggled boundary-only journey connector. sourceDataUnchanged=${sourceDataUnchanged}`, {
+    connectionId,
+    enabled: connection.enabled,
+    sourceDataUnchanged
   });
 };
 

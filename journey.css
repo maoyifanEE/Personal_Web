@@ -297,14 +297,27 @@ select {
   overflow: visible;
 }
 
+.journey-boundary-connector-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
 .area-path__shadow,
-.area-path__main {
+.area-path__main,
+.journey-boundary-connector-shadow,
+.journey-boundary-connector-road {
   fill: none;
   vector-effect: non-scaling-stroke;
   stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
-.area-path__shadow {
+.area-path__shadow,
+.journey-boundary-connector-shadow {
   transform: translateY(3px);
 }
 
@@ -942,6 +955,28 @@ select {
   color: #9a5a19;
   border-color: rgba(154, 90, 25, 0.22);
   background: rgba(214, 155, 76, 0.12);
+}
+
+.journey-boundary-control {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(22, 143, 144, 0.16);
+  border-radius: 8px;
+  background: rgba(22, 143, 144, 0.07);
+}
+
+.journey-boundary-control h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.journey-boundary-control__status {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .context-note,

@@ -1,5 +1,31 @@
 # Project History
 
+## 2026-06-26 - Add boundary-only journey connection smoothing
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Preserve the existing automatic hand-drawn route smoothing pipeline.
+* Add a manually confirmed visual connector for the Area 01 -> Area 02 boundary only.
+* Keep backend, database, RBAC, migrations, configuration, and deployment unchanged.
+
+### Completed
+
+* Added disabled-by-default `boundaryConnections` editor state for `area-01__area-02`.
+* Added a global SVG overlay connector that uses existing smoothed renderable points near the area boundary.
+* Added a boundary-specific centripetal Catmull-Rom interpolation helper with `alpha=0.5`.
+* Added an editor control to enable or cancel the Area 01 -> Area 02 visual connector.
+* Kept the connector as an overlay only; it does not overwrite raw points, smooth points, final SVG path data, cards, nodes, or area text.
+* Updated journey visual guidance to distinguish automatic route smoothing from manually confirmed boundary connection smoothing.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No deployment behavior was changed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-25 - Make homepage entrance buttons visible
 
 ### Goal
