@@ -54,6 +54,15 @@ It should also prevent old navigation behavior from returning by accident.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
 * Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
 * Curve debug export may be used to inspect raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
+* Journey areas may use replaceable background images in the editor.
+* Background images should adapt to area height through `object-fit` and `object-position`, not fixed image heights.
+* Journey stickers are transparent irregular images such as PNG, WebP, or SVG.
+* Stickers should render as natural transparent images without rectangular cards or white backgrounds.
+* Stickers may be added by project-relative path, testing URL, or by dragging a local image into the editor drop zone.
+* Dragged local images are stored as Data URLs for local prototype preview only.
+* Final project assets should live under `assets/journey/backgrounds/` or `assets/journey/stickers/` and be referenced with relative paths.
+* Sticker positions and sizes should use percent coordinates so they remain stable when area size changes.
+* Sticker editor actions may drag, resize, rotate, layer, hide, lock, duplicate, and delete stickers.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.

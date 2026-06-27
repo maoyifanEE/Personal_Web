@@ -94,6 +94,43 @@ const DEFAULT_ROUTE_STROKES = {
   drawingPreviewPoints: [],
   snapPreview: null
 };
+const DEFAULT_AREA_BACKGROUND = {
+  type: "gradient",
+  colorA: "#edf7eb",
+  colorB: "#e4f2e6",
+  pattern: "soft-hills",
+  imageSrc: "",
+  imageAlt: "",
+  imageFit: "cover",
+  imagePositionX: 50,
+  imagePositionY: 50,
+  imageOpacity: 1,
+  imageBlur: 0,
+  overlayColor: "#ffffff",
+  overlayOpacity: 0
+};
+const DEFAULT_STICKER = {
+  name: "Sticker",
+  src: "",
+  alt: "",
+  xPercent: 50,
+  yPercent: 50,
+  widthPercent: 18,
+  rotation: 0,
+  opacity: 1,
+  zIndex: 10,
+  locked: false,
+  visible: true
+};
+const IMAGE_DROP_ACCEPT_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/svg+xml",
+  "image/gif"
+]);
+const IMAGE_DROP_ACCEPT_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif"]);
+const MAX_LOCAL_IMAGE_BYTES = 5 * 1024 * 1024;
 const getBoundaryConnectionId = (fromAreaId, toAreaId) => `${fromAreaId}__${toAreaId}`;
 const DEFAULT_BOUNDARY_CONNECTIONS = {
   [getBoundaryConnectionId("area-01", "area-02")]: {
@@ -445,6 +482,8 @@ const createDefaultUiState = () => ({
   popover: null,
   contextMenu: null,
   hoverPreview: null,
+  selectedSticker: null,
+  imageDropTarget: null,
   lastPointerWasDrag: false,
   debugOverlay: false,
   tuningScope: "current",
@@ -581,6 +620,78 @@ const sanitizeRouteStrokes = (rawRouteStrokes = {}) => {
   };
 };
 
+const createStickerId = () => `sticker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const normalizeString = (value) => (typeof value === "string" ? value.trim() : "");
+
+const isValidIsoDate = (value) => {
+  if (typeof value !== "string" || !value) {
+    return false;
+  }
+  return !Number.isNaN(Date.parse(value));
+};
+
+const sanitizeAreaBackground = (background = {}, defaultBackground = DEFAULT_AREA_BACKGROUND) => {
+  const merged = {
+    ...clone(DEFAULT_AREA_BACKGROUND),
+    ...(defaultBackground || {}),
+    ...(background || {})
+  };
+  const imageSrc = normalizeString(merged.imageSrc || merged.placeholderImage || "");
+  const backgroundType = ["gradient", "image", "gradient-image"].includes(merged.type)
+    ? merged.type
+    : imageSrc
+      ? "gradient-image"
+      : "gradient";
+  const imageFit = ["cover", "contain", "fill"].includes(merged.imageFit) ? merged.imageFit : "cover";
+
+  return {
+    type: backgroundType,
+    colorA: normalizeString(merged.colorA) || DEFAULT_AREA_BACKGROUND.colorA,
+    colorB: normalizeString(merged.colorB) || DEFAULT_AREA_BACKGROUND.colorB,
+    pattern: normalizeString(merged.pattern) || "none",
+    imageSrc,
+    imageAlt: normalizeString(merged.imageAlt),
+    imageFit,
+    imagePositionX: clamp(Number(merged.imagePositionX) || 50, 0, 100),
+    imagePositionY: clamp(Number(merged.imagePositionY) || 50, 0, 100),
+    imageOpacity: clamp(Number.isFinite(Number(merged.imageOpacity)) ? Number(merged.imageOpacity) : 1, 0, 1),
+    imageBlur: clamp(Number(merged.imageBlur) || 0, 0, 20),
+    overlayColor: normalizeString(merged.overlayColor) || "#ffffff",
+    overlayOpacity: clamp(Number(merged.overlayOpacity) || 0, 0, 1)
+  };
+};
+
+const sanitizeAreaSticker = (sticker = {}) => {
+  const src = normalizeString(sticker.src);
+  if (!src) {
+    return null;
+  }
+  const timestamp = new Date().toISOString();
+  return {
+    ...clone(DEFAULT_STICKER),
+    id: normalizeString(sticker.id) || createStickerId(),
+    name: normalizeString(sticker.name) || DEFAULT_STICKER.name,
+    src,
+    alt: normalizeString(sticker.alt),
+    xPercent: clamp(Number.isFinite(Number(sticker.xPercent)) ? Number(sticker.xPercent) : 50, -20, 120),
+    yPercent: clamp(Number.isFinite(Number(sticker.yPercent)) ? Number(sticker.yPercent) : 50, -20, 120),
+    widthPercent: clamp(Number.isFinite(Number(sticker.widthPercent)) ? Number(sticker.widthPercent) : 18, 3, 80),
+    rotation: clamp(Number.isFinite(Number(sticker.rotation)) ? Number(sticker.rotation) : 0, -180, 180),
+    opacity: clamp(Number.isFinite(Number(sticker.opacity)) ? Number(sticker.opacity) : 1, 0, 1),
+    zIndex: Math.round(clamp(Number.isFinite(Number(sticker.zIndex)) ? Number(sticker.zIndex) : 10, 0, 100)),
+    locked: sticker.locked === true,
+    visible: sticker.visible !== false,
+    createdAt: isValidIsoDate(sticker.createdAt) ? sticker.createdAt : timestamp,
+    updatedAt: isValidIsoDate(sticker.updatedAt) ? sticker.updatedAt : timestamp
+  };
+};
+
+const sanitizeAreaStickers = (stickers = []) =>
+  (Array.isArray(stickers) ? stickers : [])
+    .map(sanitizeAreaSticker)
+    .filter(Boolean);
+
 const getNodeById = (nodeId) => {
   for (const area of editorState.areas) {
     const node = area.nodes.find((item) => item.id === nodeId);
@@ -609,7 +720,8 @@ const sanitizeState = (rawState) => {
     const migratedArea = {
       ...clone(defaultArea),
       ...area,
-      background: { ...clone(defaultArea.background), ...(area.background || {}) },
+      background: sanitizeAreaBackground(area.background, defaultArea.background),
+      stickers: sanitizeAreaStickers(area.stickers),
       path: { ...clone(defaultArea.path), ...(area.path || {}) },
       areaStyles: { ...clone(defaultArea.areaStyles), ...(area.areaStyles || {}) },
       nodes: Array.isArray(area.nodes) ? area.nodes : clone(defaultArea.nodes)
@@ -2385,6 +2497,83 @@ const renderRoutePatchLayer = (layouts, routePatches) => {
   return svg.childNodes.length ? svg : null;
 };
 
+const renderAreaBackground = (area) => {
+  const background = sanitizeAreaBackground(area.background);
+  const layer = document.createElement("div");
+  layer.className = "journey-area-background";
+  layer.setAttribute("aria-hidden", "true");
+
+  const gradient = document.createElement("div");
+  gradient.className = "journey-area-background-gradient";
+  layer.append(gradient);
+
+  if (background.imageSrc && background.type !== "gradient") {
+    const image = document.createElement("img");
+    image.className = "journey-area-background-image";
+    image.src = background.imageSrc;
+    image.alt = background.imageAlt || "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.style.objectFit = background.imageFit;
+    image.style.objectPosition = `${background.imagePositionX}% ${background.imagePositionY}%`;
+    image.style.opacity = String(background.imageOpacity);
+    image.style.filter = background.imageBlur ? `blur(${background.imageBlur}px)` : "";
+    layer.append(image);
+  }
+
+  if (background.overlayOpacity > 0) {
+    const overlay = document.createElement("div");
+    overlay.className = "journey-area-background-overlay";
+    overlay.style.background = background.overlayColor;
+    overlay.style.opacity = String(background.overlayOpacity);
+    layer.append(overlay);
+  }
+
+  return layer;
+};
+
+const renderAreaStickers = (area) => {
+  const layer = document.createElement("div");
+  layer.className = "journey-sticker-layer";
+  layer.dataset.areaId = area.id;
+
+  sanitizeAreaStickers(area.stickers).forEach((sticker) => {
+    if (!sticker.visible) {
+      return;
+    }
+    const isSelected =
+      uiState.selectedSticker?.areaId === area.id &&
+      uiState.selectedSticker?.stickerId === sticker.id;
+    const image = document.createElement("img");
+    image.className = [
+      "journey-sticker",
+      isSelected ? "is-selected" : "",
+      sticker.locked ? "is-locked" : ""
+    ].filter(Boolean).join(" ");
+    image.src = sticker.src;
+    image.alt = sticker.alt || sticker.name;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.dataset.areaId = area.id;
+    image.dataset.stickerId = sticker.id;
+    image.dataset.stickerDrag = "true";
+    image.style.left = `${sticker.xPercent}%`;
+    image.style.top = `${sticker.yPercent}%`;
+    image.style.width = `${sticker.widthPercent}%`;
+    image.style.opacity = String(sticker.opacity);
+    image.style.zIndex = String(sticker.zIndex);
+    image.style.transform = `translate(-50%, -50%) rotate(${sticker.rotation}deg)`;
+    image.addEventListener("pointerdown", (event) => startStickerDrag(event, area.id, sticker.id));
+    image.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectSticker(area.id, sticker.id);
+    });
+    layer.append(image);
+  });
+
+  return layer;
+};
+
 const renderArea = (area, index, layout, routeIndex, routePatches) => {
   const section = document.createElement("section");
   section.className = `journey-area pattern-${area.background.pattern}`;
@@ -2399,7 +2588,13 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
   section.style.setProperty("--major-node-color", area.areaStyles.majorNodeColor);
   section.style.setProperty("--minor-node-color", area.areaStyles.minorNodeColor);
 
-  section.append(renderAreaCopy(area), renderAreaSvg(area, layout, routeIndex, routePatches), renderAreaNodes(area));
+  section.append(
+    renderAreaBackground(area),
+    renderAreaSvg(area, layout, routeIndex, routePatches),
+    renderAreaStickers(area),
+    renderAreaNodes(area),
+    renderAreaCopy(area)
+  );
   if (editorState.mode === "edit") {
     section.append(renderAreaEditBadge(area));
     section.append(renderAreaResizeHandle(area));
@@ -2407,7 +2602,11 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
 
   if (editorState.mode === "edit") {
     section.addEventListener("pointerdown", (event) => {
-      if (event.target.closest(".journey-event") || event.target.closest(".curve-handle")) {
+      if (
+        event.target.closest(".journey-event") ||
+        event.target.closest(".curve-handle") ||
+        event.target.closest(".journey-sticker")
+      ) {
         return;
       }
       if (editorState.activeTool === "freehand" && editorState.selectedAreaId === area.id) {
@@ -2424,7 +2623,12 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
     });
 
     section.addEventListener("click", (event) => {
-      if (event.target.closest(".journey-event") || event.target.closest(".curve-handle") || event.target.closest(".area-resize-handle")) {
+      if (
+        event.target.closest(".journey-event") ||
+        event.target.closest(".curve-handle") ||
+        event.target.closest(".journey-sticker") ||
+        event.target.closest(".area-resize-handle")
+      ) {
         return;
       }
       if (editorState.activeTool === "local-redraw" || editorState.activeTool === "stroke-topology") {
@@ -2440,7 +2644,11 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
     });
 
     section.addEventListener("contextmenu", (event) => {
-      if (event.target.closest(".journey-event") || event.target.closest(".area-resize-handle")) {
+      if (
+        event.target.closest(".journey-event") ||
+        event.target.closest(".journey-sticker") ||
+        event.target.closest(".area-resize-handle")
+      ) {
         return;
       }
       event.preventDefault();
@@ -3663,6 +3871,7 @@ const renderEditorPanel = () => {
   }
 
   root.append(renderFloatingToolbar());
+  root.append(renderAreaVisualPanel());
   if (editorState.activeTool === "local-redraw") {
     root.append(renderLocalRedrawPanel());
   }
@@ -3797,6 +4006,580 @@ const renderStrokeTopologyPanel = () => {
     field.addEventListener("change", () => updateRouteStrokeField(field, { rerenderPanel: true }));
   });
   return panel;
+};
+
+const getSelectedSticker = () => {
+  const selection = uiState.selectedSticker;
+  if (!selection) {
+    return null;
+  }
+  const area = getAreaById(selection.areaId);
+  const sticker = area?.stickers?.find((item) => item.id === selection.stickerId);
+  if (!area || !sticker) {
+    uiState.selectedSticker = null;
+    return null;
+  }
+  return { area, sticker };
+};
+
+const getShortSourceLabel = (src = "") => {
+  if (!src) {
+    return "no source";
+  }
+  if (src.startsWith("data:")) {
+    return "local Data URL preview";
+  }
+  try {
+    const url = new URL(src);
+    return url.pathname.split("/").filter(Boolean).pop() || url.hostname;
+  } catch {
+    return src.split("/").filter(Boolean).pop() || src;
+  }
+};
+
+const isAcceptedImageFile = (file) => {
+  if (!file) {
+    return false;
+  }
+  if (IMAGE_DROP_ACCEPT_TYPES.has(file.type)) {
+    return true;
+  }
+  const lowerName = (file.name || "").toLowerCase();
+  return [...IMAGE_DROP_ACCEPT_EXTENSIONS].some((extension) => lowerName.endsWith(extension));
+};
+
+const getImageFileWarning = (file, targetType = "sticker") => {
+  if (!file) {
+    return "没有读取到图片文件。";
+  }
+  if (!isAcceptedImageFile(file)) {
+    return "请拖入 PNG / JPG / WebP / SVG / GIF 图片文件。";
+  }
+  if (file.size > MAX_LOCAL_IMAGE_BYTES) {
+    return "图片超过 5 MB，当前原型不会读取过大的本地图片。";
+  }
+  if (targetType === "sticker" && (file.type === "image/jpeg" || /\.(jpe?g)$/i.test(file.name || ""))) {
+    return "JPEG 没有透明通道，可以用于测试，但透明贴纸建议使用 PNG / WebP / SVG。";
+  }
+  return "";
+};
+
+const readImageFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result || "")));
+    reader.addEventListener("error", () => reject(reader.error || new Error("Image read failed.")));
+    reader.readAsDataURL(file);
+  });
+
+const createDefaultSticker = (src, areaId, options = {}) => {
+  const timestamp = new Date().toISOString();
+  return sanitizeAreaSticker({
+    ...clone(DEFAULT_STICKER),
+    ...options,
+    id: createStickerId(),
+    name: options.name || "Sticker",
+    src,
+    alt: options.alt || options.name || "",
+    createdAt: timestamp,
+    updatedAt: timestamp
+  });
+};
+
+const ensureAreaStickers = (area) => {
+  area.stickers = sanitizeAreaStickers(area.stickers);
+  return area.stickers;
+};
+
+const selectSticker = (areaId, stickerId) => {
+  editorState.selectedAreaId = areaId;
+  uiState.selectedSticker = { areaId, stickerId };
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Selected journey sticker.", { areaId, stickerId });
+};
+
+const updateAreaBackground = (areaId, patch) => {
+  const area = getAreaById(areaId);
+  if (!area) {
+    return;
+  }
+  area.background = sanitizeAreaBackground({
+    ...(area.background || {}),
+    ...patch
+  }, area.background);
+  markDirty("area visual background changed");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Updated journey area background.", {
+    areaId,
+    fields: Object.keys(patch)
+  });
+};
+
+const addStickerToArea = (areaId, sticker) => {
+  const area = getAreaById(areaId);
+  if (!area || !sticker) {
+    return;
+  }
+  const stickers = ensureAreaStickers(area);
+  const nextSticker = sanitizeAreaSticker(sticker);
+  if (!nextSticker) {
+    showEditorMessage("请先提供贴纸图片路径、URL，或拖入图片文件。", true);
+    return;
+  }
+  stickers.push(nextSticker);
+  editorState.selectedAreaId = areaId;
+  uiState.selectedSticker = { areaId, stickerId: nextSticker.id };
+  markDirty("journey sticker added");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Added journey sticker.", {
+    areaId,
+    stickerId: nextSticker.id,
+    sourceType: nextSticker.src.startsWith("data:") ? "data-url" : "path-or-url"
+  });
+};
+
+const updateSticker = (areaId, stickerId, patch, options = {}) => {
+  const area = getAreaById(areaId);
+  const sticker = area?.stickers?.find((item) => item.id === stickerId);
+  if (!area || !sticker) {
+    return;
+  }
+  Object.assign(sticker, patch, { updatedAt: new Date().toISOString() });
+  area.stickers = sanitizeAreaStickers(area.stickers);
+  markDirty("journey sticker changed");
+  if (options.render !== false) {
+    renderTimeline();
+    renderEditorPanel();
+  }
+  logHomepage("Updated journey sticker.", {
+    areaId,
+    stickerId,
+    fields: Object.keys(patch)
+  });
+};
+
+const deleteSticker = (areaId, stickerId) => {
+  const area = getAreaById(areaId);
+  if (!area) {
+    return;
+  }
+  area.stickers = ensureAreaStickers(area).filter((sticker) => sticker.id !== stickerId);
+  if (uiState.selectedSticker?.stickerId === stickerId) {
+    uiState.selectedSticker = null;
+  }
+  markDirty("journey sticker deleted");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Deleted journey sticker.", { areaId, stickerId });
+};
+
+const duplicateSticker = (areaId, stickerId) => {
+  const area = getAreaById(areaId);
+  const sticker = area?.stickers?.find((item) => item.id === stickerId);
+  if (!area || !sticker) {
+    return;
+  }
+  const duplicate = createDefaultSticker(sticker.src, areaId, {
+    ...sticker,
+    id: createStickerId(),
+    name: `${sticker.name || "Sticker"} copy`,
+    xPercent: clamp(Number(sticker.xPercent) + 4, -20, 120),
+    yPercent: clamp(Number(sticker.yPercent) + 4, -20, 120),
+    zIndex: clamp(Number(sticker.zIndex) + 1, 0, 100)
+  });
+  addStickerToArea(areaId, duplicate);
+};
+
+const moveStickerLayer = (areaId, stickerId, direction) => {
+  const selected = getAreaById(areaId)?.stickers?.find((item) => item.id === stickerId);
+  if (!selected) {
+    return;
+  }
+  const delta = direction === "forward" ? 1 : -1;
+  updateSticker(areaId, stickerId, {
+    zIndex: Math.round(clamp(Number(selected.zIndex) + delta, 0, 100))
+  });
+};
+
+const toggleStickerLocked = (areaId, stickerId) => {
+  const sticker = getAreaById(areaId)?.stickers?.find((item) => item.id === stickerId);
+  if (sticker) {
+    updateSticker(areaId, stickerId, { locked: !sticker.locked });
+  }
+};
+
+const toggleStickerVisible = (areaId, stickerId) => {
+  const sticker = getAreaById(areaId)?.stickers?.find((item) => item.id === stickerId);
+  if (sticker) {
+    updateSticker(areaId, stickerId, { visible: !sticker.visible });
+  }
+};
+
+const clientPointToAreaPercent = (event, areaElement) => {
+  const rect = areaElement.getBoundingClientRect();
+  return {
+    xPercent: clamp(((event.clientX - rect.left) / rect.width) * 100, -20, 120),
+    yPercent: clamp(((event.clientY - rect.top) / rect.height) * 100, -20, 120)
+  };
+};
+
+const startStickerDrag = (event, areaId, stickerId) => {
+  if (editorState.mode !== "edit") {
+    return;
+  }
+  const area = getAreaById(areaId);
+  const sticker = area?.stickers?.find((item) => item.id === stickerId);
+  if (!area || !sticker) {
+    return;
+  }
+  event.stopPropagation();
+  editorState.selectedAreaId = areaId;
+  uiState.selectedSticker = { areaId, stickerId };
+  if (sticker.locked || !sticker.visible) {
+    renderTimeline();
+    renderEditorPanel();
+    showEditorMessage("贴纸已锁定或隐藏，不能拖动。", true);
+    return;
+  }
+  const areaElement = event.currentTarget.closest(".journey-area");
+  dragState = {
+    kind: "sticker",
+    areaId,
+    stickerId,
+    areaElement,
+    moved: false
+  };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Started journey sticker drag.", { areaId, stickerId });
+};
+
+const handleDroppedImageFile = async (file, target) => {
+  const warning = getImageFileWarning(file, target.type);
+  if (warning && (!file || !isAcceptedImageFile(file) || file.size > MAX_LOCAL_IMAGE_BYTES)) {
+    showEditorMessage(warning, true);
+    logHomepage("Rejected dropped journey image file.", {
+      warning,
+      target,
+      fileName: file?.name,
+      fileSize: file?.size,
+      fileType: file?.type
+    });
+    return;
+  }
+
+  try {
+    const dataUrl = await readImageFileAsDataUrl(file);
+    if (target.type === "background") {
+      updateAreaBackground(target.areaId, {
+        type: "image",
+        imageSrc: dataUrl,
+        imageAlt: file.name || "Local background preview"
+      });
+      showEditorMessage(`已载入本地背景图：${file.name}（原型预览，Data URL）${warning ? ` ${warning}` : ""}`);
+      return;
+    }
+    const sticker = createDefaultSticker(dataUrl, target.areaId, {
+      name: file.name || "Local sticker preview",
+      alt: file.name || ""
+    });
+    addStickerToArea(target.areaId, sticker);
+    showEditorMessage(`已添加本地贴纸：${file.name}（原型预览，Data URL）${warning ? ` ${warning}` : ""}`);
+  } catch (error) {
+    showEditorMessage("读取本地图片失败，请重试。", true);
+    logHomepage("Failed to read dropped image file.", {
+      target,
+      error: error.message
+    });
+  }
+};
+
+const bindImageDropZone = (zone) => {
+  zone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    zone.classList.add("is-drag-over");
+  });
+  zone.addEventListener("dragleave", () => {
+    zone.classList.remove("is-drag-over");
+  });
+  zone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    zone.classList.remove("is-drag-over");
+    const file = event.dataTransfer?.files?.[0];
+    handleDroppedImageFile(file, {
+      areaId: zone.dataset.areaId,
+      type: zone.dataset.imageDropTarget === "area-background" ? "background" : "sticker"
+    });
+  });
+};
+
+const renderAreaSelector = (area) => `
+  <label class="journey-visual-row">
+    当前区域
+    <select data-visual-area-select>
+      ${getOrderedAreas().map((item) => `
+        <option value="${item.id}" ${item.id === area.id ? "selected" : ""}>${escapeHtml(item.title)}</option>
+      `).join("")}
+    </select>
+  </label>
+`;
+
+const renderImageDropZone = ({ areaId, target, label, placeholder, value = "", helper, actionText }) => `
+  <div
+    class="journey-image-drop-zone"
+    data-image-drop-target="${target}"
+    data-area-id="${areaId}"
+  >
+    <label>
+      ${label}
+      <input
+        data-image-source-input="${target}"
+        data-area-id="${areaId}"
+        placeholder="${placeholder}"
+        value="${escapeHtml(value)}"
+      >
+    </label>
+    <p class="journey-image-drop-help">${helper}</p>
+    <p class="journey-image-drop-warning">
+      本地拖入图片仅用于原型预览，会保存为 Data URL；正式图片请放入项目 assets 文件夹后使用相对路径。
+    </p>
+    <div class="journey-visual-actions">
+      <button type="button" data-image-source-apply="${target}" data-area-id="${areaId}">${actionText}</button>
+      <label class="journey-file-button">
+        选择本地图片
+        <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" data-image-file-input="${target}" data-area-id="${areaId}">
+      </label>
+    </div>
+  </div>
+`;
+
+const renderAreaVisualPanel = () => {
+  const area = getSelectedArea();
+  if (!area) {
+    return document.createElement("section");
+  }
+  area.background = sanitizeAreaBackground(area.background);
+  area.stickers = sanitizeAreaStickers(area.stickers);
+  const selected = getSelectedSticker();
+  const selectedSticker = selected?.area.id === area.id ? selected.sticker : null;
+  const panel = document.createElement("section");
+  panel.className = "journey-visual-panel";
+  panel.innerHTML = `
+    <h2>区域背景 / 贴纸</h2>
+    <p class="journey-visual-note">图片拖入后会以 Data URL 存到本地编辑状态，只用于原型预览，不会写入仓库。</p>
+    ${renderAreaSelector(area)}
+    <div class="journey-background-control-panel">
+      <h3>背景</h3>
+      <label class="journey-visual-row">
+        背景类型
+        <select data-background-field="type" data-area-id="${area.id}">
+          <option value="gradient" ${area.background.type === "gradient" ? "selected" : ""}>渐变</option>
+          <option value="image" ${area.background.type === "image" ? "selected" : ""}>图片</option>
+          <option value="gradient-image" ${area.background.type === "gradient-image" ? "selected" : ""}>渐变 + 图片</option>
+        </select>
+      </label>
+      ${renderImageDropZone({
+        areaId: area.id,
+        target: "area-background",
+        label: "背景图片路径 / URL / 拖入图片",
+        placeholder: "assets/journey/backgrounds/area-01.png",
+        value: area.background.imageSrc.startsWith("data:") ? "" : area.background.imageSrc,
+        helper: "可输入 assets 路径、URL，或直接拖入 PNG / JPG / WebP / SVG 图片。",
+        actionText: "应用背景图"
+      })}
+      <label class="journey-visual-row">
+        Fit
+        <select data-background-field="imageFit" data-area-id="${area.id}">
+          ${["cover", "contain", "fill"].map((fit) => `<option value="${fit}" ${area.background.imageFit === fit ? "selected" : ""}>${fit}</option>`).join("")}
+        </select>
+      </label>
+      ${[
+        ["imagePositionX", "位置 X", 0, 100, 1, "%"],
+        ["imagePositionY", "位置 Y", 0, 100, 1, "%"],
+        ["imageOpacity", "图片透明度", 0, 1, 0.01, ""],
+        ["overlayOpacity", "叠加层透明度", 0, 1, 0.01, ""]
+      ].map(([key, label, min, max, step, unit]) => `
+        <label class="journey-visual-row">
+          <span>${label}: ${Number(area.background[key]).toFixed(step < 1 ? 2 : 0)}${unit}</span>
+          <input type="range" min="${min}" max="${max}" step="${step}" data-background-field="${key}" data-area-id="${area.id}" value="${area.background[key]}">
+        </label>
+      `).join("")}
+      <button type="button" data-background-action="clear" data-area-id="${area.id}">清除背景图</button>
+    </div>
+    <div class="journey-sticker-control-panel">
+      <h3>贴纸</h3>
+      ${renderImageDropZone({
+        areaId: area.id,
+        target: "area-sticker",
+        label: "贴纸图片路径 / URL / 拖入图片",
+        placeholder: "assets/journey/stickers/sticker-01.png",
+        helper: "可输入 assets 路径、URL，或直接拖入透明 PNG / WebP / SVG 贴纸。",
+        actionText: "添加贴纸"
+      })}
+      <div class="journey-sticker-list">
+        ${area.stickers.length ? area.stickers.map((sticker) => `
+          <button
+            type="button"
+            class="journey-sticker-list__item"
+            data-sticker-action="select"
+            data-area-id="${area.id}"
+            data-sticker-id="${sticker.id}"
+            aria-pressed="${selectedSticker?.id === sticker.id}"
+          >
+            <span>${escapeHtml(sticker.name || sticker.id)}</span>
+            <small>${escapeHtml(getShortSourceLabel(sticker.src))}</small>
+          </button>
+        `).join("") : "<p class=\"journey-visual-note\">当前区域还没有贴纸。</p>"}
+      </div>
+      ${selectedSticker ? `
+        <div class="journey-selected-sticker-controls">
+          <h4>已选贴纸：${escapeHtml(selectedSticker.name || selectedSticker.id)}</h4>
+          ${[
+            ["widthPercent", "宽度", 3, 80, 1, "%"],
+            ["rotation", "旋转", -180, 180, 1, "deg"],
+            ["opacity", "透明度", 0, 1, 0.01, ""],
+            ["xPercent", "X", -20, 120, 1, "%"],
+            ["yPercent", "Y", -20, 120, 1, "%"]
+          ].map(([key, label, min, max, step, unit]) => `
+            <label class="journey-visual-row">
+              <span>${label}: ${Number(selectedSticker[key]).toFixed(step < 1 ? 2 : 0)}${unit}</span>
+              <input
+                type="range"
+                min="${min}"
+                max="${max}"
+                step="${step}"
+                data-sticker-field="${key}"
+                data-area-id="${area.id}"
+                data-sticker-id="${selectedSticker.id}"
+                value="${selectedSticker[key]}"
+              >
+            </label>
+          `).join("")}
+          <div class="journey-visual-actions">
+            <button type="button" data-sticker-action="duplicate" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">复制</button>
+            <button type="button" data-sticker-action="forward" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">上移一层</button>
+            <button type="button" data-sticker-action="backward" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">下移一层</button>
+            <button type="button" data-sticker-action="lock" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">${selectedSticker.locked ? "解锁" : "锁定"}</button>
+            <button type="button" data-sticker-action="visible" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">${selectedSticker.visible ? "隐藏" : "显示"}</button>
+            <button type="button" data-sticker-action="reset" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">重置变换</button>
+            <button type="button" class="danger-button" data-sticker-action="delete" data-area-id="${area.id}" data-sticker-id="${selectedSticker.id}">删除</button>
+          </div>
+        </div>
+      ` : "<p class=\"journey-visual-note\">选择一个贴纸后可以调整大小、旋转、透明度和层级。</p>"}
+    </div>
+  `;
+
+  bindAreaVisualPanelEvents(panel);
+  return panel;
+};
+
+const bindAreaVisualPanelEvents = (panel) => {
+  panel.querySelector("[data-visual-area-select]")?.addEventListener("change", (event) => {
+    editorState.selectedAreaId = event.target.value;
+    uiState.selectedSticker = null;
+    renderTimeline();
+    renderEditorPanel();
+  });
+  panel.querySelectorAll("[data-background-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const value = field.type === "range" ? Number(field.value) : field.value;
+      updateAreaBackground(field.dataset.areaId, { [field.dataset.backgroundField]: value });
+    });
+  });
+  panel.querySelectorAll("[data-image-source-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = panel.querySelector(`[data-image-source-input="${button.dataset.imageSourceApply}"]`);
+      const src = normalizeString(input?.value || "");
+      if (!src) {
+        showEditorMessage("请先输入图片路径或 URL。", true);
+        return;
+      }
+      if (button.dataset.imageSourceApply === "area-background") {
+        updateAreaBackground(button.dataset.areaId, {
+          type: "image",
+          imageSrc: src
+        });
+        showEditorMessage("已应用背景图片路径。");
+        return;
+      }
+      addStickerToArea(button.dataset.areaId, createDefaultSticker(src, button.dataset.areaId, {
+        name: getShortSourceLabel(src)
+      }));
+      showEditorMessage("已添加贴纸图片路径。");
+    });
+  });
+  panel.querySelectorAll("[data-image-file-input]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) {
+        return;
+      }
+      handleDroppedImageFile(file, {
+        areaId: input.dataset.areaId,
+        type: input.dataset.imageFileInput === "area-background" ? "background" : "sticker"
+      });
+      input.value = "";
+    });
+  });
+  panel.querySelectorAll("[data-image-drop-target]").forEach(bindImageDropZone);
+  panel.querySelectorAll("[data-background-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (button.dataset.backgroundAction === "clear") {
+        updateAreaBackground(button.dataset.areaId, {
+          type: "gradient",
+          imageSrc: "",
+          imageAlt: "",
+          imageOpacity: 1,
+          imageBlur: 0,
+          overlayOpacity: 0
+        });
+        showEditorMessage("已清除背景图，保留渐变背景。");
+      }
+    });
+  });
+  panel.querySelectorAll("[data-sticker-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      updateSticker(field.dataset.areaId, field.dataset.stickerId, {
+        [field.dataset.stickerField]: Number(field.value)
+      });
+    });
+  });
+  panel.querySelectorAll("[data-sticker-action]").forEach((button) => {
+    button.addEventListener("click", () => handleStickerAction(button));
+  });
+};
+
+const handleStickerAction = (button) => {
+  const areaId = button.dataset.areaId;
+  const stickerId = button.dataset.stickerId;
+  const action = button.dataset.stickerAction;
+  if (action === "select") {
+    selectSticker(areaId, stickerId);
+  } else if (action === "delete") {
+    deleteSticker(areaId, stickerId);
+  } else if (action === "duplicate") {
+    duplicateSticker(areaId, stickerId);
+  } else if (action === "forward") {
+    moveStickerLayer(areaId, stickerId, "forward");
+  } else if (action === "backward") {
+    moveStickerLayer(areaId, stickerId, "backward");
+  } else if (action === "lock") {
+    toggleStickerLocked(areaId, stickerId);
+  } else if (action === "visible") {
+    toggleStickerVisible(areaId, stickerId);
+  } else if (action === "reset") {
+    updateSticker(areaId, stickerId, {
+      xPercent: 50,
+      yPercent: 50,
+      widthPercent: 18,
+      rotation: 0,
+      opacity: 1
+    });
+  }
 };
 
 const renderFloatingToolbar = () => {
@@ -4802,6 +5585,28 @@ const handlePointerMove = (event) => {
     return;
   }
 
+  if (dragState.kind === "sticker") {
+    const area = getAreaById(dragState.areaId);
+    const sticker = area?.stickers?.find((item) => item.id === dragState.stickerId);
+    const areaElement = dragState.areaElement;
+    if (!area || !sticker || !areaElement) {
+      return;
+    }
+    const nextPosition = clientPointToAreaPercent(event, areaElement);
+    sticker.xPercent = nextPosition.xPercent;
+    sticker.yPercent = nextPosition.yPercent;
+    sticker.updatedAt = new Date().toISOString();
+    dragState.moved = true;
+    const element = document.querySelector(
+      `.journey-sticker[data-area-id="${dragState.areaId}"][data-sticker-id="${dragState.stickerId}"]`
+    );
+    if (element) {
+      element.style.left = `${sticker.xPercent}%`;
+      element.style.top = `${sticker.yPercent}%`;
+    }
+    return;
+  }
+
   if (dragState.kind === "freehand") {
     const area = getAreaById(dragState.areaId);
     if (!area) {
@@ -4942,6 +5747,10 @@ const handlePointerUp = () => {
     if (dragState.kind === "route-stroke-draw") {
       finishRouteStrokeDrawing();
     }
+    if (dragState.kind === "sticker" && dragState.moved) {
+      markDirty("journey sticker dragged");
+      renderTimeline();
+    }
     logHomepage("Completed drag interaction.", dragState);
     dragState = null;
     renderEditorPanel();
@@ -4990,6 +5799,17 @@ const bindGlobalControls = () => {
   }
 
   document.addEventListener("keydown", (event) => {
+    if ((event.key === "Delete" || event.key === "Backspace") && uiState.selectedSticker) {
+      const target = event.target;
+      const isTyping =
+        target?.matches?.("input, textarea, select") ||
+        target?.isContentEditable;
+      if (!isTyping) {
+        event.preventDefault();
+        deleteSticker(uiState.selectedSticker.areaId, uiState.selectedSticker.stickerId);
+        return;
+      }
+    }
     if (event.key === "Escape") {
       if (uiState.popover) {
         uiState.popover = null;
