@@ -58,8 +58,8 @@ None of them provide real security yet.
 
 前端不显示某个入口，也不代表用户真的没有访问能力。
 
-Hidden entrance is only a visual design element.
-Hidden entrance is not a security mechanism.
+Visible homepage entrance buttons are only navigation elements.
+Visible homepage entrance buttons are not security mechanisms.
 
 未来安全必须依赖真实认证、授权、服务端检查和路由保护。
 

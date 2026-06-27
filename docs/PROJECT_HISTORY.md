@@ -1,5 +1,90 @@
 # Project History
 
+## 2026-06-26 - Add stroke topology route editing
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the remaining overlay-style route repair direction with an editable stroke topology layer.
+* Preserve the accepted `simple-strong-smooth` freehand route smoothing pipeline.
+* Keep backend, database, RBAC, migrations, configuration, and deployment unchanged.
+
+### Completed
+
+* Added a Stroke topology editor panel for journey route repair.
+* Added ordered route stroke storage in journey-global coordinates.
+* Added endpoint snapping so drawn strokes can connect to true free endpoints.
+* Added data-level stroke merging when a new line connects existing stroke endpoints.
+* Added a cubic Bezier join window that uses incoming and outgoing tangents around the merge point.
+* Added eraser splitting so removing part of a stroke creates independent remaining stroke runs.
+* Added true free endpoint dots in editor mode.
+* Kept the normal overview clean by hiding raw editing helpers outside editor/debug mode.
+* Added Stroke topology data to the front-end curve debug export.
+
+### Safety boundaries
+
+* The existing freehand smoothing route remains active for ordinary drawing.
+* The old visual connector/patch approach is not the active route repair UI.
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No merge into `main` was performed in this task.
+
+## 2026-06-26 - Add local route interval redraw
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the previous boundary overlay connector because it looked like a white patch.
+* Let the journey editor select two route points and redraw only the route interval between them.
+* Preserve the existing automatic `simple-strong-smooth` freehand pipeline for ordinary route drawing.
+* Keep backend, database, RBAC, migrations, configuration, and deployment unchanged.
+
+### Completed
+
+* Added `routePatches` state for local route interval replacement.
+* Added a transient local redraw draft flow for selecting a start point, selecting an end point, drawing a replacement stroke, previewing it, applying it, cancelling it, or clearing the saved patch.
+* Added a global renderable route index so clicks can snap to the nearest existing route point.
+* Replaced the old Area 01 -> Area 02 boundary overlay control with a local redraw editor tool.
+* Updated route rendering so the original selected interval is removed from the affected area paths before the replacement segment is drawn.
+* Smoothed the replacement segment with endpoint context from the existing route so both joins inherit nearby route direction.
+
+### Safety boundaries
+
+* The ordinary hand-drawn route smoothing workflow remains automatic.
+* The local redraw patch does not rewrite the whole area route or global route.
+* The old overlay connector is no longer rendered by the timeline.
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No merge into `main` was performed in this task.
+
+## 2026-06-26 - Add boundary-only journey connection smoothing
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Preserve the existing automatic hand-drawn route smoothing pipeline.
+* Add a manually confirmed visual connector for the Area 01 -> Area 02 boundary only.
+* Keep backend, database, RBAC, migrations, configuration, and deployment unchanged.
+
+### Completed
+
+* Added disabled-by-default `boundaryConnections` editor state for `area-01__area-02`.
+* Added a global SVG overlay connector that uses existing smoothed renderable points near the area boundary.
+* Added a boundary-specific centripetal Catmull-Rom interpolation helper with `alpha=0.5`.
+* Added an editor control to enable or cancel the Area 01 -> Area 02 visual connector.
+* Kept the connector as an overlay only; it does not overwrite raw points, smooth points, final SVG path data, cards, nodes, or area text.
+* Updated journey visual guidance to distinguish automatic route smoothing from manually confirmed boundary connection smoothing.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No deployment behavior was changed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-25 - Make homepage entrance buttons visible
 
 ### Goal

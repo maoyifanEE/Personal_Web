@@ -40,6 +40,16 @@ It should also prevent old navigation behavior from returning by accident.
 * Do not reduce freehand curves to only a few designer waypoints.
 * Do not skip large middle arcs from the original hand-drawn route.
 * Preserve enough resampled points so broad S-shaped and loop-like gestures remain recognizable.
+* Normal hand-drawn route auto smoothing remains automatic and should not require manual confirmation.
+* Stroke topology editing is the current manual route repair layer.
+* Stroke topology editing should store ordered sampled strokes in journey-global coordinates.
+* A new drawn stroke may snap to true free endpoints and merge at the data level.
+* When two endpoints are connected, the result should become one continuous stroke rather than an overlay patch.
+* The join window should be rebuilt with a cubic Bezier bridge that follows incoming and outgoing tangents.
+* Erasing part of a route should split the remaining runs into independent strokes with new free endpoints.
+* Endpoint dots should appear only for true free endpoints in editor mode.
+* The old visual connector or interval patch approach should not be the active normal route repair UI.
+* Ordinary freehand route smoothing remains automatic and should not become opt-in because of topology editing.
 * Tuning should stay simple: smooth strength, sample spacing, interpolation density, and debug overlays.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
 * Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
