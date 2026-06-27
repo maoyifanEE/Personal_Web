@@ -122,6 +122,30 @@ const DEFAULT_STICKER = {
   locked: false,
   visible: true
 };
+const DEFAULT_TEXT_ITEM = {
+  name: "Text",
+  content: "输入文字",
+  xPercent: 50,
+  yPercent: 50,
+  widthPercent: 24,
+  rotation: 0,
+  opacity: 1,
+  zIndex: 30,
+  fontSize: 32,
+  fontWeight: "700",
+  fontFamily: "system",
+  color: "#122033",
+  textAlign: "left",
+  lineHeight: 1.2,
+  letterSpacing: 0,
+  backgroundColor: "transparent",
+  backgroundOpacity: 0,
+  padding: 0,
+  borderRadius: 0,
+  locked: false,
+  visible: true
+};
+const EDITOR_PANEL_COLLAPSED_STORAGE_KEY = "journeyEditorPanelCollapsed";
 const IMAGE_DROP_ACCEPT_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -483,7 +507,9 @@ const createDefaultUiState = () => ({
   contextMenu: null,
   hoverPreview: null,
   selectedSticker: null,
+  selectedTextItem: null,
   imageDropTarget: null,
+  editorPanelCollapsed: false,
   lastPointerWasDrag: false,
   debugOverlay: false,
   tuningScope: "current",
@@ -497,6 +523,16 @@ const createDefaultUiState = () => ({
 let uiState = createDefaultUiState();
 const curveDebugDataByArea = new Map();
 let globalCurveDebugData = null;
+
+try {
+  uiState.editorPanelCollapsed =
+    window.localStorage.getItem(EDITOR_PANEL_COLLAPSED_STORAGE_KEY) === "true";
+  logHomepage("Restored editor panel collapse preference.", {
+    collapsed: uiState.editorPanelCollapsed
+  });
+} catch (error) {
+  logHomepage("Could not restore editor panel collapse preference.", { error: error.message });
+}
 
 const getOrderedAreas = () => [...editorState.areas].sort((a, b) => a.order - b.order);
 const getAreaById = (areaId) => editorState.areas.find((area) => area.id === areaId);
@@ -621,6 +657,7 @@ const sanitizeRouteStrokes = (rawRouteStrokes = {}) => {
 };
 
 const createStickerId = () => `sticker-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createTextItemId = () => `text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const normalizeString = (value) => (typeof value === "string" ? value.trim() : "");
 
@@ -692,6 +729,79 @@ const sanitizeAreaStickers = (stickers = []) =>
     .map(sanitizeAreaSticker)
     .filter(Boolean);
 
+const normalizeColorValue = (value, fallback) => {
+  const color = normalizeString(value);
+  if (!color || /[<>{};]/.test(color)) {
+    return fallback;
+  }
+  return color;
+};
+
+const colorWithOpacity = (color, opacity) => {
+  const alpha = clamp(Number(opacity) || 0, 0, 1);
+  if (!color || color === "transparent" || alpha <= 0) {
+    return "transparent";
+  }
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) {
+    const hex = color.slice(1);
+    const fullHex = hex.length === 3
+      ? hex.split("").map((character) => character + character).join("")
+      : hex;
+    const red = parseInt(fullHex.slice(0, 2), 16);
+    const green = parseInt(fullHex.slice(2, 4), 16);
+    const blue = parseInt(fullHex.slice(4, 6), 16);
+    return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  }
+  return color;
+};
+
+const normalizeFontFamily = (value) =>
+  ["system", "serif", "mono"].includes(value) ? value : DEFAULT_TEXT_ITEM.fontFamily;
+
+const sanitizeAreaTextItem = (textItem = {}) => {
+  const timestamp = new Date().toISOString();
+  const content = typeof textItem.content === "string" ? textItem.content : DEFAULT_TEXT_ITEM.content;
+  const fontWeight = ["300", "400", "500", "600", "700", "800", "900"].includes(String(textItem.fontWeight))
+    ? String(textItem.fontWeight)
+    : DEFAULT_TEXT_ITEM.fontWeight;
+  const textAlign = ["left", "center", "right"].includes(textItem.textAlign)
+    ? textItem.textAlign
+    : DEFAULT_TEXT_ITEM.textAlign;
+
+  return {
+    ...clone(DEFAULT_TEXT_ITEM),
+    id: normalizeString(textItem.id) || createTextItemId(),
+    name: normalizeString(textItem.name) || DEFAULT_TEXT_ITEM.name,
+    content: content || DEFAULT_TEXT_ITEM.content,
+    xPercent: clamp(Number.isFinite(Number(textItem.xPercent)) ? Number(textItem.xPercent) : 50, -20, 120),
+    yPercent: clamp(Number.isFinite(Number(textItem.yPercent)) ? Number(textItem.yPercent) : 50, -20, 120),
+    widthPercent: clamp(Number.isFinite(Number(textItem.widthPercent)) ? Number(textItem.widthPercent) : 24, 5, 90),
+    rotation: clamp(Number.isFinite(Number(textItem.rotation)) ? Number(textItem.rotation) : 0, -180, 180),
+    opacity: clamp(Number.isFinite(Number(textItem.opacity)) ? Number(textItem.opacity) : 1, 0, 1),
+    zIndex: Math.round(clamp(Number.isFinite(Number(textItem.zIndex)) ? Number(textItem.zIndex) : 30, 0, 100)),
+    fontSize: Math.round(clamp(Number.isFinite(Number(textItem.fontSize)) ? Number(textItem.fontSize) : 32, 8, 160)),
+    fontWeight,
+    fontFamily: normalizeFontFamily(textItem.fontFamily),
+    color: normalizeColorValue(textItem.color, DEFAULT_TEXT_ITEM.color),
+    textAlign,
+    lineHeight: clamp(Number.isFinite(Number(textItem.lineHeight)) ? Number(textItem.lineHeight) : 1.2, 0.8, 3),
+    letterSpacing: clamp(Number.isFinite(Number(textItem.letterSpacing)) ? Number(textItem.letterSpacing) : 0, -5, 20),
+    backgroundColor: normalizeColorValue(textItem.backgroundColor, DEFAULT_TEXT_ITEM.backgroundColor),
+    backgroundOpacity: clamp(Number.isFinite(Number(textItem.backgroundOpacity)) ? Number(textItem.backgroundOpacity) : 0, 0, 1),
+    padding: Math.round(clamp(Number.isFinite(Number(textItem.padding)) ? Number(textItem.padding) : 0, 0, 48)),
+    borderRadius: Math.round(clamp(Number.isFinite(Number(textItem.borderRadius)) ? Number(textItem.borderRadius) : 0, 0, 80)),
+    locked: textItem.locked === true,
+    visible: textItem.visible !== false,
+    createdAt: isValidIsoDate(textItem.createdAt) ? textItem.createdAt : timestamp,
+    updatedAt: isValidIsoDate(textItem.updatedAt) ? textItem.updatedAt : timestamp
+  };
+};
+
+const sanitizeAreaTextItems = (textItems = []) =>
+  (Array.isArray(textItems) ? textItems : [])
+    .map(sanitizeAreaTextItem)
+    .filter(Boolean);
+
 const getNodeById = (nodeId) => {
   for (const area of editorState.areas) {
     const node = area.nodes.find((item) => item.id === nodeId);
@@ -722,6 +832,7 @@ const sanitizeState = (rawState) => {
       ...area,
       background: sanitizeAreaBackground(area.background, defaultArea.background),
       stickers: sanitizeAreaStickers(area.stickers),
+      textItems: sanitizeAreaTextItems(area.textItems),
       path: { ...clone(defaultArea.path), ...(area.path || {}) },
       areaStyles: { ...clone(defaultArea.areaStyles), ...(area.areaStyles || {}) },
       nodes: Array.isArray(area.nodes) ? area.nodes : clone(defaultArea.nodes)
@@ -2263,7 +2374,9 @@ const setEditorMode = (mode) => {
   }
 
   if (mode !== "edit") {
+    const editorPanelCollapsed = uiState.editorPanelCollapsed;
     uiState = createDefaultUiState();
+    uiState.editorPanelCollapsed = editorPanelCollapsed;
     editorState.activeTool = "select";
   }
   closeEventPopover();
@@ -2574,6 +2687,67 @@ const renderAreaStickers = (area) => {
   return layer;
 };
 
+const getTextItemFontFamily = (fontFamily) => {
+  const families = {
+    system: "Inter, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+    serif: "Georgia, \"Times New Roman\", serif",
+    mono: "\"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace"
+  };
+  return families[fontFamily] || families.system;
+};
+
+const renderAreaTextItems = (area) => {
+  const layer = document.createElement("div");
+  layer.className = "journey-text-layer";
+  layer.dataset.areaId = area.id;
+
+  sanitizeAreaTextItems(area.textItems).forEach((textItem) => {
+    if (!textItem.visible) {
+      return;
+    }
+    const isSelected =
+      uiState.selectedTextItem?.areaId === area.id &&
+      uiState.selectedTextItem?.textId === textItem.id;
+    const element = document.createElement("div");
+    element.className = [
+      "journey-text-item",
+      isSelected ? "is-selected" : "",
+      textItem.locked ? "is-locked" : ""
+    ].filter(Boolean).join(" ");
+    element.dataset.areaId = area.id;
+    element.dataset.textId = textItem.id;
+    element.dataset.textDrag = "true";
+    element.style.left = `${textItem.xPercent}%`;
+    element.style.top = `${textItem.yPercent}%`;
+    element.style.width = `${textItem.widthPercent}%`;
+    element.style.opacity = String(textItem.opacity);
+    element.style.zIndex = String(textItem.zIndex);
+    element.style.transform = `translate(-50%, -50%) rotate(${textItem.rotation}deg)`;
+    element.style.color = textItem.color;
+    element.style.textAlign = textItem.textAlign;
+    element.style.fontSize = `${textItem.fontSize}px`;
+    element.style.fontWeight = textItem.fontWeight;
+    element.style.fontFamily = getTextItemFontFamily(textItem.fontFamily);
+    element.style.lineHeight = String(textItem.lineHeight);
+    element.style.letterSpacing = `${textItem.letterSpacing}px`;
+    element.style.padding = `${textItem.padding}px`;
+    element.style.borderRadius = `${textItem.borderRadius}px`;
+    element.style.backgroundColor =
+      textItem.backgroundColor === "transparent"
+        ? "transparent"
+        : colorWithOpacity(textItem.backgroundColor, textItem.backgroundOpacity);
+    element.textContent = textItem.content;
+    element.addEventListener("pointerdown", (event) => startTextItemDrag(event, area.id, textItem.id));
+    element.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectTextItem(area.id, textItem.id);
+    });
+    layer.append(element);
+  });
+
+  return layer;
+};
+
 const renderArea = (area, index, layout, routeIndex, routePatches) => {
   const section = document.createElement("section");
   section.className = `journey-area pattern-${area.background.pattern}`;
@@ -2592,8 +2766,8 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
     renderAreaBackground(area),
     renderAreaSvg(area, layout, routeIndex, routePatches),
     renderAreaStickers(area),
-    renderAreaNodes(area),
-    renderAreaCopy(area)
+    renderAreaTextItems(area),
+    renderAreaNodes(area)
   );
   if (editorState.mode === "edit") {
     section.append(renderAreaEditBadge(area));
@@ -2605,7 +2779,8 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
       if (
         event.target.closest(".journey-event") ||
         event.target.closest(".curve-handle") ||
-        event.target.closest(".journey-sticker")
+        event.target.closest(".journey-sticker") ||
+        event.target.closest(".journey-text-item")
       ) {
         return;
       }
@@ -2627,6 +2802,7 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
         event.target.closest(".journey-event") ||
         event.target.closest(".curve-handle") ||
         event.target.closest(".journey-sticker") ||
+        event.target.closest(".journey-text-item") ||
         event.target.closest(".area-resize-handle")
       ) {
         return;
@@ -2647,6 +2823,7 @@ const renderArea = (area, index, layout, routeIndex, routePatches) => {
       if (
         event.target.closest(".journey-event") ||
         event.target.closest(".journey-sticker") ||
+        event.target.closest(".journey-text-item") ||
         event.target.closest(".area-resize-handle")
       ) {
         return;
@@ -4022,6 +4199,20 @@ const getSelectedSticker = () => {
   return { area, sticker };
 };
 
+const getSelectedTextItem = () => {
+  const selection = uiState.selectedTextItem;
+  if (!selection) {
+    return null;
+  }
+  const area = getAreaById(selection.areaId);
+  const textItem = area?.textItems?.find((item) => item.id === selection.textId);
+  if (!area || !textItem) {
+    uiState.selectedTextItem = null;
+    return null;
+  }
+  return { area, textItem };
+};
+
 const getShortSourceLabel = (src = "") => {
   if (!src) {
     return "no source";
@@ -4086,17 +4277,43 @@ const createDefaultSticker = (src, areaId, options = {}) => {
   });
 };
 
+const createDefaultTextItem = (areaId, options = {}) => {
+  const timestamp = new Date().toISOString();
+  return sanitizeAreaTextItem({
+    ...clone(DEFAULT_TEXT_ITEM),
+    ...options,
+    id: createTextItemId(),
+    createdAt: timestamp,
+    updatedAt: timestamp
+  });
+};
+
 const ensureAreaStickers = (area) => {
   area.stickers = sanitizeAreaStickers(area.stickers);
   return area.stickers;
 };
 
+const ensureAreaTextItems = (area) => {
+  area.textItems = sanitizeAreaTextItems(area.textItems);
+  return area.textItems;
+};
+
 const selectSticker = (areaId, stickerId) => {
   editorState.selectedAreaId = areaId;
   uiState.selectedSticker = { areaId, stickerId };
+  uiState.selectedTextItem = null;
   renderTimeline();
   renderEditorPanel();
   logHomepage("Selected journey sticker.", { areaId, stickerId });
+};
+
+const selectTextItem = (areaId, textId) => {
+  editorState.selectedAreaId = areaId;
+  uiState.selectedTextItem = { areaId, textId };
+  uiState.selectedSticker = null;
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Selected journey text item.", { areaId, textId });
 };
 
 const updateAreaBackground = (areaId, patch) => {
@@ -4131,6 +4348,7 @@ const addStickerToArea = (areaId, sticker) => {
   stickers.push(nextSticker);
   editorState.selectedAreaId = areaId;
   uiState.selectedSticker = { areaId, stickerId: nextSticker.id };
+  uiState.selectedTextItem = null;
   markDirty("journey sticker added");
   renderTimeline();
   renderEditorPanel();
@@ -4139,6 +4357,130 @@ const addStickerToArea = (areaId, sticker) => {
     stickerId: nextSticker.id,
     sourceType: nextSticker.src.startsWith("data:") ? "data-url" : "path-or-url"
   });
+};
+
+const addTextItemToArea = (areaId, options = {}) => {
+  const area = getAreaById(areaId);
+  if (!area) {
+    return;
+  }
+  const textItems = ensureAreaTextItems(area);
+  const textItem = createDefaultTextItem(areaId, options);
+  textItems.push(textItem);
+  editorState.selectedAreaId = areaId;
+  uiState.selectedTextItem = { areaId, textId: textItem.id };
+  uiState.selectedSticker = null;
+  markDirty("journey text item added");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Added journey text item.", { areaId, textId: textItem.id });
+};
+
+const updateTextItemCanvasElement = (areaId, textId, textItem) => {
+  const element = document.querySelector(
+    `.journey-text-item[data-area-id="${areaId}"][data-text-id="${textId}"]`
+  );
+  if (!element) {
+    return;
+  }
+  element.style.left = `${textItem.xPercent}%`;
+  element.style.top = `${textItem.yPercent}%`;
+  element.style.width = `${textItem.widthPercent}%`;
+  element.style.opacity = String(textItem.opacity);
+  element.style.zIndex = String(textItem.zIndex);
+  element.style.transform = `translate(-50%, -50%) rotate(${textItem.rotation}deg)`;
+  element.style.color = textItem.color;
+  element.style.textAlign = textItem.textAlign;
+  element.style.fontSize = `${textItem.fontSize}px`;
+  element.style.fontWeight = textItem.fontWeight;
+  element.style.fontFamily = getTextItemFontFamily(textItem.fontFamily);
+  element.style.lineHeight = String(textItem.lineHeight);
+  element.style.letterSpacing = `${textItem.letterSpacing}px`;
+  element.style.padding = `${textItem.padding}px`;
+  element.style.borderRadius = `${textItem.borderRadius}px`;
+  element.style.backgroundColor =
+    textItem.backgroundColor === "transparent"
+      ? "transparent"
+      : colorWithOpacity(textItem.backgroundColor, textItem.backgroundOpacity);
+  element.textContent = textItem.content;
+};
+
+const updateTextItem = (areaId, textId, patch, options = {}) => {
+  const area = getAreaById(areaId);
+  const textItem = area?.textItems?.find((item) => item.id === textId);
+  if (!area || !textItem) {
+    return;
+  }
+  Object.assign(textItem, patch, { updatedAt: new Date().toISOString() });
+  area.textItems = sanitizeAreaTextItems(area.textItems);
+  const sanitized = area.textItems.find((item) => item.id === textId);
+  markDirty("journey text item changed");
+  if (options.render === false && sanitized) {
+    updateTextItemCanvasElement(areaId, textId, sanitized);
+  } else {
+    renderTimeline();
+    renderEditorPanel();
+  }
+  logHomepage("Updated journey text item.", {
+    areaId,
+    textId,
+    fields: Object.keys(patch)
+  });
+};
+
+const deleteTextItem = (areaId, textId) => {
+  const area = getAreaById(areaId);
+  if (!area) {
+    return;
+  }
+  area.textItems = ensureAreaTextItems(area).filter((textItem) => textItem.id !== textId);
+  if (uiState.selectedTextItem?.textId === textId) {
+    uiState.selectedTextItem = null;
+  }
+  markDirty("journey text item deleted");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Deleted journey text item.", { areaId, textId });
+};
+
+const duplicateTextItem = (areaId, textId) => {
+  const area = getAreaById(areaId);
+  const textItem = area?.textItems?.find((item) => item.id === textId);
+  if (!area || !textItem) {
+    return;
+  }
+  addTextItemToArea(areaId, {
+    ...textItem,
+    name: `${textItem.name || "Text"} copy`,
+    xPercent: clamp(Number(textItem.xPercent) + 4, -20, 120),
+    yPercent: clamp(Number(textItem.yPercent) + 4, -20, 120),
+    zIndex: clamp(Number(textItem.zIndex) + 1, 0, 100)
+  });
+};
+
+const moveTextItemLayer = (areaId, textId, direction) => {
+  const selected = getAreaById(areaId)?.textItems?.find((item) => item.id === textId);
+  if (!selected) {
+    return;
+  }
+  const delta = direction === "forward" ? 1 : -1;
+  updateTextItem(areaId, textId, {
+    zIndex: Math.round(clamp(Number(selected.zIndex) + delta, 0, 100))
+  });
+};
+
+const toggleTextItemLocked = (areaId, textId) => {
+  const textItem = getAreaById(areaId)?.textItems?.find((item) => item.id === textId);
+  if (textItem) {
+    updateTextItem(areaId, textId, { locked: !textItem.locked });
+  }
+};
+
+const toggleTextItemVisible = (areaId, textId) => {
+  const textItem = getAreaById(areaId)?.textItems?.find((item) => item.id === textId);
+  if (textItem) {
+    updateTextItem(areaId, textId, { visible: !textItem.visible });
+  }
 };
 
 const updateSticker = (areaId, stickerId, patch, options = {}) => {
@@ -4258,6 +4600,39 @@ const startStickerDrag = (event, areaId, stickerId) => {
   logHomepage("Started journey sticker drag.", { areaId, stickerId });
 };
 
+const startTextItemDrag = (event, areaId, textId) => {
+  if (editorState.mode !== "edit") {
+    return;
+  }
+  const area = getAreaById(areaId);
+  const textItem = area?.textItems?.find((item) => item.id === textId);
+  if (!area || !textItem) {
+    return;
+  }
+  event.stopPropagation();
+  editorState.selectedAreaId = areaId;
+  uiState.selectedTextItem = { areaId, textId };
+  uiState.selectedSticker = null;
+  if (textItem.locked || !textItem.visible) {
+    renderTimeline();
+    renderEditorPanel();
+    showEditorMessage("文字已锁定或隐藏，不能拖动。", true);
+    return;
+  }
+  const areaElement = event.currentTarget.closest(".journey-area");
+  dragState = {
+    kind: "text-item",
+    areaId,
+    textId,
+    areaElement,
+    moved: false
+  };
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Started journey text item drag.", { areaId, textId });
+};
+
 const handleDroppedImageFile = async (file, target) => {
   const warning = getImageFileWarning(file, target.type);
   if (warning && (!file || !isAcceptedImageFile(file) || file.size > MAX_LOCAL_IMAGE_BYTES)) {
@@ -4357,6 +4732,115 @@ const renderImageDropZone = ({ areaId, target, label, placeholder, value = "", h
   </div>
 `;
 
+const getTextItemPreview = (textItem) => {
+  const preview = String(textItem.content || "").replace(/\s+/g, " ").trim();
+  return preview ? preview.slice(0, 24) : "输入文字";
+};
+
+const renderTextControls = (area, selectedTextItem) => `
+  <div class="journey-text-control-panel">
+    <h3>文字</h3>
+    <p class="journey-visual-note">文字框是纯文本设计元素，可拖拽、调样式、分层、隐藏或锁定，不会执行 HTML。</p>
+    <div class="journey-visual-actions">
+      <button type="button" data-text-action="add" data-area-id="${area.id}">添加文字</button>
+    </div>
+    <div class="journey-text-list">
+      ${area.textItems.length ? area.textItems.map((textItem) => `
+        <button
+          type="button"
+          class="journey-text-list__item"
+          data-text-action="select"
+          data-area-id="${area.id}"
+          data-text-id="${textItem.id}"
+          aria-pressed="${selectedTextItem?.id === textItem.id}"
+        >
+          <span>${escapeHtml(getTextItemPreview(textItem))}</span>
+          <small>${textItem.visible ? "visible" : "hidden"} / z ${textItem.zIndex}</small>
+        </button>
+      `).join("") : "<p class=\"journey-visual-note\">当前区域还没有文字框。</p>"}
+    </div>
+    ${selectedTextItem ? `
+      <div class="journey-selected-text-controls">
+        <h4>已选文字：${escapeHtml(getTextItemPreview(selectedTextItem))}</h4>
+        <label class="journey-visual-row">
+          内容
+          <textarea rows="4" data-text-field="content" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">${escapeHtml(selectedTextItem.content)}</textarea>
+        </label>
+        ${[
+          ["widthPercent", "宽度", 5, 90, 1, "%"],
+          ["fontSize", "字号", 8, 160, 1, "px"],
+          ["rotation", "旋转", -180, 180, 1, "deg"],
+          ["opacity", "透明度", 0, 1, 0.01, ""],
+          ["lineHeight", "行高", 0.8, 3, 0.01, ""],
+          ["letterSpacing", "字距", -5, 20, 0.1, "px"],
+          ["padding", "内边距", 0, 48, 1, "px"],
+          ["borderRadius", "圆角", 0, 80, 1, "px"],
+          ["backgroundOpacity", "背景透明度", 0, 1, 0.01, ""],
+          ["xPercent", "X", -20, 120, 1, "%"],
+          ["yPercent", "Y", -20, 120, 1, "%"]
+        ].map(([key, label, min, max, step, unit]) => `
+          <label class="journey-visual-row">
+            <span>${label}: ${Number(selectedTextItem[key]).toFixed(step < 1 ? 2 : 0)}${unit}</span>
+            <input type="range" min="${min}" max="${max}" step="${step}" data-text-field="${key}" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}" value="${selectedTextItem[key]}">
+          </label>
+        `).join("")}
+        <label class="journey-visual-row">
+          文字颜色
+          <input type="color" data-text-field="color" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}" value="${selectedTextItem.color}">
+        </label>
+        <label class="journey-visual-row">
+          背景颜色
+          <input type="color" data-text-field="backgroundColor" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}" value="${selectedTextItem.backgroundColor === "transparent" ? "#ffffff" : selectedTextItem.backgroundColor}">
+        </label>
+        <label class="journey-visual-row">
+          字重
+          <select data-text-field="fontWeight" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">
+            ${["300", "400", "500", "600", "700", "800", "900"].map((weight) => `<option value="${weight}" ${selectedTextItem.fontWeight === weight ? "selected" : ""}>${weight}</option>`).join("")}
+          </select>
+        </label>
+        <label class="journey-visual-row">
+          字体
+          <select data-text-field="fontFamily" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">
+            ${[
+              ["system", "System"],
+              ["serif", "Serif"],
+              ["mono", "Mono"]
+            ].map(([value, label]) => `<option value="${value}" ${selectedTextItem.fontFamily === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
+        <label class="journey-visual-row">
+          对齐
+          <select data-text-field="textAlign" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">
+            ${["left", "center", "right"].map((align) => `<option value="${align}" ${selectedTextItem.textAlign === align ? "selected" : ""}>${align}</option>`).join("")}
+          </select>
+        </label>
+        <div class="journey-visual-actions">
+          <button type="button" data-text-action="duplicate" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">复制</button>
+          <button type="button" data-text-action="forward" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">上移一层</button>
+          <button type="button" data-text-action="backward" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">下移一层</button>
+          <button type="button" data-text-action="lock" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">${selectedTextItem.locked ? "解锁" : "锁定"}</button>
+          <button type="button" data-text-action="visible" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">${selectedTextItem.visible ? "隐藏" : "显示"}</button>
+          <button type="button" data-text-action="reset" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">重置变换</button>
+          <button type="button" class="danger-button" data-text-action="delete" data-area-id="${area.id}" data-text-id="${selectedTextItem.id}">删除</button>
+        </div>
+      </div>
+    ` : "<p class=\"journey-visual-note\">选择一个文字框后可编辑内容、位置、尺寸、颜色和图层。</p>"}
+  </div>
+`;
+
+const setEditorPanelCollapsed = (collapsed) => {
+  uiState.editorPanelCollapsed = Boolean(collapsed);
+  try {
+    window.localStorage.setItem(EDITOR_PANEL_COLLAPSED_STORAGE_KEY, String(uiState.editorPanelCollapsed));
+    logHomepage("Persisted editor panel collapse preference.", {
+      collapsed: uiState.editorPanelCollapsed
+    });
+  } catch (error) {
+    logHomepage("Could not persist editor panel collapse preference.", { error: error.message });
+  }
+  renderEditorPanel();
+};
+
 const renderAreaVisualPanel = () => {
   const area = getSelectedArea();
   if (!area) {
@@ -4364,11 +4848,31 @@ const renderAreaVisualPanel = () => {
   }
   area.background = sanitizeAreaBackground(area.background);
   area.stickers = sanitizeAreaStickers(area.stickers);
+  area.textItems = sanitizeAreaTextItems(area.textItems);
   const selected = getSelectedSticker();
   const selectedSticker = selected?.area.id === area.id ? selected.sticker : null;
+  const selectedText = getSelectedTextItem();
+  const selectedTextItem = selectedText?.area.id === area.id ? selectedText.textItem : null;
   const panel = document.createElement("section");
-  panel.className = "journey-visual-panel";
+  panel.className = [
+    "journey-visual-panel",
+    "journey-editor-panel-shell",
+    uiState.editorPanelCollapsed ? "is-collapsed" : ""
+  ].filter(Boolean).join(" ");
+  if (uiState.editorPanelCollapsed) {
+    panel.innerHTML = `
+      <button type="button" class="journey-editor-panel-collapsed-tab" data-editor-panel-toggle="expand">
+        展开
+      </button>
+    `;
+    panel.querySelector("[data-editor-panel-toggle]")?.addEventListener("click", () => setEditorPanelCollapsed(false));
+    return panel;
+  }
   panel.innerHTML = `
+    <div class="journey-editor-panel-header">
+      <h2>区域背景 / 贴纸 / 文字</h2>
+      <button type="button" class="journey-editor-panel-toggle" data-editor-panel-toggle="collapse">收起</button>
+    </div>
     <h2>区域背景 / 贴纸</h2>
     <p class="journey-visual-note">图片拖入后会以 Data URL 存到本地编辑状态，只用于原型预览，不会写入仓库。</p>
     ${renderAreaSelector(area)}
@@ -4471,6 +4975,7 @@ const renderAreaVisualPanel = () => {
         </div>
       ` : "<p class=\"journey-visual-note\">选择一个贴纸后可以调整大小、旋转、透明度和层级。</p>"}
     </div>
+    ${renderTextControls(area, selectedTextItem)}
   `;
 
   bindAreaVisualPanelEvents(panel);
@@ -4478,9 +4983,13 @@ const renderAreaVisualPanel = () => {
 };
 
 const bindAreaVisualPanelEvents = (panel) => {
+  panel.querySelector("[data-editor-panel-toggle='collapse']")?.addEventListener("click", () => {
+    setEditorPanelCollapsed(true);
+  });
   panel.querySelector("[data-visual-area-select]")?.addEventListener("change", (event) => {
     editorState.selectedAreaId = event.target.value;
     uiState.selectedSticker = null;
+    uiState.selectedTextItem = null;
     renderTimeline();
     renderEditorPanel();
   });
@@ -4551,6 +5060,17 @@ const bindAreaVisualPanelEvents = (panel) => {
   panel.querySelectorAll("[data-sticker-action]").forEach((button) => {
     button.addEventListener("click", () => handleStickerAction(button));
   });
+  panel.querySelectorAll("[data-text-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const value = field.type === "range" ? Number(field.value) : field.value;
+      updateTextItem(field.dataset.areaId, field.dataset.textId, {
+        [field.dataset.textField]: value
+      }, { render: field.dataset.textField === "content" ? false : true });
+    });
+  });
+  panel.querySelectorAll("[data-text-action]").forEach((button) => {
+    button.addEventListener("click", () => handleTextAction(button));
+  });
 };
 
 const handleStickerAction = (button) => {
@@ -4576,6 +5096,37 @@ const handleStickerAction = (button) => {
       xPercent: 50,
       yPercent: 50,
       widthPercent: 18,
+      rotation: 0,
+      opacity: 1
+    });
+  }
+};
+
+const handleTextAction = (button) => {
+  const areaId = button.dataset.areaId;
+  const textId = button.dataset.textId;
+  const action = button.dataset.textAction;
+  if (action === "add") {
+    addTextItemToArea(areaId);
+  } else if (action === "select") {
+    selectTextItem(areaId, textId);
+  } else if (action === "delete") {
+    deleteTextItem(areaId, textId);
+  } else if (action === "duplicate") {
+    duplicateTextItem(areaId, textId);
+  } else if (action === "forward") {
+    moveTextItemLayer(areaId, textId, "forward");
+  } else if (action === "backward") {
+    moveTextItemLayer(areaId, textId, "backward");
+  } else if (action === "lock") {
+    toggleTextItemLocked(areaId, textId);
+  } else if (action === "visible") {
+    toggleTextItemVisible(areaId, textId);
+  } else if (action === "reset") {
+    updateTextItem(areaId, textId, {
+      xPercent: 50,
+      yPercent: 50,
+      widthPercent: 24,
       rotation: 0,
       opacity: 1
     });
@@ -5607,6 +6158,22 @@ const handlePointerMove = (event) => {
     return;
   }
 
+  if (dragState.kind === "text-item") {
+    const area = getAreaById(dragState.areaId);
+    const textItem = area?.textItems?.find((item) => item.id === dragState.textId);
+    const areaElement = dragState.areaElement;
+    if (!area || !textItem || !areaElement) {
+      return;
+    }
+    const nextPosition = clientPointToAreaPercent(event, areaElement);
+    textItem.xPercent = nextPosition.xPercent;
+    textItem.yPercent = nextPosition.yPercent;
+    textItem.updatedAt = new Date().toISOString();
+    dragState.moved = true;
+    updateTextItemCanvasElement(dragState.areaId, dragState.textId, textItem);
+    return;
+  }
+
   if (dragState.kind === "freehand") {
     const area = getAreaById(dragState.areaId);
     if (!area) {
@@ -5751,6 +6318,10 @@ const handlePointerUp = () => {
       markDirty("journey sticker dragged");
       renderTimeline();
     }
+    if (dragState.kind === "text-item" && dragState.moved) {
+      markDirty("journey text item dragged");
+      renderTimeline();
+    }
     logHomepage("Completed drag interaction.", dragState);
     dragState = null;
     renderEditorPanel();
@@ -5799,6 +6370,17 @@ const bindGlobalControls = () => {
   }
 
   document.addEventListener("keydown", (event) => {
+    if ((event.key === "Delete" || event.key === "Backspace") && uiState.selectedTextItem) {
+      const target = event.target;
+      const isTyping =
+        target?.matches?.("input, textarea, select") ||
+        target?.isContentEditable;
+      if (!isTyping) {
+        event.preventDefault();
+        deleteTextItem(uiState.selectedTextItem.areaId, uiState.selectedTextItem.textId);
+        return;
+      }
+    }
     if ((event.key === "Delete" || event.key === "Backspace") && uiState.selectedSticker) {
       const target = event.target;
       const isTyping =

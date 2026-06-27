@@ -1,5 +1,33 @@
 # Project History
 
+## 2026-06-27 - Add collapsible journey editor panel and text boxes
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Make the journey visual editor panel collapsible so it does not cover the canvas.
+* Remove fixed default area copy from the journey canvas.
+* Add draggable plain-text boxes as editable design elements.
+* Preserve background/sticker editing, Stroke topology editing, route smoothing, homepage entrances, ICP footer, and backend/RBAC files.
+
+### Completed
+
+* Added a collapse/expand control for the journey visual editor panel.
+* Persisted the collapsed panel preference in browser localStorage under `journeyEditorPanelCollapsed`.
+* Stopped rendering the fixed Area label/title/placeholder description block in journey areas.
+* Added per-area `textItems` with percent-based position and width.
+* Added text box add, select, drag, edit, resize, font size, color, weight, alignment, rotation, opacity, layer, lock, hide, duplicate, reset, and delete controls.
+* Rendered text content with `textContent` so user-entered text remains plain text and is not executed as HTML.
+* Kept the existing background/sticker editor, route editor, Stroke topology editor, and `simple-strong-smooth` route smoothing intact.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No binary image files or Data URLs were committed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-27 - Add journey background and sticker editor
 
 ### Goal

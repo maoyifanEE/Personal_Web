@@ -63,6 +63,12 @@ It should also prevent old navigation behavior from returning by accident.
 * Final project assets should live under `assets/journey/backgrounds/` or `assets/journey/stickers/` and be referenced with relative paths.
 * Sticker positions and sizes should use percent coordinates so they remain stable when area size changes.
 * Sticker editor actions may drag, resize, rotate, layer, hide, lock, duplicate, and delete stickers.
+* The left journey visual editor panel may collapse into a small tab so the canvas remains inspectable.
+* Journey areas should not force fixed default labels, titles, or placeholder descriptions onto the canvas.
+* Page text should be composed with draggable text boxes instead of default area copy blocks.
+* Text boxes should use percent-based position and width so they remain stable across area height and viewport changes.
+* Text box content is plain text only and must not be rendered as HTML.
+* Text boxes may be moved, resized, styled, layered, hidden, locked, duplicated, and deleted in editor mode.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.
