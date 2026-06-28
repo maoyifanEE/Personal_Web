@@ -145,6 +145,39 @@ const DEFAULT_TEXT_ITEM = {
   locked: false,
   visible: true
 };
+const DEFAULT_CANVAS_BACKGROUND = {
+  ...DEFAULT_AREA_BACKGROUND,
+  type: "gradient",
+  pattern: "soft-hills"
+};
+const DEFAULT_CANVAS_ROUTE = {
+  id: "route-1",
+  name: "路线 1",
+  visible: true,
+  locked: false,
+  color: "#ffffff",
+  shadowColor: "rgba(20, 40, 60, 0.12)",
+  width: 34,
+  zIndex: 20,
+  rawPoints: [],
+  smoothPoints: [],
+  finalSvgPath: "",
+  simpleSmooth: { ...DEFAULT_SIMPLE_SMOOTH },
+  processedBy: SIMPLE_SMOOTH_ENGINE,
+  updatedAt: ""
+};
+const DEFAULT_CANVAS = {
+  width: SVG_WIDTH,
+  height: 2400,
+  background: { ...DEFAULT_CANVAS_BACKGROUND },
+  routes: {
+    selectedRouteId: "route-1",
+    items: [{ ...DEFAULT_CANVAS_ROUTE, simpleSmooth: { ...DEFAULT_SIMPLE_SMOOTH } }]
+  },
+  nodes: [],
+  stickers: [],
+  textItems: []
+};
 const EDITOR_PANEL_COLLAPSED_STORAGE_KEY = "journeyEditorPanelCollapsed";
 const IMAGE_DROP_ACCEPT_TYPES = new Set([
   "image/png",
@@ -201,6 +234,7 @@ const DEFAULT_HOMEPAGE_EDITOR_STATE = {
   boundaryConnections: clone(DEFAULT_BOUNDARY_CONNECTIONS),
   routePatches: {},
   routeStrokes: clone(DEFAULT_ROUTE_STROKES),
+  canvas: clone(DEFAULT_CANVAS),
   hero: {
     eyebrow: "Hello, World!",
     title: "A simple curved path timeline prototype."
@@ -802,19 +836,339 @@ const sanitizeAreaTextItems = (textItems = []) =>
     .map(sanitizeAreaTextItem)
     .filter(Boolean);
 
-const getNodeById = (nodeId) => {
-  for (const area of editorState.areas) {
-    const node = area.nodes.find((item) => item.id === nodeId);
-    if (node) {
-      return { area, node };
+const createRouteId = () => `route-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const createNodeId = () => `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const getCanvas = () => editorState.canvas || DEFAULT_CANVAS;
+
+const getCanvasRoutes = (canvas = getCanvas()) => canvas.routes?.items || [];
+
+const getRouteById = (routeId, canvas = getCanvas()) =>
+  getCanvasRoutes(canvas).find((route) => route.id === routeId) || null;
+
+const getSelectedRoute = (canvas = getCanvas()) =>
+  getRouteById(canvas.routes?.selectedRouteId, canvas) || getCanvasRoutes(canvas)[0] || null;
+
+const clampCanvasPoint = (point, canvas = getCanvas()) => ({
+  x: Math.round(clamp(Number(point?.x) || 0, 0, canvas.width || SVG_WIDTH)),
+  y: Math.round(clamp(Number(point?.y) || 0, 0, canvas.height || DEFAULT_CANVAS.height))
+});
+
+const clientPointToCanvasPoint = (event) => {
+  const canvasElement = document.querySelector(".journey-canvas");
+  const canvas = getCanvas();
+  const rect = canvasElement?.getBoundingClientRect();
+  if (!rect) {
+    return { x: 0, y: 0 };
+  }
+  return clampCanvasPoint({
+    x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * canvas.width,
+    y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * canvas.height
+  }, canvas);
+};
+
+const canvasPointToPercent = (point, canvas = getCanvas()) => ({
+  xPercent: clamp((Number(point?.x) || 0) / Math.max(1, canvas.width) * 100, -20, 120),
+  yPercent: clamp((Number(point?.y) || 0) / Math.max(1, canvas.height) * 100, -20, 120)
+});
+
+const percentToCanvasPoint = (point, canvas = getCanvas()) =>
+  clampCanvasPoint({
+    x: (Number(point?.xPercent) || 0) / 100 * canvas.width,
+    y: (Number(point?.yPercent) || 0) / 100 * canvas.height
+  }, canvas);
+
+const sanitizeCanvasRoute = (route = {}, index = 0, canvas = DEFAULT_CANVAS) => {
+  const timestamp = new Date().toISOString();
+  const routeId = normalizeString(route.id) || `route-${index + 1}`;
+  const rawPoints = (Array.isArray(route.rawPoints) ? route.rawPoints : [])
+    .map((point) => clampCanvasPoint(point, canvas));
+  const smoothPoints = (Array.isArray(route.smoothPoints) ? route.smoothPoints : [])
+    .map((point) => clampCanvasPoint(point, canvas));
+  const processed = route.finalSvgPath || route.d || buildDensePolylinePathD(smoothPoints);
+
+  return {
+    ...clone(DEFAULT_CANVAS_ROUTE),
+    ...route,
+    id: routeId,
+    name: normalizeString(route.name) || `路线 ${index + 1}`,
+    visible: route.visible !== false,
+    locked: route.locked === true,
+    color: normalizeColorValue(route.color || route.strokeColor, DEFAULT_CANVAS_ROUTE.color),
+    shadowColor: normalizeColorValue(route.shadowColor, DEFAULT_CANVAS_ROUTE.shadowColor),
+    width: Math.round(clamp(Number(route.width || route.strokeWidth || DEFAULT_CANVAS_ROUTE.width), 8, 80)),
+    zIndex: Math.round(clamp(Number(route.zIndex || DEFAULT_CANVAS_ROUTE.zIndex), 0, 100)),
+    rawPoints,
+    smoothPoints,
+    finalSvgPath: processed,
+    simpleSmooth: normalizeSmoothing(route.simpleSmooth || route.smoothing || DEFAULT_SIMPLE_SMOOTH),
+    processedBy: route.processedBy || SIMPLE_SMOOTH_ENGINE,
+    updatedAt: isValidIsoDate(route.updatedAt) ? route.updatedAt : timestamp
+  };
+};
+
+const resolveRoutePoints = (route) =>
+  (Array.isArray(route?.smoothPoints) ? route.smoothPoints : [])
+    .map((point) => clampCanvasPoint(point));
+
+const samplePolylineByT = (points, routeT = 0.5) => {
+  const cleanPoints = removeConsecutiveDuplicatePoints(points || []);
+  if (!cleanPoints.length) {
+    return { x: SVG_WIDTH / 2, y: 0 };
+  }
+  if (cleanPoints.length === 1) {
+    return cleanPoints[0];
+  }
+  const length = getPolylineLength(cleanPoints);
+  if (!length) {
+    return cleanPoints[0];
+  }
+  const target = clamp(Number(routeT) || 0, 0, 1) * length;
+  let walked = 0;
+  for (let index = 1; index < cleanPoints.length; index += 1) {
+    const previous = cleanPoints[index - 1];
+    const current = cleanPoints[index];
+    const segment = distanceBetweenPoints(previous, current);
+    if (walked + segment >= target) {
+      const ratio = segment ? (target - walked) / segment : 0;
+      return {
+        x: Math.round(previous.x + (current.x - previous.x) * ratio),
+        y: Math.round(previous.y + (current.y - previous.y) * ratio)
+      };
     }
+    walked += segment;
+  }
+  return cleanPoints[cleanPoints.length - 1];
+};
+
+const getPointAtRouteT = (route, routeT = 0.5) =>
+  samplePolylineByT(resolveRoutePoints(route), routeT);
+
+const getNearestRouteT = (route, point) => {
+  const points = resolveRoutePoints(route);
+  if (points.length < 2) {
+    return { routeT: 0.5, distance: Infinity };
+  }
+  const totalLength = getPolylineLength(points) || 1;
+  let walked = 0;
+  let best = { routeT: 0, distance: Infinity };
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const segmentLength = Math.hypot(dx, dy) || 1;
+    const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / (segmentLength * segmentLength), 0, 1);
+    const projection = { x: start.x + dx * t, y: start.y + dy * t };
+    const distance = distanceBetweenPoints(point, projection);
+    if (distance < best.distance) {
+      best = {
+        routeT: clamp((walked + segmentLength * t) / totalLength, 0, 1),
+        distance
+      };
+    }
+    walked += segmentLength;
+  }
+  return best;
+};
+
+const getNearestVisibleRoute = (point) => {
+  const candidates = getCanvasRoutes().filter((route) => route.visible !== false && resolveRoutePoints(route).length >= 2);
+  return candidates.reduce((best, route) => {
+    const nearest = getNearestRouteT(route, point);
+    return !best || nearest.distance < best.distance
+      ? { route, routeT: nearest.routeT, distance: nearest.distance }
+      : best;
+  }, null);
+};
+
+const getLegacyAreaLayouts = (areas = []) => {
+  let top = 0;
+  return [...areas]
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map((area) => {
+      const height = Number(area.height) || 520;
+      const layout = { area, top, bottom: top + height, height };
+      top += height;
+      return layout;
+    });
+};
+
+const legacyLocalToCanvasPoint = (point, layout) =>
+  clampCanvasPoint({
+    x: Number(point?.x) || 0,
+    y: layout.top + (Number(point?.y) || 0)
+  }, { width: SVG_WIDTH, height: Math.max(DEFAULT_CANVAS.height, layout.bottom) });
+
+const migrateLegacyAreasToCanvas = (areas = []) => {
+  const layouts = getLegacyAreaLayouts(areas);
+  const canvasHeight = Math.max(
+    DEFAULT_CANVAS.height,
+    layouts[layouts.length - 1]?.bottom || DEFAULT_CANVAS.height
+  );
+  const canvas = {
+    ...clone(DEFAULT_CANVAS),
+    height: canvasHeight,
+    routes: { selectedRouteId: "", items: [] },
+    nodes: [],
+    stickers: [],
+    textItems: [],
+    migration: {
+      source: "legacy-areas",
+      generatedAt: new Date().toISOString(),
+      limitations: []
+    }
+  };
+
+  const firstBackground = layouts.map((layout) => layout.area.background).find((background) => background?.imageSrc);
+  canvas.background = sanitizeAreaBackground(firstBackground || layouts[0]?.area.background || DEFAULT_CANVAS_BACKGROUND);
+  if (layouts.filter((layout) => layout.area.background?.imageSrc).length > 1) {
+    canvas.migration.limitations.push("Multiple legacy area backgrounds existed; only the first background image is used as the canvas background.");
+  }
+
+  layouts.forEach((layout, index) => {
+    sanitizeAreaStickers(layout.area.stickers).forEach((sticker) => {
+      const globalY = layout.top + layout.height * (sticker.yPercent / 100);
+      canvas.stickers.push({
+        ...sticker,
+        id: sticker.id || createStickerId(),
+        yPercent: clamp((globalY / canvasHeight) * 100, -20, 120)
+      });
+    });
+
+    sanitizeAreaTextItems(layout.area.textItems).forEach((textItem) => {
+      const globalY = layout.top + layout.height * (textItem.yPercent / 100);
+      canvas.textItems.push({
+        ...textItem,
+        id: textItem.id || createTextItemId(),
+        yPercent: clamp((globalY / canvasHeight) * 100, -20, 120)
+      });
+    });
+
+    const pathPoints = layout.area.path?.mode === "freehand" && layout.area.path?.smoothPoints?.length >= 2
+      ? layout.area.path.smoothPoints
+      : pointsFromBezierAnchors(layout.area.path?.points || [], 18);
+    if (pathPoints.length >= 2) {
+      const routeId = `legacy-route-${index + 1}`;
+      const routePoints = pathPoints.map((point) => legacyLocalToCanvasPoint(point, layout));
+      canvas.routes.items.push(sanitizeCanvasRoute({
+        id: routeId,
+        name: `旧区域路线 ${index + 1}`,
+        width: layout.area.path?.strokeWidth,
+        color: layout.area.path?.strokeColor,
+        shadowColor: layout.area.path?.shadowColor,
+        rawPoints: routePoints,
+        smoothPoints: routePoints,
+        finalSvgPath: buildDensePolylinePathD(routePoints),
+        processedBy: "legacy-area-migration"
+      }, canvas.routes.items.length, canvas));
+
+      (Array.isArray(layout.area.nodes) ? layout.area.nodes : []).forEach((node) => {
+        const localPoint = node.anchorMode === "free"
+          ? { x: node.x, y: node.y }
+          : samplePolylineByT(pathPoints, Number(node.pathT) || 0.5);
+        const canvasPoint = legacyLocalToCanvasPoint(localPoint, layout);
+        canvas.nodes.push({
+          ...node,
+          id: node.id || createNodeId(),
+          routeId,
+          routeT: Number.isFinite(Number(node.pathT)) ? Number(node.pathT) : getNearestRouteT(canvas.routes.items.at(-1), canvasPoint).routeT,
+          x: canvasPoint.x,
+          y: canvasPoint.y,
+          anchorMode: node.anchorMode === "free" ? "free" : "route"
+        });
+      });
+    } else if (Array.isArray(layout.area.nodes) && layout.area.nodes.length) {
+      canvas.migration.limitations.push(`Nodes from ${layout.area.id} were kept as free nodes because no usable route existed.`);
+      layout.area.nodes.forEach((node) => {
+        const canvasPoint = legacyLocalToCanvasPoint({ x: node.x, y: node.y }, layout);
+        canvas.nodes.push({
+          ...node,
+          id: node.id || createNodeId(),
+          routeId: "",
+          routeT: 0.5,
+          x: canvasPoint.x,
+          y: canvasPoint.y,
+          anchorMode: "free"
+        });
+      });
+    }
+  });
+
+  if (!canvas.routes.items.length) {
+    canvas.routes.items.push(sanitizeCanvasRoute(clone(DEFAULT_CANVAS_ROUTE), 0, canvas));
+  }
+  canvas.routes.selectedRouteId = canvas.routes.items[0].id;
+  return canvas;
+};
+
+const sanitizeCanvas = (rawCanvas, legacyAreas = []) => {
+  const source = rawCanvas ? { ...clone(DEFAULT_CANVAS), ...rawCanvas } : migrateLegacyAreasToCanvas(legacyAreas);
+  const canvas = {
+    ...clone(DEFAULT_CANVAS),
+    ...source,
+    width: Math.round(clamp(Number(source.width) || SVG_WIDTH, 640, 1600)),
+    height: Math.round(clamp(Number(source.height) || DEFAULT_CANVAS.height, 900, 8000)),
+    background: sanitizeAreaBackground(source.background, DEFAULT_CANVAS_BACKGROUND),
+    stickers: sanitizeAreaStickers(source.stickers),
+    textItems: sanitizeAreaTextItems(source.textItems),
+    nodes: Array.isArray(source.nodes) ? source.nodes : []
+  };
+  canvas.routes = {
+    selectedRouteId: source.routes?.selectedRouteId || "",
+    items: (Array.isArray(source.routes?.items) ? source.routes.items : [])
+      .map((route, index) => sanitizeCanvasRoute(route, index, canvas))
+  };
+  if (!canvas.routes.items.length) {
+    canvas.routes.items = [sanitizeCanvasRoute(clone(DEFAULT_CANVAS_ROUTE), 0, canvas)];
+  }
+  if (!canvas.routes.items.some((route) => route.id === canvas.routes.selectedRouteId)) {
+    canvas.routes.selectedRouteId = canvas.routes.items[0].id;
+  }
+  canvas.nodes = canvas.nodes.map((node) => sanitizeCanvasNode(node, canvas));
+  return canvas;
+};
+
+const sanitizeCanvasNode = (node = {}, canvas = getCanvas()) => {
+  const route = getRouteById(node.routeId, canvas);
+  const routeT = clamp(Number(node.routeT ?? node.pathT ?? 0.5), 0, 1);
+  const basePoint = route && node.anchorMode !== "free"
+    ? getPointAtRouteT(route, routeT)
+    : clampCanvasPoint(node, canvas);
+  return {
+    id: normalizeString(node.id) || createNodeId(),
+    type: node.type === "minor" ? "minor" : "major",
+    title: normalizeString(node.title) || "Journey Node",
+    date: normalizeString(node.date) || "",
+    description: normalizeString(node.description) || "",
+    imageType: node.imageType || "placeholder",
+    routeId: route?.id || "",
+    routeT,
+    anchorMode: route && node.anchorMode !== "free" ? "route" : "free",
+    x: basePoint.x,
+    y: basePoint.y,
+    offsetX: Number.isFinite(Number(node.offsetX)) ? Number(node.offsetX) : 120,
+    offsetY: Number.isFinite(Number(node.offsetY)) ? Number(node.offsetY) : -54,
+    cardSide: node.cardSide || "right",
+    style: {
+      color: normalizeColorValue(node.style?.color, node.type === "minor" ? "#76b7f2" : "#2f6f45"),
+      icon: node.style?.icon || "dot",
+      cardVariant: node.style?.cardVariant || (node.type === "minor" ? "compact" : "large")
+    }
+  };
+};
+
+const getNodeById = (nodeId) => {
+  const node = editorState.canvas?.nodes?.find((item) => item.id === nodeId);
+  if (node) {
+    return { canvas: editorState.canvas, node };
   }
   return null;
 };
 
 const sanitizeState = (rawState) => {
-  if (!rawState || !Array.isArray(rawState.areas)) {
-    throw new Error("State is missing editable areas.");
+  if (!rawState) {
+    throw new Error("State is missing editable data.");
   }
 
   const nextState = clone(DEFAULT_HOMEPAGE_EDITOR_STATE);
@@ -825,7 +1179,8 @@ const sanitizeState = (rawState) => {
     dirty: false
   });
 
-  nextState.areas = rawState.areas.map((area, index) => {
+  const rawAreas = Array.isArray(rawState.areas) ? rawState.areas : clone(DEFAULT_HOMEPAGE_EDITOR_STATE.areas);
+  nextState.areas = rawAreas.map((area, index) => {
     const defaultArea = DEFAULT_HOMEPAGE_EDITOR_STATE.areas[index] || DEFAULT_HOMEPAGE_EDITOR_STATE.areas[0];
     const migratedArea = {
       ...clone(defaultArea),
@@ -845,8 +1200,9 @@ const sanitizeState = (rawState) => {
   nextState.routePatches = sanitizeRoutePatches(rawState.routePatches);
   nextState.routeStrokes = sanitizeRouteStrokes(rawState.routeStrokes);
   nextState.localRedrawDraft = clone(DEFAULT_HOMEPAGE_EDITOR_STATE.localRedrawDraft);
-  alignAdjacentAreaPaths(nextState.areas, "sanitize");
   nextState.areas.forEach((area) => migrateAreaNodes(area));
+  nextState.canvas = sanitizeCanvas(rawState.canvas, nextState.areas);
+  nextState.selectedNodeId = nextState.canvas.nodes[0]?.id || "";
 
   return nextState;
 };
@@ -1226,6 +1582,10 @@ const globalToLocalPoint = (point, layout) => ({
 });
 
 const clientPointToJourneyGlobalPoint = (event) => {
+  const canvasElement = document.querySelector(".journey-canvas");
+  if (canvasElement) {
+    return clientPointToCanvasPoint(event);
+  }
   const container = document.querySelector("#journey-areas");
   const layouts = getAreaLayouts(getOrderedAreas());
   const totalHeight = layouts[layouts.length - 1]?.bottom || 1;
@@ -1681,26 +2041,44 @@ const commitRouteStrokeDraw = (rawPoints, startTarget, endTarget) => {
   });
 };
 
-const initializeRouteStrokesFromAreas = () => {
+const initializeRouteStrokesFromSelectedRoute = () => {
   const routeStrokes = getRouteStrokesState();
+  const route = getSelectedRoute();
+  if (!route) {
+    showEditorMessage("请先新建或选择一条路线。", true);
+    return;
+  }
+  if (route.locked) {
+    showEditorMessage("当前路线已锁定，不能修改。", true);
+    return;
+  }
+  if (route.visible === false) {
+    showEditorMessage("当前路线已隐藏，请先显示后再修改。", true);
+    return;
+  }
+  const points = resolveRoutePoints(route);
+  if (points.length < 2) {
+    showEditorMessage("当前路线还没有可修改的曲线，请先手绘路线。", true);
+    return;
+  }
   pushRouteStrokesHistory();
-  const layouts = getAreaLayouts(getOrderedAreas());
-  routeStrokes.strokes = layouts.map((layout) => {
-    const points = getRenderablePathPoints(layout.area)
-      .map((point) => localToGlobalPoint(point, layout));
-    return createRouteStroke(points, {
-      width: layout.area.path.strokeWidth,
-      strokeColor: layout.area.path.strokeColor,
-      shadowColor: layout.area.path.shadowColor
-    }, "area-path-import");
-  }).filter((stroke) => stroke.points.length >= 2);
+  routeStrokes.targetRouteId = route.id;
+  routeStrokes.strokes = [
+    createRouteStroke(points, {
+      width: route.width,
+      strokeColor: route.color,
+      shadowColor: route.shadowColor
+    }, "canvas-route-import")
+  ];
   routeStrokes.enabled = true;
   routeStrokes.activeMode = "draw";
-  markDirty("route strokes initialized");
+  routeStrokes.drawingPreviewPoints = [];
+  routeStrokes.snapPreview = null;
   renderTimeline();
   renderEditorPanel();
-  showEditorMessage("已从当前区域路线生成 Stroke。");
-  logHomepage("Initialized route topology strokes from area paths.", {
+  showEditorMessage("已从当前路线创建修改草稿。");
+  logHomepage("Initialized stroke repair from selected canvas route.", {
+    routeId: route.id,
     strokeCount: routeStrokes.strokes.length
   });
 };
@@ -1709,13 +2087,13 @@ const toggleRouteStrokes = (enabled) => {
   const routeStrokes = getRouteStrokesState();
   routeStrokes.enabled = Boolean(enabled);
   if (routeStrokes.enabled && !routeStrokes.strokes.length) {
-    initializeRouteStrokesFromAreas();
+    initializeRouteStrokesFromSelectedRoute();
     return;
   }
   markDirty("route stroke mode toggled");
   renderTimeline();
   renderEditorPanel();
-  showEditorMessage(routeStrokes.enabled ? "Stroke 路线已启用。" : "Stroke 路线已关闭，恢复 area route。");
+  showEditorMessage(routeStrokes.enabled ? "Stroke 修改已启用。" : "Stroke 修改已关闭。");
 };
 
 const updateRouteStrokeMode = (mode) => {
@@ -1750,7 +2128,56 @@ const updateRouteStrokeField = (field, options = {}) => {
 const handleRouteStrokeAction = (action) => {
   const routeStrokes = getRouteStrokesState();
   if (action === "init") {
-    initializeRouteStrokesFromAreas();
+    initializeRouteStrokesFromSelectedRoute();
+    return;
+  }
+  if (action === "apply") {
+    const route = getRouteById(routeStrokes.targetRouteId || getSelectedRoute()?.id);
+    if (!route) {
+      showEditorMessage("请先新建或选择一条路线。", true);
+      return;
+    }
+    if (route.locked) {
+      showEditorMessage("当前路线已锁定，不能修改。", true);
+      return;
+    }
+    const points = removeConsecutiveDuplicatePoints(
+      routeStrokes.strokes.flatMap((stroke, index) => (
+        index === 0 ? stroke.points : stroke.points.slice(1)
+      ))
+    ).map((point) => clampCanvasPoint(point));
+    if (points.length < 2) {
+      showEditorMessage("修改草稿太短，无法应用。", true);
+      return;
+    }
+    route.rawPoints = points;
+    route.smoothPoints = points;
+    route.finalSvgPath = buildDensePolylinePathD(points);
+    route.processedBy = "stroke-repair-direct";
+    route.updatedAt = new Date().toISOString();
+    updateNodesForRoute(route.id);
+    routeStrokes.enabled = false;
+    routeStrokes.strokes = [];
+    routeStrokes.drawingPreviewPoints = [];
+    routeStrokes.snapPreview = null;
+    markDirty("canvas route stroke repair applied");
+    renderTimeline();
+    renderEditorPanel();
+    showEditorMessage("路线修改已应用。");
+    logHomepage("Applied stroke repair to selected canvas route without destructive smoothing.", {
+      routeId: route.id,
+      pointCount: route.smoothPoints.length
+    });
+    return;
+  }
+  if (action === "cancel") {
+    routeStrokes.enabled = false;
+    routeStrokes.strokes = [];
+    routeStrokes.drawingPreviewPoints = [];
+    routeStrokes.snapPreview = null;
+    renderTimeline();
+    renderEditorPanel();
+    showEditorMessage("已取消路线修改。");
     return;
   }
   if (action === "clear") {
@@ -2416,6 +2843,506 @@ const renderHero = () => {
   }
 };
 
+const updateNodesForRoute = (routeId) => {
+  const route = getRouteById(routeId);
+  if (!route) {
+    return;
+  }
+  editorState.canvas.nodes.forEach((node) => {
+    if (node.routeId === routeId && node.anchorMode !== "free") {
+      const point = getPointAtRouteT(route, node.routeT);
+      node.x = point.x;
+      node.y = point.y;
+    }
+  });
+};
+
+const updateAllRouteBoundNodes = () => {
+  getCanvasRoutes().forEach((route) => updateNodesForRoute(route.id));
+};
+
+const ensureSelectedRoute = ({ createIfMissing = true } = {}) => {
+  const canvas = getCanvas();
+  let route = getSelectedRoute(canvas);
+  if (!route && createIfMissing) {
+    route = createCanvasRoute();
+  }
+  if (route && !canvas.routes.selectedRouteId) {
+    canvas.routes.selectedRouteId = route.id;
+  }
+  return route;
+};
+
+const createCanvasRoute = () => {
+  const canvas = getCanvas();
+  const route = sanitizeCanvasRoute({
+    ...clone(DEFAULT_CANVAS_ROUTE),
+    id: createRouteId(),
+    name: `路线 ${canvas.routes.items.length + 1}`,
+    updatedAt: new Date().toISOString()
+  }, canvas.routes.items.length, canvas);
+  canvas.routes.items.push(route);
+  canvas.routes.selectedRouteId = route.id;
+  setActiveTool("freehand");
+  markDirty("canvas route created");
+  logHomepage("Created canvas route.", { routeId: route.id });
+  return route;
+};
+
+const deleteSelectedCanvasRoute = () => {
+  const canvas = getCanvas();
+  const route = getSelectedRoute(canvas);
+  if (!route) {
+    showEditorMessage("请先选择一条路线。", true);
+    return;
+  }
+  canvas.nodes.forEach((node) => {
+    if (node.routeId === route.id) {
+      node.routeId = "";
+      node.anchorMode = "free";
+    }
+  });
+  canvas.routes.items = canvas.routes.items.filter((item) => item.id !== route.id);
+  if (!canvas.routes.items.length) {
+    canvas.routes.items.push(sanitizeCanvasRoute(clone(DEFAULT_CANVAS_ROUTE), 0, canvas));
+  }
+  canvas.routes.selectedRouteId = canvas.routes.items[0].id;
+  markDirty("canvas route deleted");
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage("已删除路线，相关节点已转为自由节点。");
+  logHomepage("Deleted selected canvas route and unbound attached nodes.", { routeId: route.id });
+};
+
+const processCanvasRoutePoints = (route, rawPoints) => {
+  const processed = processRawFreehandPoints(rawPoints, route.simpleSmooth || DEFAULT_SIMPLE_SMOOTH, { log: true });
+  if (!processed) {
+    return false;
+  }
+  route.rawPoints = processed.rawPoints;
+  route.filteredPoints = processed.filteredPoints;
+  route.resampledPoints = processed.resampledPoints;
+  route.smoothedControlPoints = processed.smoothedControlPoints;
+  route.smoothPoints = processed.smoothPoints;
+  route.finalSvgPath = processed.finalSvgPath || processed.d;
+  route.simpleSmooth = normalizeSmoothing(processed.simpleSmoothSettings);
+  route.processedBy = SIMPLE_SMOOTH_ENGINE;
+  route.diagnostics = processed.diagnostics;
+  route.updatedAt = new Date().toISOString();
+  updateNodesForRoute(route.id);
+  return true;
+};
+
+const renderCanvasBackground = (canvas) => {
+  const background = sanitizeAreaBackground(canvas.background, DEFAULT_CANVAS_BACKGROUND);
+  const layer = document.createElement("div");
+  layer.className = "journey-canvas-background";
+  layer.setAttribute("aria-hidden", "true");
+  layer.style.setProperty("--area-color-a", background.colorA);
+  layer.style.setProperty("--area-color-b", background.colorB);
+  layer.append(Object.assign(document.createElement("div"), {
+    className: "journey-area-background-gradient"
+  }));
+  if (background.imageSrc && background.type !== "gradient") {
+    const image = document.createElement("img");
+    image.className = "journey-area-background-image";
+    image.src = background.imageSrc;
+    image.alt = background.imageAlt || "";
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.style.objectFit = background.imageFit;
+    image.style.objectPosition = `${background.imagePositionX}% ${background.imagePositionY}%`;
+    image.style.opacity = String(background.imageOpacity);
+    layer.append(image);
+  }
+  if (background.overlayOpacity > 0) {
+    const overlay = document.createElement("div");
+    overlay.className = "journey-area-background-overlay";
+    overlay.style.background = background.overlayColor;
+    overlay.style.opacity = String(background.overlayOpacity);
+    layer.append(overlay);
+  }
+  return layer;
+};
+
+const renderCanvasRoutesLayer = (canvas) => {
+  const svg = createSvgElement("svg", {
+    class: "journey-canvas-routes",
+    viewBox: `0 0 ${canvas.width} ${canvas.height}`,
+    preserveAspectRatio: "none",
+    "aria-hidden": "true",
+    focusable: "false"
+  });
+  getCanvasRoutes(canvas)
+    .filter((route) => route.visible !== false && route.smoothPoints.length >= 2)
+    .sort((a, b) => a.zIndex - b.zIndex)
+    .forEach((route) => {
+      const d = route.finalSvgPath || buildDensePolylinePathD(route.smoothPoints);
+      svg.append(
+        createSvgElement("path", {
+          class: "journey-canvas-route__shadow",
+          d,
+          stroke: route.shadowColor,
+          "stroke-width": String(route.width + 10)
+        }),
+        createSvgElement("path", {
+          class: [
+            "journey-canvas-route__main",
+            editorState.mode === "edit" && route.id === canvas.routes.selectedRouteId ? "is-selected" : ""
+          ].filter(Boolean).join(" "),
+          d,
+          stroke: route.color,
+          "stroke-width": String(route.width),
+          "data-route-id": route.id
+        })
+      );
+    });
+  if (editorState.mode === "edit" && uiState.debugOverlay) {
+    const route = getSelectedRoute(canvas);
+    if (route) {
+      if (uiState.debugLayers.raw && route.rawPoints?.length >= 2) {
+        svg.append(createSvgElement("path", {
+          class: "curve-debug__raw",
+          d: buildDensePolylinePathD(route.rawPoints)
+        }));
+      }
+      if (uiState.debugLayers.final && route.smoothPoints?.length >= 2) {
+        svg.append(createSvgElement("path", {
+          class: "curve-debug__final-samples",
+          d: buildDensePolylinePathD(route.smoothPoints)
+        }));
+      }
+      if (uiState.debugLayers.anchors) {
+        (route.resampledPoints || []).forEach((point) => {
+          svg.append(createSvgElement("circle", {
+            class: "curve-debug__resampled",
+            cx: point.x,
+            cy: point.y,
+            r: 4
+          }));
+        });
+        (route.smoothedControlPoints || []).forEach((point) => {
+          svg.append(createSvgElement("circle", {
+            class: "curve-debug__control-point",
+            cx: point.x,
+            cy: point.y,
+            r: 5
+          }));
+        });
+      }
+    }
+  }
+  if (editorState.mode === "edit" && editorState.activeTool === "freehand" && editorState.drawingPreviewPoints.length >= 2) {
+    svg.append(createSvgElement("path", {
+      class: "freehand-preview-path",
+      d: buildDensePolylinePathD(editorState.drawingPreviewPoints)
+    }));
+  }
+  return svg;
+};
+
+const renderCanvasStickers = (canvas) => {
+  const layer = document.createElement("div");
+  layer.className = "journey-sticker-layer journey-canvas-sticker-layer";
+  sanitizeAreaStickers(canvas.stickers).forEach((sticker) => {
+    if (!sticker.visible) {
+      return;
+    }
+    const image = document.createElement("img");
+    image.className = [
+      "journey-sticker",
+      uiState.selectedSticker?.stickerId === sticker.id ? "is-selected" : "",
+      sticker.locked ? "is-locked" : ""
+    ].filter(Boolean).join(" ");
+    image.src = sticker.src;
+    image.alt = sticker.alt || sticker.name;
+    image.loading = "lazy";
+    image.decoding = "async";
+    image.dataset.stickerId = sticker.id;
+    image.dataset.stickerDrag = "true";
+    image.style.left = `${sticker.xPercent}%`;
+    image.style.top = `${sticker.yPercent}%`;
+    image.style.width = `${sticker.widthPercent}%`;
+    image.style.opacity = String(sticker.opacity);
+    image.style.zIndex = String(sticker.zIndex);
+    image.style.transform = `translate(-50%, -50%) rotate(${sticker.rotation}deg)`;
+    image.addEventListener("pointerdown", (event) => startCanvasStickerDrag(event, sticker.id));
+    image.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectCanvasSticker(sticker.id);
+    });
+    layer.append(image);
+  });
+  return layer;
+};
+
+const renderCanvasTextItems = (canvas) => {
+  const layer = document.createElement("div");
+  layer.className = "journey-text-layer journey-canvas-text-layer";
+  sanitizeAreaTextItems(canvas.textItems).forEach((textItem) => {
+    if (!textItem.visible) {
+      return;
+    }
+    const element = document.createElement("div");
+    element.className = [
+      "journey-text-item",
+      uiState.selectedTextItem?.textId === textItem.id ? "is-selected" : "",
+      textItem.locked ? "is-locked" : ""
+    ].filter(Boolean).join(" ");
+    element.dataset.textId = textItem.id;
+    element.dataset.textDrag = "true";
+    element.style.left = `${textItem.xPercent}%`;
+    element.style.top = `${textItem.yPercent}%`;
+    element.style.width = `${textItem.widthPercent}%`;
+    element.style.opacity = String(textItem.opacity);
+    element.style.zIndex = String(textItem.zIndex);
+    element.style.transform = `translate(-50%, -50%) rotate(${textItem.rotation}deg)`;
+    element.style.color = textItem.color;
+    element.style.textAlign = textItem.textAlign;
+    element.style.fontSize = `${textItem.fontSize}px`;
+    element.style.fontWeight = textItem.fontWeight;
+    element.style.fontFamily = getTextItemFontFamily(textItem.fontFamily);
+    element.style.lineHeight = String(textItem.lineHeight);
+    element.style.letterSpacing = `${textItem.letterSpacing}px`;
+    element.style.padding = `${textItem.padding}px`;
+    element.style.borderRadius = `${textItem.borderRadius}px`;
+    element.style.backgroundColor =
+      textItem.backgroundColor === "transparent"
+        ? "transparent"
+        : colorWithOpacity(textItem.backgroundColor, textItem.backgroundOpacity);
+    element.textContent = textItem.content;
+    element.addEventListener("pointerdown", (event) => startCanvasTextDrag(event, textItem.id));
+    element.addEventListener("click", (event) => {
+      event.stopPropagation();
+      selectCanvasTextItem(textItem.id);
+    });
+    layer.append(element);
+  });
+  return layer;
+};
+
+const renderCanvasNodes = (canvas) => {
+  const layer = document.createElement("div");
+  layer.className = "journey-events journey-canvas-node-layer";
+  canvas.nodes.forEach((node) => {
+    if (editorState.mode !== "edit" && editorState.view === "overview" && node.type === "minor") {
+      return;
+    }
+    layer.append(renderCanvasNode(node, canvas));
+  });
+  return layer;
+};
+
+const renderCanvasNode = (node, canvas) => {
+  const route = getRouteById(node.routeId, canvas);
+  const basePoint = route && node.anchorMode !== "free"
+    ? getPointAtRouteT(route.id, node.routeT)
+    : clampCanvasPoint(node, canvas);
+  node.x = basePoint.x;
+  node.y = basePoint.y;
+
+  const eventElement = document.createElement("article");
+  eventElement.className = `journey-event journey-event--${node.type}`;
+  eventElement.dataset.eventId = node.id;
+  eventElement.dataset.eventType = node.type;
+  eventElement.dataset.selected = String(editorState.selectedNodeId === node.id);
+  eventElement.style.setProperty("--event-x", `${(basePoint.x / canvas.width) * 100}%`);
+  eventElement.style.setProperty("--event-y", `${(basePoint.y / canvas.height) * 100}%`);
+  eventElement.style.setProperty("--event-offset-x", `${node.offsetX}px`);
+  eventElement.style.setProperty("--event-offset-y", `${node.offsetY}px`);
+  eventElement.style.setProperty("--event-accent", node.style.color || "#2f6f45");
+  eventElement.dataset.side = node.cardSide || "right";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "journey-event__button";
+  button.setAttribute("aria-label", `Open details for ${node.title}`);
+  const dot = document.createElement("span");
+  dot.className = "journey-event__dot";
+  dot.setAttribute("aria-hidden", "true");
+  const card = document.createElement("span");
+  card.className = "journey-event__card";
+  card.dataset.cardVariant = node.style.cardVariant || (node.type === "major" ? "large" : "compact");
+  if (node.type === "major") {
+    card.append(createPlaceholderImage());
+  }
+  const meta = document.createElement("span");
+  meta.className = "journey-event__meta";
+  meta.textContent = node.date;
+  const title = document.createElement("strong");
+  title.className = "journey-event__title";
+  title.textContent = node.title;
+  const description = document.createElement("span");
+  description.className = "journey-event__description";
+  description.textContent = node.description;
+  card.append(meta, title, description);
+  button.append(dot, card);
+  eventElement.append(button);
+  button.addEventListener("click", (event) => {
+    if (editorState.mode === "edit") {
+      event.preventDefault();
+      selectCanvasNode(node.id);
+      return;
+    }
+    openEventPopover("canvas", node.id);
+  });
+  if (editorState.mode === "edit") {
+    eventElement.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      selectCanvasNode(node.id);
+      dragState = {
+        kind: "canvas-node",
+        nodeId: node.id,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false
+      };
+      eventElement.setPointerCapture(event.pointerId);
+      logHomepage("Started canvas node drag.", { nodeId: node.id });
+    });
+  }
+  return eventElement;
+};
+
+const beginCanvasFreehandDrawing = (event, canvasElement) => {
+  event.preventDefault();
+  event.stopPropagation();
+  const route = ensureSelectedRoute({ createIfMissing: true });
+  if (!route) {
+    showEditorMessage("请先新建或选择一条路线。", true);
+    return;
+  }
+  if (route.locked) {
+    showEditorMessage("当前路线已锁定，不能重画。", true);
+    return;
+  }
+  if (route.visible === false) {
+    showEditorMessage("当前路线已隐藏，请先显示后再编辑。", true);
+    return;
+  }
+  const firstPoint = clientPointToCanvasPoint(event);
+  editorState.drawingPreviewPoints = [firstPoint];
+  dragState = {
+    kind: "canvas-freehand",
+    routeId: route.id,
+    pointerId: event.pointerId
+  };
+  try {
+    canvasElement.setPointerCapture(event.pointerId);
+  } catch (error) {
+    logHomepage("Pointer capture skipped for canvas freehand drawing.", {
+      routeId: route.id,
+      reason: error instanceof Error ? error.message : String(error)
+    });
+  }
+  renderTimeline();
+  logHomepage("Started canvas freehand drawing.", { routeId: route.id, firstPoint });
+};
+
+const finishCanvasFreehandDrawing = () => {
+  if (!dragState || dragState.kind !== "canvas-freehand") {
+    return;
+  }
+  const route = getRouteById(dragState.routeId);
+  const rawPoints = removeNearDuplicatePoints(editorState.drawingPreviewPoints || [], DRAW_POINT_MIN_DISTANCE);
+  editorState.drawingPreviewPoints = [];
+  if (!route || rawPoints.length < 3) {
+    showEditorMessage("手绘路线太短，请重新绘制。", true);
+    renderTimeline();
+    return;
+  }
+  if (processCanvasRoutePoints(route, rawPoints)) {
+    markDirty("canvas freehand route drawn");
+    showEditorMessage("路线已按全画布坐标平滑生成。");
+    logHomepage("Completed canvas freehand drawing.", {
+      routeId: route.id,
+      rawPointCount: route.rawPoints.length,
+      smoothPointCount: route.smoothPoints.length
+    });
+  }
+  setActiveTool("select");
+};
+
+const selectCanvasSticker = (stickerId) => {
+  uiState.selectedSticker = { areaId: "canvas", stickerId };
+  uiState.selectedTextItem = null;
+  renderTimeline();
+  renderEditorPanel();
+};
+
+const selectCanvasTextItem = (textId) => {
+  uiState.selectedTextItem = { areaId: "canvas", textId };
+  uiState.selectedSticker = null;
+  renderTimeline();
+  renderEditorPanel();
+};
+
+const selectCanvasNode = (nodeId) => {
+  editorState.selectedNodeId = nodeId;
+  uiState.selectedSticker = null;
+  uiState.selectedTextItem = null;
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Selected canvas node.", { nodeId });
+};
+
+const startCanvasStickerDrag = (event, stickerId) => {
+  const sticker = getCanvas().stickers.find((item) => item.id === stickerId);
+  if (!sticker || sticker.locked) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  selectCanvasSticker(stickerId);
+  dragState = { kind: "canvas-sticker", stickerId, moved: false };
+  event.currentTarget.setPointerCapture(event.pointerId);
+  logHomepage("Started canvas sticker drag.", { stickerId });
+};
+
+const startCanvasTextDrag = (event, textId) => {
+  const textItem = getCanvas().textItems.find((item) => item.id === textId);
+  if (!textItem || textItem.locked) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  selectCanvasTextItem(textId);
+  dragState = { kind: "canvas-text-item", textId, moved: false };
+  event.currentTarget.setPointerCapture(event.pointerId);
+  logHomepage("Started canvas text drag.", { textId });
+};
+
+const addCanvasNodeAt = (point, type = "major", anchorMode = "route") => {
+  const nearest = anchorMode === "route" ? getNearestVisibleRoute(point) : null;
+  const route = nearest?.route || getSelectedRoute();
+  const routePoint = route && nearest ? getPointAtRouteT(route, nearest.routeT) : point;
+  const node = sanitizeCanvasNode({
+    id: createNodeId(),
+    type,
+    title: type === "major" ? "New Major Event" : "New Minor Event",
+    date: new Date().getFullYear().toString(),
+    description: "Edit this journey node.",
+    routeId: route?.id || "",
+    routeT: nearest?.routeT ?? 0.5,
+    anchorMode: route && anchorMode === "route" ? "route" : "free",
+    x: routePoint.x,
+    y: routePoint.y,
+    offsetX: type === "major" ? 120 : -110,
+    offsetY: type === "major" ? -54 : 40,
+    style: {
+      color: type === "major" ? "#2f6f45" : "#76b7f2",
+      icon: "dot",
+      cardVariant: type === "major" ? "large" : "compact"
+    }
+  }, getCanvas());
+  editorState.canvas.nodes.push(node);
+  editorState.selectedNodeId = node.id;
+  markDirty("canvas node added");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Added canvas node.", { nodeId: node.id, routeId: node.routeId });
+};
+
 const renderTimeline = () => {
   const container = document.querySelector("#journey-areas");
   if (!container) {
@@ -2424,7 +3351,7 @@ const renderTimeline = () => {
   }
 
   renderHero();
-  alignAdjacentAreaPaths(editorState.areas, "render");
+  updateAllRouteBoundNodes();
   const root = document.querySelector(".timeline-home");
   if (root) {
     root.dataset.activeTool = editorState.activeTool || "select";
@@ -2432,26 +3359,55 @@ const renderTimeline = () => {
   }
 
   container.innerHTML = "";
-  const orderedAreas = getOrderedAreas();
-  const layouts = getAreaLayouts(orderedAreas);
-  const routeIndex = buildGlobalRenderableRouteIndex(layouts);
-  const routePatches = getRouteStrokesState().enabled ? [] : getEnabledRoutePatches();
-  orderedAreas.forEach((area, index) => {
-    container.append(renderArea(area, index, layouts[index], routeIndex, routePatches));
-  });
-  const routePatchOverlay = renderRoutePatchLayer(layouts, routePatches);
-  if (routePatchOverlay) {
-    container.append(routePatchOverlay);
+  const canvas = getCanvas();
+  const canvasElement = document.createElement("section");
+  canvasElement.className = "journey-canvas pattern-soft-hills";
+  canvasElement.dataset.selected = "true";
+  canvasElement.style.setProperty("--canvas-height", `${canvas.height}px`);
+  canvasElement.style.setProperty("--canvas-width", `${canvas.width}px`);
+  canvasElement.style.setProperty("--area-color-a", canvas.background.colorA);
+  canvasElement.style.setProperty("--area-color-b", canvas.background.colorB);
+  canvasElement.append(
+    renderCanvasBackground(canvas),
+    renderCanvasRoutesLayer(canvas),
+    renderCanvasStickers(canvas),
+    renderCanvasTextItems(canvas),
+    renderCanvasNodes(canvas)
+  );
+  if (editorState.mode === "edit") {
+    canvasElement.addEventListener("pointerdown", (event) => {
+      if (
+        event.target.closest(".journey-event") ||
+        event.target.closest(".journey-sticker") ||
+        event.target.closest(".journey-text-item")
+      ) {
+        return;
+      }
+      if (editorState.activeTool === "freehand") {
+        beginCanvasFreehandDrawing(event, canvasElement);
+        return;
+      }
+      if (editorState.activeTool === "stroke-topology") {
+        handleRouteStrokePointerDown(event);
+        return;
+      }
+      if (editorState.activeTool === "add-node" && editorState.addNodeType) {
+        addCanvasNodeAt(clientPointToCanvasPoint(event), editorState.addNodeType, "route");
+      }
+    });
+    canvasElement.addEventListener("click", () => renderEditorPanel());
   }
-  const strokeLayer = renderRouteStrokesLayer(layouts);
+  const strokeLayer = renderRouteStrokesLayer([{ bottom: canvas.height }]);
   if (strokeLayer) {
-    container.append(strokeLayer);
+    canvasElement.append(strokeLayer);
   }
+  container.append(canvasElement);
 
   setTimelineView(editorState.view || "overview");
   logHomepage("Rendered editable timeline.", {
-    areaCount: editorState.areas.length,
-    nodeCount: editorState.areas.reduce((total, area) => total + area.nodes.length, 0),
+    canvasHeight: canvas.height,
+    routeCount: canvas.routes.items.length,
+    nodeCount: canvas.nodes.length,
     mode: editorState.mode
   });
 };
@@ -3409,8 +4365,10 @@ const handleLocalRedrawPointerDown = (event, areaElement, area) => {
 const handleRouteStrokePointerDown = (event) => {
   const routeStrokes = getRouteStrokesState();
   if (!routeStrokes.enabled) {
-    showEditorMessage("请先启用 Stroke 路线，或从当前区域路线生成 Stroke。", true);
-    return;
+    initializeRouteStrokesFromSelectedRoute();
+    if (!routeStrokes.enabled) {
+      return;
+    }
   }
   event.preventDefault();
   event.stopPropagation();
@@ -3632,7 +4590,7 @@ const finishFreehandDrawing = () => {
   });
 };
 
-const resmoothCurrentAreaCurve = () => {
+const resmoothCurrentAreaCurveLegacy = () => {
   const area = getSelectedArea();
   if (!area.path.rawPoints || area.path.rawPoints.length < 3) {
     showEditorMessage("当前区域没有手绘曲线数据。", true);
@@ -3695,6 +4653,25 @@ const updateControlPoint = (areaId, pointId, handleType, newX, newY) => {
   point[handleType].x = Math.max(0, Math.min(SVG_WIDTH, newX));
   point[handleType].y = Math.max(0, Math.min(area.height, newY));
   markDirty("curve control handle moved");
+};
+
+const resmoothCurrentAreaCurve = () => {
+  const route = ensureSelectedRoute();
+  if (!route.rawPoints || route.rawPoints.length < 3) {
+    showEditorMessage("当前路线没有手绘曲线数据。", true);
+    logHomepage("Resmooth skipped because the current route has no raw freehand data.", { routeId: route.id });
+    return;
+  }
+
+  processCanvasRoutePoints(route, route.rawPoints);
+  markDirty("canvas route curve resmoothed");
+  renderTimeline();
+  renderEditorPanel();
+  showEditorMessage("已重新平滑当前路线。");
+  logHomepage("Resmoothed current canvas route freehand curve.", {
+    routeId: route.id,
+    smoothing: route.simpleSmooth
+  });
 };
 
 const addCurvePoint = () => {
@@ -3824,13 +4801,13 @@ const deleteSelectedNode = () => {
     return;
   }
 
-  selected.area.nodes = selected.area.nodes.filter((node) => node.id !== selected.node.id);
-  editorState.selectedNodeId = selected.area.nodes[0]?.id || "";
+  selected.canvas.nodes = selected.canvas.nodes.filter((node) => node.id !== selected.node.id);
+  editorState.selectedNodeId = selected.canvas.nodes[0]?.id || "";
   markDirty("node deleted");
   renderTimeline();
   renderEditorPanel();
   logHomepage("Deleted node.", {
-    areaId: selected.area.id,
+    canvasId: "main",
     nodeId: selected.node.id
   });
 };
@@ -3899,31 +4876,31 @@ const importJson = () => {
 };
 
 const getCurveDebugExport = () => {
-  const area = getSelectedArea();
-  alignAdjacentAreaPaths(editorState.areas, "debug export");
+  const canvas = getCanvas();
+  const route = ensureSelectedRoute(canvas);
   const routeStrokes = getRouteStrokesState();
-  const debugData = curveDebugDataByArea.get(area.id) || {
-    areaId: area.id,
-    areaTitle: area.title,
-    rawPointerPoints: area.path.rawPoints || [],
-    filteredPoints: area.path.filteredPoints || area.path.rawPoints || [],
-    resampledPoints: area.path.resampledPoints || [],
-    smoothedControlPoints: area.path.smoothedControlPoints || [],
-    finalSmoothPoints: area.path.finalSmoothPoints || area.path.smoothPoints || [],
-    finalSplinePoints: area.path.finalSplinePoints || area.path.smoothPoints || [],
-    finalSvgPath: area.path.finalSvgPath || area.path.d || "",
+  const debugData = {
+    routeId: route.id,
+    routeName: route.name,
+    rawPointerPoints: route.rawPoints || [],
+    filteredPoints: route.filteredPoints || route.rawPoints || [],
+    resampledPoints: route.resampledPoints || [],
+    smoothedControlPoints: route.smoothedControlPoints || route.smoothPoints || [],
+    finalSmoothPoints: route.smoothPoints || [],
+    finalSplinePoints: route.smoothPoints || [],
+    finalSvgPath: route.finalSvgPath || "",
     engine: SIMPLE_SMOOTH_ENGINE,
-    simpleSmoothSettings: normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing),
-    diagnostics: area.path.simpleSmoothDiagnostics || {},
-    boundaryDiagnostics: area.path.boundaryDiagnostics || []
+    simpleSmoothSettings: normalizeSmoothing(route.simpleSmooth),
+    diagnostics: route.diagnostics || {},
+    boundaryDiagnostics: []
   };
   const stats = debugData.diagnostics || {};
 
   return {
     exportedAt: new Date().toISOString(),
     page: "journey.html",
-    selectedAreaId: area.id,
-    selectedAreaOrder: area.order,
+    selectedRouteId: route.id,
+    selectedRouteName: route.name,
     engine: SIMPLE_SMOOTH_ENGINE,
     rawPointerPoints: debugData.rawPointerPoints || [],
     filteredPoints: debugData.filteredPoints || [],
@@ -3931,7 +4908,7 @@ const getCurveDebugExport = () => {
     smoothedControlPoints: debugData.smoothedControlPoints || [],
     finalSmoothPoints: debugData.finalSmoothPoints || debugData.finalSplinePoints || [],
     finalSvgPath: debugData.finalSvgPath || "",
-    simpleSmoothSettings: debugData.simpleSmoothSettings || normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing),
+    simpleSmoothSettings: debugData.simpleSmoothSettings || normalizeSmoothing(route.simpleSmooth),
     stats: {
       rawPointCount: stats.rawPointCount || 0,
       resampledPointCount: stats.resampledPointCount || 0,
@@ -3945,8 +4922,13 @@ const getCurveDebugExport = () => {
       gaussianSigma: stats.gaussianSigma,
       gaussianPasses: stats.gaussianPasses
     },
-    boundaryDiagnostics: debugData.boundaryDiagnostics || [],
-    localRouteRedraw: buildRoutePatchDebugData(),
+    boundaryDiagnostics: [],
+    canvas: {
+      width: canvas.width,
+      height: canvas.height,
+      routeCount: canvas.routes.items.length,
+      nodeCount: canvas.nodes.length
+    },
     routeStrokes: {
       engine: "stroke-topology-layer",
       enabled: routeStrokes.enabled,
@@ -3986,7 +4968,7 @@ const exportCurveDebugJson = () => {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `journey-curve-debug-${debugExport.selectedAreaId}.json`;
+  link.download = `journey-curve-debug-${debugExport.selectedRouteId}.json`;
   document.body.append(link);
   link.click();
   link.remove();
@@ -3994,7 +4976,7 @@ const exportCurveDebugJson = () => {
 
   showEditorMessage("曲线调试数据已导出。");
   logHomepage("Exported front-end curve debug JSON.", {
-    areaId: debugExport.selectedAreaId,
+    routeId: debugExport.selectedRouteId,
     rawPointCount: debugExport.rawPointerPoints.length,
     finalPointCount: debugExport.finalSmoothPoints.length
   });
@@ -4132,7 +5114,7 @@ const renderStrokeTopologyPanel = () => {
       启用 Stroke 路线
     </label>
     <div class="stroke-topology-panel__actions">
-      <button type="button" data-route-stroke-action="init">从当前区域路线生成 Stroke</button>
+      <button type="button" data-route-stroke-action="init">从当前路线生成 Stroke</button>
       <button type="button" data-route-stroke-action="clear" ${routeStrokes.strokes.length ? "" : "disabled"}>清空 Stroke</button>
       <button type="button" data-route-stroke-action="undo" ${routeStrokes.history?.length ? "" : "disabled"}>撤销最后一步</button>
     </div>
@@ -4650,12 +5632,29 @@ const handleDroppedImageFile = async (file, target) => {
   try {
     const dataUrl = await readImageFileAsDataUrl(file);
     if (target.type === "background") {
+      if (target.canvasTarget || target.areaId === "canvas") {
+        updateCanvasBackground({
+          type: "image",
+          imageSrc: dataUrl,
+          imageAlt: file.name || "Local background preview"
+        });
+        showEditorMessage(`已载入本地画布背景：${file.name}（原型预览，Data URL）${warning ? ` ${warning}` : ""}`);
+        return;
+      }
       updateAreaBackground(target.areaId, {
         type: "image",
         imageSrc: dataUrl,
         imageAlt: file.name || "Local background preview"
       });
       showEditorMessage(`已载入本地背景图：${file.name}（原型预览，Data URL）${warning ? ` ${warning}` : ""}`);
+      return;
+    }
+    if (target.canvasTarget || target.areaId === "canvas") {
+      addCanvasSticker(dataUrl, {
+        name: file.name || "Local sticker preview",
+        alt: file.name || ""
+      });
+      showEditorMessage(`已添加本地画布贴纸：${file.name}（原型预览，Data URL）${warning ? ` ${warning}` : ""}`);
       return;
     }
     const sticker = createDefaultSticker(dataUrl, target.areaId, {
@@ -4687,9 +5686,115 @@ const bindImageDropZone = (zone) => {
     const file = event.dataTransfer?.files?.[0];
     handleDroppedImageFile(file, {
       areaId: zone.dataset.areaId,
-      type: zone.dataset.imageDropTarget === "area-background" ? "background" : "sticker"
+      type: zone.dataset.imageDropTarget.includes("background") ? "background" : "sticker",
+      canvasTarget: zone.dataset.imageDropTarget.startsWith("canvas")
     });
   });
+};
+
+const updateCanvasBackground = (patch) => {
+  const canvas = getCanvas();
+  canvas.background = sanitizeAreaBackground({
+    ...canvas.background,
+    ...patch
+  }, DEFAULT_CANVAS_BACKGROUND);
+  markDirty("journey canvas background changed");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Updated journey canvas background.", { fields: Object.keys(patch) });
+};
+
+const addCanvasSticker = (src, options = {}) => {
+  const canvas = getCanvas();
+  const sticker = sanitizeAreaSticker(createDefaultSticker(src, "canvas", {
+    ...options,
+    xPercent: options.xPercent ?? 50,
+    yPercent: options.yPercent ?? 50
+  }));
+  canvas.stickers.push(sticker);
+  selectCanvasSticker(sticker.id);
+  markDirty("journey canvas sticker added");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Added journey canvas sticker.", {
+    stickerId: sticker.id,
+    source: getShortSourceLabel(src)
+  });
+};
+
+const updateCanvasSticker = (stickerId, patch, options = {}) => {
+  const canvas = getCanvas();
+  const sticker = canvas.stickers.find((item) => item.id === stickerId);
+  if (!sticker) {
+    return;
+  }
+  Object.assign(sticker, patch, { updatedAt: new Date().toISOString() });
+  canvas.stickers = sanitizeAreaStickers(canvas.stickers);
+  markDirty("journey canvas sticker changed");
+  if (options.render !== false) {
+    renderTimeline();
+    renderEditorPanel();
+  }
+  logHomepage("Updated journey canvas sticker.", { stickerId, fields: Object.keys(patch) });
+};
+
+const deleteCanvasSticker = (stickerId) => {
+  const canvas = getCanvas();
+  canvas.stickers = canvas.stickers.filter((sticker) => sticker.id !== stickerId);
+  if (uiState.selectedSticker?.stickerId === stickerId) {
+    uiState.selectedSticker = null;
+  }
+  markDirty("journey canvas sticker deleted");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Deleted journey canvas sticker.", { stickerId });
+};
+
+const addCanvasTextItem = () => {
+  const canvas = getCanvas();
+  const textItem = sanitizeAreaTextItem({
+    id: createTextItemId(),
+    name: "Canvas text",
+    content: "输入文字",
+    xPercent: 50,
+    yPercent: 28,
+    widthPercent: 26,
+    zIndex: 30
+  });
+  canvas.textItems.push(textItem);
+  selectCanvasTextItem(textItem.id);
+  markDirty("journey canvas text added");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Added journey canvas text item.", { textId: textItem.id });
+};
+
+const updateCanvasTextItem = (textId, patch, options = {}) => {
+  const canvas = getCanvas();
+  const textItem = canvas.textItems.find((item) => item.id === textId);
+  if (!textItem) {
+    return;
+  }
+  Object.assign(textItem, patch, { updatedAt: new Date().toISOString() });
+  canvas.textItems = sanitizeAreaTextItems(canvas.textItems);
+  markDirty("journey canvas text changed");
+  if (options.render !== false) {
+    renderTimeline();
+    renderEditorPanel();
+  }
+  logHomepage("Updated journey canvas text item.", { textId, fields: Object.keys(patch) });
+};
+
+const deleteCanvasTextItem = (textId) => {
+  const canvas = getCanvas();
+  canvas.textItems = canvas.textItems.filter((textItem) => textItem.id !== textId);
+  if (uiState.selectedTextItem?.textId === textId) {
+    uiState.selectedTextItem = null;
+  }
+  markDirty("journey canvas text deleted");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Deleted journey canvas text item.", { textId });
 };
 
 const renderAreaSelector = (area) => `
@@ -4841,7 +5946,7 @@ const setEditorPanelCollapsed = (collapsed) => {
   renderEditorPanel();
 };
 
-const renderAreaVisualPanel = () => {
+const renderAreaVisualPanelLegacy = () => {
   const area = getSelectedArea();
   if (!area) {
     return document.createElement("section");
@@ -4982,7 +6087,7 @@ const renderAreaVisualPanel = () => {
   return panel;
 };
 
-const bindAreaVisualPanelEvents = (panel) => {
+const bindAreaVisualPanelEventsLegacy = (panel) => {
   panel.querySelector("[data-editor-panel-toggle='collapse']")?.addEventListener("click", () => {
     setEditorPanelCollapsed(true);
   });
@@ -5071,6 +6176,431 @@ const bindAreaVisualPanelEvents = (panel) => {
   panel.querySelectorAll("[data-text-action]").forEach((button) => {
     button.addEventListener("click", () => handleTextAction(button));
   });
+};
+
+const renderCanvasStickerControls = (canvas, selectedSticker) => `
+  <div class="journey-sticker-control-panel">
+    <h3>贴纸</h3>
+    ${renderImageDropZone({
+      areaId: "canvas",
+      target: "canvas-sticker",
+      label: "贴纸图片路径 / URL / 拖入图片",
+      placeholder: "assets/journey/stickers/sticker-01.png",
+      helper: "可输入 assets 路径、URL，或直接拖入透明 PNG / WebP / SVG 贴纸。",
+      actionText: "添加贴纸"
+    })}
+    <div class="journey-sticker-list">
+      ${canvas.stickers.length ? canvas.stickers.map((sticker) => `
+        <button
+          type="button"
+          class="journey-sticker-list__item"
+          data-canvas-sticker-action="select"
+          data-sticker-id="${sticker.id}"
+          aria-pressed="${selectedSticker?.id === sticker.id}"
+        >
+          <span>${escapeHtml(sticker.name || sticker.id)}</span>
+          <small>${escapeHtml(getShortSourceLabel(sticker.src))}</small>
+        </button>
+      `).join("") : "<p class=\"journey-visual-note\">画布还没有贴纸。</p>"}
+    </div>
+    ${selectedSticker ? `
+      <div class="journey-selected-sticker-controls">
+        <h4>已选贴纸：${escapeHtml(selectedSticker.name || selectedSticker.id)}</h4>
+        ${[
+          ["widthPercent", "宽度", 3, 80, 1, "%"],
+          ["rotation", "旋转", -180, 180, 1, "deg"],
+          ["opacity", "透明度", 0, 1, 0.01, ""],
+          ["xPercent", "X", -20, 120, 1, "%"],
+          ["yPercent", "Y", -20, 120, 1, "%"]
+        ].map(([key, label, min, max, step, unit]) => `
+          <label class="journey-visual-row">
+            <span>${label}: ${Number(selectedSticker[key]).toFixed(step < 1 ? 2 : 0)}${unit}</span>
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              data-canvas-sticker-field="${key}"
+              data-sticker-id="${selectedSticker.id}"
+              value="${selectedSticker[key]}"
+            >
+          </label>
+        `).join("")}
+        <div class="journey-visual-actions">
+          <button type="button" data-canvas-sticker-action="lock" data-sticker-id="${selectedSticker.id}">${selectedSticker.locked ? "解锁" : "锁定"}</button>
+          <button type="button" data-canvas-sticker-action="visible" data-sticker-id="${selectedSticker.id}">${selectedSticker.visible ? "隐藏" : "显示"}</button>
+          <button type="button" data-canvas-sticker-action="reset" data-sticker-id="${selectedSticker.id}">重置</button>
+          <button type="button" class="danger-button" data-canvas-sticker-action="delete" data-sticker-id="${selectedSticker.id}">删除</button>
+        </div>
+      </div>
+    ` : "<p class=\"journey-visual-note\">选择一个贴纸后可以调整大小、旋转、透明度和位置。</p>"}
+  </div>
+`;
+
+const renderCanvasTextControls = (canvas, selectedTextItem) => `
+  <div class="journey-text-control-panel">
+    <h3>文字</h3>
+    <div class="journey-visual-actions">
+      <button type="button" data-canvas-action="add-text">添加文字</button>
+    </div>
+    <div class="journey-text-list">
+      ${canvas.textItems.length ? canvas.textItems.map((textItem) => `
+        <button
+          type="button"
+          class="journey-text-list__item"
+          data-canvas-text-action="select"
+          data-text-id="${textItem.id}"
+          aria-pressed="${selectedTextItem?.id === textItem.id}"
+        >
+          <span>${escapeHtml(getTextItemPreview(textItem))}</span>
+          <small>${textItem.visible ? "visible" : "hidden"} / z ${textItem.zIndex}</small>
+        </button>
+      `).join("") : "<p class=\"journey-visual-note\">画布还没有文字。</p>"}
+    </div>
+    ${selectedTextItem ? `
+      <div class="journey-selected-text-controls">
+        <h4>已选文字：${escapeHtml(getTextItemPreview(selectedTextItem))}</h4>
+        <label class="journey-visual-row">
+          内容
+          <textarea rows="3" data-canvas-text-field="content" data-text-id="${selectedTextItem.id}">${escapeHtml(selectedTextItem.content)}</textarea>
+        </label>
+        ${[
+          ["widthPercent", "宽度", 5, 90, 1, "%"],
+          ["fontSize", "字号", 8, 160, 1, "px"],
+          ["rotation", "旋转", -180, 180, 1, "deg"],
+          ["opacity", "透明度", 0, 1, 0.01, ""],
+          ["xPercent", "X", -20, 120, 1, "%"],
+          ["yPercent", "Y", -20, 120, 1, "%"]
+        ].map(([key, label, min, max, step, unit]) => `
+          <label class="journey-visual-row">
+            <span>${label}: ${Number(selectedTextItem[key]).toFixed(step < 1 ? 2 : 0)}${unit}</span>
+            <input
+              type="range"
+              min="${min}"
+              max="${max}"
+              step="${step}"
+              data-canvas-text-field="${key}"
+              data-text-id="${selectedTextItem.id}"
+              value="${selectedTextItem[key]}"
+            >
+          </label>
+        `).join("")}
+        <label class="journey-visual-row">
+          文字颜色
+          <input type="color" data-canvas-text-field="color" data-text-id="${selectedTextItem.id}" value="${selectedTextItem.color}">
+        </label>
+        <div class="journey-visual-actions">
+          <button type="button" data-canvas-text-action="lock" data-text-id="${selectedTextItem.id}">${selectedTextItem.locked ? "解锁" : "锁定"}</button>
+          <button type="button" data-canvas-text-action="visible" data-text-id="${selectedTextItem.id}">${selectedTextItem.visible ? "隐藏" : "显示"}</button>
+          <button type="button" data-canvas-text-action="reset" data-text-id="${selectedTextItem.id}">重置</button>
+          <button type="button" class="danger-button" data-canvas-text-action="delete" data-text-id="${selectedTextItem.id}">删除</button>
+        </div>
+      </div>
+    ` : "<p class=\"journey-visual-note\">选择一个文字框后可编辑内容、位置、尺寸和颜色。</p>"}
+  </div>
+`;
+
+const renderAreaVisualPanel = () => {
+  const canvas = getCanvas();
+  const routes = getCanvasRoutes(canvas);
+  const selectedRoute = ensureSelectedRoute(canvas);
+  const selectedStickerId = uiState.selectedSticker?.areaId === "canvas" ? uiState.selectedSticker.stickerId : "";
+  const selectedTextId = uiState.selectedTextItem?.areaId === "canvas" ? uiState.selectedTextItem.textId : "";
+  const selectedSticker = canvas.stickers.find((sticker) => sticker.id === selectedStickerId) || null;
+  const selectedTextItem = canvas.textItems.find((textItem) => textItem.id === selectedTextId) || null;
+  const panel = document.createElement("section");
+  panel.className = [
+    "journey-visual-panel",
+    "journey-editor-panel-shell",
+    uiState.editorPanelCollapsed ? "is-collapsed" : ""
+  ].filter(Boolean).join(" ");
+  if (uiState.editorPanelCollapsed) {
+    panel.innerHTML = `
+      <button type="button" class="journey-editor-panel-collapsed-tab" data-editor-panel-toggle="expand">
+        展开
+      </button>
+    `;
+    panel.querySelector("[data-editor-panel-toggle]")?.addEventListener("click", () => setEditorPanelCollapsed(false));
+    return panel;
+  }
+
+  panel.innerHTML = `
+    <div class="journey-editor-panel-header">
+      <h2>画布编辑</h2>
+      <button type="button" class="journey-editor-panel-toggle" data-editor-panel-toggle="collapse">收起</button>
+    </div>
+    <p class="journey-visual-note">
+      Journey 编辑器现在使用一个完整画布。背景、路线、节点、贴纸和文字都在同一个坐标系里编辑。
+    </p>
+    <div class="journey-background-control-panel">
+      <h3>画布</h3>
+      <label class="journey-visual-row">
+        画布高度
+        <input type="number" min="900" max="5200" step="50" data-canvas-field="height" value="${canvas.height}">
+      </label>
+      <label class="journey-visual-row">
+        背景类型
+        <select data-canvas-background-field="type">
+          <option value="gradient" ${canvas.background.type === "gradient" ? "selected" : ""}>渐变</option>
+          <option value="image" ${canvas.background.type === "image" ? "selected" : ""}>图片</option>
+          <option value="gradient-image" ${canvas.background.type === "gradient-image" ? "selected" : ""}>渐变 + 图片</option>
+        </select>
+      </label>
+      ${renderImageDropZone({
+        areaId: "canvas",
+        target: "canvas-background",
+        label: "背景图片路径 / URL / 拖入图片",
+        placeholder: "assets/journey/backgrounds/canvas.png",
+        value: canvas.background.imageSrc.startsWith("data:") ? "" : canvas.background.imageSrc,
+        helper: "可输入 assets 路径、URL，或直接拖入 PNG / JPG / WebP / SVG 图片。",
+        actionText: "应用背景图"
+      })}
+      <label class="journey-visual-row">
+        Fit
+        <select data-canvas-background-field="imageFit">
+          ${["cover", "contain", "fill"].map((fit) => `<option value="${fit}" ${canvas.background.imageFit === fit ? "selected" : ""}>${fit}</option>`).join("")}
+        </select>
+      </label>
+      ${[
+        ["imagePositionX", "位置 X", 0, 100, 1, "%"],
+        ["imagePositionY", "位置 Y", 0, 100, 1, "%"],
+        ["imageOpacity", "图片透明度", 0, 1, 0.01, ""],
+        ["overlayOpacity", "叠加层透明度", 0, 1, 0.01, ""]
+      ].map(([key, label, min, max, step, unit]) => `
+        <label class="journey-visual-row">
+          <span>${label}: ${Number(canvas.background[key]).toFixed(step < 1 ? 2 : 0)}${unit}</span>
+          <input type="range" min="${min}" max="${max}" step="${step}" data-canvas-background-field="${key}" value="${canvas.background[key]}">
+        </label>
+      `).join("")}
+      <button type="button" data-canvas-action="clear-background">清除背景图</button>
+    </div>
+    <div class="journey-route-control-panel">
+      <h3>路线</h3>
+      <label class="journey-visual-row">
+        当前路线
+        <select data-canvas-route-select>
+          ${routes.map((route, index) => `
+            <option value="${route.id}" ${route.id === selectedRoute.id ? "selected" : ""}>
+              ${escapeHtml(route.name || `路线 ${index + 1}`)}
+            </option>
+          `).join("")}
+        </select>
+      </label>
+      <p class="journey-visual-note">
+        手绘会写入当前路线。Stroke 修补只修改当前路线，不会重新切分区域或破坏其他路线。
+      </p>
+      <div class="journey-visual-actions">
+        <button type="button" data-canvas-route-action="new">新增路线</button>
+        <button type="button" data-canvas-route-action="redraw">重画当前路线</button>
+        <button type="button" data-canvas-route-action="repair">Stroke 修补</button>
+        <button type="button" data-route-stroke-action="apply">应用修补</button>
+        <button type="button" data-route-stroke-action="cancel">取消修补</button>
+      </div>
+      <div class="journey-visual-actions">
+        <button type="button" data-canvas-route-action="visibility">${selectedRoute.visible ? "隐藏路线" : "显示路线"}</button>
+        <button type="button" data-canvas-route-action="lock">${selectedRoute.locked ? "解锁路线" : "锁定路线"}</button>
+        <button type="button" class="danger-button" data-canvas-route-action="delete">删除路线</button>
+      </div>
+    </div>
+    ${renderCanvasStickerControls(canvas, selectedSticker)}
+    ${renderCanvasTextControls(canvas, selectedTextItem)}
+  `;
+
+  bindAreaVisualPanelEvents(panel);
+  return panel;
+};
+
+const bindAreaVisualPanelEvents = (panel) => {
+  panel.querySelector("[data-editor-panel-toggle='collapse']")?.addEventListener("click", () => {
+    setEditorPanelCollapsed(true);
+  });
+  panel.querySelectorAll("[data-canvas-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const canvas = getCanvas();
+      if (field.dataset.canvasField === "height") {
+        canvas.height = Math.round(clamp(Number(field.value) || DEFAULT_CANVAS.height, 900, 5200));
+        markDirty("journey canvas size changed");
+        renderTimeline();
+        renderEditorPanel();
+        logHomepage("Updated journey canvas field.", { field: "height", value: canvas.height });
+      }
+    });
+  });
+  panel.querySelectorAll("[data-canvas-background-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const value = field.type === "range" ? Number(field.value) : field.value;
+      updateCanvasBackground({ [field.dataset.canvasBackgroundField]: value });
+    });
+  });
+  panel.querySelectorAll("[data-image-source-apply]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const input = panel.querySelector(`[data-image-source-input="${button.dataset.imageSourceApply}"]`);
+      const src = normalizeString(input?.value || "");
+      if (!src) {
+        showEditorMessage("请先输入图片路径或 URL。", true);
+        return;
+      }
+      if (button.dataset.imageSourceApply.includes("background")) {
+        updateCanvasBackground({ type: "image", imageSrc: src });
+        showEditorMessage("已应用画布背景图片路径。");
+        return;
+      }
+      addCanvasSticker(src, { name: getShortSourceLabel(src) });
+      showEditorMessage("已添加画布贴纸图片路径。");
+    });
+  });
+  panel.querySelectorAll("[data-image-file-input]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const file = input.files?.[0];
+      if (!file) {
+        return;
+      }
+      handleDroppedImageFile(file, {
+        areaId: input.dataset.areaId || "canvas",
+        type: input.dataset.imageFileInput.includes("background") ? "background" : "sticker",
+        canvasTarget: input.dataset.imageFileInput.startsWith("canvas")
+      });
+      input.value = "";
+    });
+  });
+  panel.querySelectorAll("[data-image-drop-target]").forEach(bindImageDropZone);
+  panel.querySelector("[data-canvas-route-select]")?.addEventListener("change", (event) => {
+    getCanvas().routes.selectedRouteId = event.target.value;
+    renderTimeline();
+    renderEditorPanel();
+    logHomepage("Selected journey canvas route.", { routeId: event.target.value });
+  });
+  panel.querySelectorAll("[data-canvas-route-action]").forEach((button) => {
+    button.addEventListener("click", () => handleCanvasRouteAction(button.dataset.canvasRouteAction));
+  });
+  panel.querySelectorAll("[data-route-stroke-action]").forEach((button) => {
+    button.addEventListener("click", () => handleRouteStrokeAction(button.dataset.routeStrokeAction));
+  });
+  panel.querySelectorAll("[data-canvas-action]").forEach((button) => {
+    button.addEventListener("click", () => handleCanvasAction(button.dataset.canvasAction));
+  });
+  panel.querySelectorAll("[data-canvas-sticker-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      updateCanvasSticker(field.dataset.stickerId, {
+        [field.dataset.canvasStickerField]: Number(field.value)
+      });
+    });
+  });
+  panel.querySelectorAll("[data-canvas-sticker-action]").forEach((button) => {
+    button.addEventListener("click", () => handleCanvasStickerAction(button));
+  });
+  panel.querySelectorAll("[data-canvas-text-field]").forEach((field) => {
+    field.addEventListener("input", () => {
+      const value = field.type === "range" ? Number(field.value) : field.value;
+      updateCanvasTextItem(field.dataset.textId, {
+        [field.dataset.canvasTextField]: value
+      }, { render: field.dataset.canvasTextField === "content" ? false : true });
+    });
+  });
+  panel.querySelectorAll("[data-canvas-text-action]").forEach((button) => {
+    button.addEventListener("click", () => handleCanvasTextAction(button));
+  });
+};
+
+const handleCanvasRouteAction = (action) => {
+  const canvas = getCanvas();
+  const route = ensureSelectedRoute(canvas);
+  if (action === "new") {
+    createCanvasRoute();
+    renderTimeline();
+    renderEditorPanel();
+    return;
+  }
+  if (action === "redraw") {
+    if (route.locked || !route.visible) {
+      showEditorMessage("当前路线已锁定或隐藏，不能重画。", true);
+      return;
+    }
+    setActiveTool("freehand");
+    showEditorMessage("请在画布上手绘当前路线。");
+    return;
+  }
+  if (action === "repair") {
+    setActiveTool("stroke-topology");
+    initializeRouteStrokesFromSelectedRoute();
+    return;
+  }
+  if (action === "visibility") {
+    route.visible = !route.visible;
+  } else if (action === "lock") {
+    route.locked = !route.locked;
+  } else if (action === "delete") {
+    deleteSelectedCanvasRoute();
+    renderTimeline();
+    renderEditorPanel();
+    return;
+  }
+  markDirty("journey canvas route changed");
+  renderTimeline();
+  renderEditorPanel();
+  logHomepage("Handled journey canvas route action.", { action, routeId: route.id });
+};
+
+const handleCanvasAction = (action) => {
+  if (action === "clear-background") {
+    updateCanvasBackground({
+      type: "gradient",
+      imageSrc: "",
+      imageAlt: "",
+      imageOpacity: 1,
+      imageBlur: 0,
+      overlayOpacity: 0
+    });
+    showEditorMessage("已清除画布背景图，保留渐变背景。");
+  } else if (action === "add-text") {
+    addCanvasTextItem();
+  }
+};
+
+const handleCanvasStickerAction = (button) => {
+  const stickerId = button.dataset.stickerId;
+  const action = button.dataset.canvasStickerAction;
+  const sticker = getCanvas().stickers.find((item) => item.id === stickerId);
+  if (action === "select") {
+    selectCanvasSticker(stickerId);
+  } else if (action === "delete") {
+    deleteCanvasSticker(stickerId);
+  } else if (sticker && action === "lock") {
+    updateCanvasSticker(stickerId, { locked: !sticker.locked });
+  } else if (sticker && action === "visible") {
+    updateCanvasSticker(stickerId, { visible: !sticker.visible });
+  } else if (action === "reset") {
+    updateCanvasSticker(stickerId, {
+      xPercent: 50,
+      yPercent: 50,
+      widthPercent: 18,
+      rotation: 0,
+      opacity: 1
+    });
+  }
+};
+
+const handleCanvasTextAction = (button) => {
+  const textId = button.dataset.textId;
+  const action = button.dataset.canvasTextAction;
+  const textItem = getCanvas().textItems.find((item) => item.id === textId);
+  if (action === "select") {
+    selectCanvasTextItem(textId);
+  } else if (action === "delete") {
+    deleteCanvasTextItem(textId);
+  } else if (textItem && action === "lock") {
+    updateCanvasTextItem(textId, { locked: !textItem.locked });
+  } else if (textItem && action === "visible") {
+    updateCanvasTextItem(textId, { visible: !textItem.visible });
+  } else if (action === "reset") {
+    updateCanvasTextItem(textId, {
+      xPercent: 50,
+      yPercent: 28,
+      widthPercent: 26,
+      rotation: 0,
+      opacity: 1
+    });
+  }
 };
 
 const handleStickerAction = (button) => {
@@ -5165,8 +6695,15 @@ const handleContextAction = (action) => {
   const actions = {
     select: () => setActiveTool("select"),
     draw: () => setActiveTool(editorState.activeTool === "freehand" ? "select" : "freehand"),
-    "stroke-topology": () => setActiveTool(editorState.activeTool === "stroke-topology" ? "select" : "stroke-topology"),
-    "curve-tuning": () => openContextPopover("curve", { areaId: editorState.selectedAreaId }, window.innerWidth - 360, 72),
+    "stroke-topology": () => {
+      if (editorState.activeTool === "stroke-topology") {
+        setActiveTool("select");
+        return;
+      }
+      setActiveTool("stroke-topology");
+      initializeRouteStrokesFromSelectedRoute();
+    },
+    "curve-tuning": () => openContextPopover("curve", { routeId: getSelectedRoute()?.id }, window.innerWidth - 360, 72),
     debug: toggleCurveDebugOverlay,
     "debug-raw": () => toggleCurveDebugLayer("raw"),
     "debug-anchors": () => toggleCurveDebugLayer("anchors"),
@@ -5304,11 +6841,9 @@ const formatTuningValue = (value, slider) => {
 };
 
 const getSelectedAreaDiagnostics = () => {
-  const area = getSelectedArea();
+  const route = getSelectedRoute();
   return (
-    area.path.simpleSmoothDiagnostics ||
-    area.path.diagnostics ||
-    curveDebugDataByArea.get(area.id)?.diagnostics ||
+    route?.diagnostics ||
     {}
   );
 };
@@ -5358,28 +6893,27 @@ const renderTuningSlider = (slider, smoothing) => {
 };
 
 const renderCurvePopoverContent = () => {
-  const area = getSelectedArea();
-  if (!area) {
-    return `${renderPopoverHeader("\u624b\u7ed8\u66f2\u7ebf\u5e73\u6ed1")}<p class="context-note">\u8bf7\u5148\u9009\u62e9\u4e00\u4e2a\u533a\u57df\u3002</p>`;
+  const route = ensureSelectedRoute();
+  if (!route) {
+    return `${renderPopoverHeader("\u624b\u7ed8\u66f2\u7ebf\u5e73\u6ed1")}<p class="context-note">\u8bf7\u5148\u9009\u62e9\u4e00\u6761\u8def\u7ebf\u3002</p>`;
   }
 
-  area.path.simpleSmooth = normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing);
-  area.path.smoothing = area.path.simpleSmooth;
-  const smoothing = area.path.simpleSmooth;
+  route.simpleSmooth = normalizeSmoothing(route.simpleSmooth || DEFAULT_SIMPLE_SMOOTH);
+  const smoothing = route.simpleSmooth;
 
   return `
     ${renderPopoverHeader("\u624b\u7ed8\u66f2\u7ebf\u5e73\u6ed1")}
     <div class="journey-tuning-panel">
       <p class="context-note">
-        \u5f53\u524d\u533a\u57df\uff1a<strong>${escapeHtml(area.title)}</strong>\u3002
+        \u5f53\u524d\u8def\u7ebf\uff1a<strong>${escapeHtml(route.name || route.id)}</strong>\u3002
         \u624b\u7ed8\u7ebf\u6761\u53ea\u8868\u793a\u5927\u65b9\u5411\uff1b
         \u7cfb\u7edf\u4f1a\u6309\u7b49\u8ddd\u91c7\u6837\u3001Gaussian \u5e73\u6ed1\u548c Catmull-Rom \u63d2\u503c\u751f\u6210\u6700\u7ec8\u66f2\u7ebf\u3002
       </p>
       <label class="journey-tuning-scope">
         \u5e94\u7528\u8303\u56f4
         <select data-curve-tuning-scope>
-          <option value="current" ${uiState.tuningScope === "current" ? "selected" : ""}>\u53ea\u5e94\u7528\u5f53\u524d\u533a\u57df</option>
-          <option value="all" ${uiState.tuningScope === "all" ? "selected" : ""}>\u5e94\u7528\u5230\u6240\u6709\u533a\u57df</option>
+          <option value="current" ${uiState.tuningScope === "current" ? "selected" : ""}>\u53ea\u5e94\u7528\u5f53\u524d\u8def\u7ebf</option>
+          <option value="all" ${uiState.tuningScope === "all" ? "selected" : ""}>\u5e94\u7528\u5230\u6240\u6709\u8def\u7ebf</option>
         </select>
       </label>
       <div class="journey-tuning-presets" aria-label="\u66f2\u7ebf\u5e73\u6ed1\u9884\u8bbe">
@@ -5392,16 +6926,12 @@ const renderCurvePopoverContent = () => {
       </div>
       ${renderTuningMetrics()}
     </div>
-    <label>\u66f2\u7ebf\u989c\u8272<input type="color" data-area-path-field="strokeColor" value="${area.path.strokeColor}"></label>
-    <label>\u9634\u5f71\u989c\u8272<input data-area-path-field="shadowColor" value="${escapeHtml(area.path.shadowColor)}"></label>
-    <label>\u66f2\u7ebf\u5bbd\u5ea6<input type="number" min="8" max="80" step="2" data-area-path-field="strokeWidth" value="${area.path.strokeWidth}"></label>
-    <label>\u7ebf\u6761\u6837\u5f0f<select data-area-path-field="lineStyle">
-      <option value="solid" ${area.path.lineStyle === "solid" ? "selected" : ""}>solid</option>
-      <option value="dashed" ${area.path.lineStyle === "dashed" ? "selected" : ""}>dashed</option>
-    </select></label>
+    <label>\u66f2\u7ebf\u989c\u8272<input type="color" data-route-style-field="color" value="${route.color}"></label>
+    <label>\u9634\u5f71\u989c\u8272<input data-route-style-field="shadowColor" value="${escapeHtml(route.shadowColor)}"></label>
+    <label>\u66f2\u7ebf\u5bbd\u5ea6<input type="number" min="8" max="80" step="2" data-route-style-field="width" value="${route.width}"></label>
     <div class="context-button-row">
       <button type="button" data-context-popover-action="resmooth">\u91cd\u65b0\u751f\u6210\u5e73\u6ed1\u66f2\u7ebf</button>
-      <button type="button" data-context-popover-action="redraw">\u91cd\u753b\u5f53\u524d\u533a\u57df\u66f2\u7ebf</button>
+      <button type="button" data-context-popover-action="redraw">\u91cd\u753b\u5f53\u524d\u8def\u7ebf</button>
       <button type="button" data-context-popover-action="export-curve-debug">\u5bfc\u51fa\u8c03\u8bd5\u6570\u636e</button>
       <button type="button" data-context-popover-action="copy-curve-debug">\u590d\u5236\u8c03\u8bd5\u6570\u636e</button>
     </div>
@@ -5465,6 +6995,9 @@ const bindContextPopoverEvents = (popover) => {
   popover.querySelectorAll("[data-area-path-field]").forEach((field) => {
     field.addEventListener("input", () => updateAreaPathField(field));
   });
+  popover.querySelectorAll("[data-route-style-field]").forEach((field) => {
+    field.addEventListener("input", () => updateRouteStyleField(field));
+  });
   popover.querySelectorAll("[data-path-smoothing-field]").forEach((field) => {
     field.addEventListener("input", () => updatePathSmoothingField(field));
     field.addEventListener("change", () => updatePathSmoothingField(field, { rerenderPanel: true }));
@@ -5472,7 +7005,7 @@ const bindContextPopoverEvents = (popover) => {
   popover.querySelector("[data-curve-tuning-scope]")?.addEventListener("change", (event) => {
     uiState.tuningScope = event.target.value === "all" ? "all" : "current";
     showEditorMessage(
-      uiState.tuningScope === "all" ? "调参将应用到所有区域。" : "调参仅应用到当前区域。"
+      uiState.tuningScope === "all" ? "调参将应用到所有路线。" : "调参仅应用到当前路线。"
     );
     logHomepage("Changed curve tuning scope.", { scope: uiState.tuningScope });
   });
@@ -5547,7 +7080,7 @@ const handleContextMenuAction = (action) => {
     const selected = getNodeById(editorState.selectedNodeId);
     uiState.contextMenu = null;
     if (selected) {
-      openContextPopover("node", { areaId: selected.area.id, nodeId: selected.node.id }, menu.x, menu.y);
+      openContextPopover("node", { areaId: "canvas", nodeId: selected.node.id }, menu.x, menu.y);
     }
   } else if (action === "curve-settings") {
     uiState.contextMenu = null;
@@ -5914,8 +7447,24 @@ const updateAreaPathField = (field) => {
   renderTimeline();
 };
 
-const getCurveTuningTargetAreas = () =>
-  uiState.tuningScope === "all" ? getOrderedAreas() : [getSelectedArea()].filter(Boolean);
+const updateRouteStyleField = (field) => {
+  const route = ensureSelectedRoute();
+  const key = field.dataset.routeStyleField;
+  route[key] = field.type === "number" ? Number(field.value) : field.value;
+  markDirty(`canvas route ${key} changed`);
+  renderTimeline();
+  logHomepage("Updated canvas route style field.", {
+    routeId: route.id,
+    field: key
+  });
+};
+
+const getCurveTuningTargetRoutes = () => {
+  const canvas = getCanvas();
+  return uiState.tuningScope === "all"
+    ? getCanvasRoutes(canvas)
+    : [ensureSelectedRoute(canvas)].filter(Boolean);
+};
 
 const refreshTuningValueDisplay = (field) => {
   const slider = TUNING_SLIDERS.find((item) => item.key === field.dataset.pathSmoothingField);
@@ -5925,52 +7474,33 @@ const refreshTuningValueDisplay = (field) => {
   }
 };
 
-const regenerateAreaCurveFromSmoothing = (area) => {
-  area.path.simpleSmooth = normalizeSmoothing(area.path.simpleSmooth || area.path.smoothing);
-  area.path.smoothing = area.path.simpleSmooth;
-  if (area.path.mode === "freehand" && area.path.rawPoints?.length >= 3) {
-    const processed = processRawFreehandPoints(area.path.rawPoints, area.path.simpleSmooth, { log: true });
-    if (processed?.smoothPoints?.length >= 3) {
-      applyProcessedFreehandPath(area, processed, area.path.boundaryDiagnostics || []);
-      alignAdjacentAreaPaths(editorState.areas, "smoothing control");
-      area.nodes.forEach((node) => {
-        if (node.anchorMode === "path") {
-          const point = getPointAtPathT(area, node.pathT);
-          node.x = point.x;
-          node.y = point.y;
-        }
-      });
-    }
+const regenerateCanvasRouteFromSmoothing = (route) => {
+  route.simpleSmooth = normalizeSmoothing(route.simpleSmooth || DEFAULT_SIMPLE_SMOOTH);
+  const source = resolveRoutePoints(route);
+  if (source.length < 3) {
     return;
   }
-
-  rebuildAreaPathData(area);
-  const source = getRoughLocalPointsForArea(area);
-  const processed = processRawFreehandPoints(source, area.path.simpleSmooth, { log: true });
-  if (processed?.smoothPoints?.length >= 3) {
-    applyProcessedFreehandPath(area, processed, []);
-  }
+  processCanvasRoutePoints(route, source);
 };
 
-const applySmoothingSettingsToArea = (area, nextSmoothing) => {
-  area.path.simpleSmooth = normalizeSmoothing({
-    ...(area.path.simpleSmooth || area.path.smoothing || {}),
+const applySmoothingSettingsToRoute = (route, nextSmoothing) => {
+  route.simpleSmooth = normalizeSmoothing({
+    ...(route.simpleSmooth || {}),
     ...nextSmoothing
   });
-  area.path.smoothing = area.path.simpleSmooth;
-  regenerateAreaCurveFromSmoothing(area);
+  regenerateCanvasRouteFromSmoothing(route);
 };
 
 const updatePathSmoothingField = (field, options = {}) => {
   const key = field.dataset.pathSmoothingField;
   const value = Number(field.value);
-  const targetAreas = getCurveTuningTargetAreas();
+  const targetRoutes = getCurveTuningTargetRoutes();
 
-  targetAreas.forEach((area) => {
-    applySmoothingSettingsToArea(area, { [key]: value });
+  targetRoutes.forEach((route) => {
+    applySmoothingSettingsToRoute(route, { [key]: value });
   });
 
-  markDirty("path smoothing changed");
+  markDirty("canvas route smoothing changed");
   refreshTuningValueDisplay(field);
   renderTimeline();
   if (options.rerenderPanel) {
@@ -5985,7 +7515,7 @@ const updatePathSmoothingField = (field, options = {}) => {
     field: key,
     value,
     scope: uiState.tuningScope,
-    areaIds: targetAreas.map((area) => area.id)
+    routeIds: targetRoutes.map((route) => route.id)
   });
 };
 
@@ -5995,9 +7525,9 @@ const applyCurveTuningPreset = (presetKey) => {
     return;
   }
 
-  const targetAreas = getCurveTuningTargetAreas();
-  targetAreas.forEach((area) => {
-    applySmoothingSettingsToArea(area, preset.values);
+  const targetRoutes = getCurveTuningTargetRoutes();
+  targetRoutes.forEach((route) => {
+    applySmoothingSettingsToRoute(route, preset.values);
   });
   markDirty(`curve tuning preset ${presetKey}`);
   renderTimeline();
@@ -6006,7 +7536,7 @@ const applyCurveTuningPreset = (presetKey) => {
   logHomepage("Applied journey curve tuning preset.", {
     preset: presetKey,
     scope: uiState.tuningScope,
-    areaIds: targetAreas.map((area) => area.id)
+    routeIds: targetRoutes.map((route) => route.id)
   });
 };
 
@@ -6019,22 +7549,24 @@ const updateNodeField = (field) => {
   const key = field.dataset.nodeField;
   if (key === "anchorMode") {
     if (field.value === "path") {
-      const nearest = getNearestPathT(selected.area, { x: selected.node.x, y: selected.node.y });
-      selected.node.anchorMode = "path";
-      selected.node.pathT = nearest.pathT;
-      const point = getPointAtPathT(selected.area, nearest.pathT);
-      selected.node.x = point.x;
-      selected.node.y = point.y;
+      const nearest = getNearestVisibleRoute({ x: selected.node.x, y: selected.node.y });
+      selected.node.anchorMode = nearest ? "path" : "free";
+      selected.node.routeId = nearest?.route.id || "";
+      selected.node.routeT = nearest?.routeT || selected.node.routeT || 0.5;
+      if (nearest) {
+        selected.node.x = nearest.point.x;
+        selected.node.y = nearest.point.y;
+      }
     } else {
-      const point = getPointAtPathT(selected.area, selected.node.pathT);
       selected.node.anchorMode = "free";
-      selected.node.x = point.x;
-      selected.node.y = point.y;
+      selected.node.routeId = "";
     }
   } else if (key === "pathPercent") {
     selected.node.anchorMode = "path";
-    selected.node.pathT = Math.max(0, Math.min(1, Number(field.value) / 100));
-    const point = getPointAtPathT(selected.area, selected.node.pathT);
+    selected.node.routeT = Math.max(0, Math.min(1, Number(field.value) / 100));
+    selected.node.pathT = selected.node.routeT;
+    selected.node.routeId = selected.node.routeId || ensureSelectedRoute().id;
+    const point = getPointAtRouteT(selected.node.routeId, selected.node.routeT);
     selected.node.x = point.x;
     selected.node.y = point.y;
   } else {
@@ -6042,7 +7574,7 @@ const updateNodeField = (field) => {
   }
 
   if (key === "type" && !selected.node.style.color) {
-    selected.node.style.color = getNodeColor(selected.area, selected.node);
+    selected.node.style.color = selected.node.type === "major" ? "#2f8f86" : "#8aa6a3";
   }
 
   markDirty(`node ${key} changed`);
@@ -6089,10 +7621,13 @@ const closeEventPopover = () => {
 
 function openEventPopover(areaId, nodeId) {
   const popover = document.querySelector("#timeline-event-popover");
-  const area = getAreaById(areaId);
-  const node = area?.nodes.find((item) => item.id === nodeId);
+  const area = areaId === "canvas" ? null : getAreaById(areaId);
+  const node = areaId === "canvas"
+    ? getCanvas().nodes.find((item) => item.id === nodeId)
+    : area?.nodes.find((item) => item.id === nodeId);
+  const sourceLabel = area ? area.title : "Journey canvas";
 
-  if (!popover || !area || !node) {
+  if (!popover || !node) {
     logHomepage("Event detail popover could not open.", { areaId, nodeId });
     return;
   }
@@ -6117,7 +7652,7 @@ function openEventPopover(areaId, nodeId) {
         <div class="placeholder-image" aria-hidden="true">Placeholder</div>
         <p class="timeline-event-popover__date">${node.date}</p>
         <p>${node.description}</p>
-        <p>Area: ${area.title}</p>
+        <p>Canvas: ${sourceLabel}</p>
       </div>
     </section>
   `;
@@ -6133,6 +7668,68 @@ function openEventPopover(areaId, nodeId) {
 
 const handlePointerMove = (event) => {
   if (!dragState) {
+    return;
+  }
+
+  if (dragState.kind === "canvas-sticker") {
+    const sticker = getCanvas().stickers.find((item) => item.id === dragState.stickerId);
+    if (!sticker) {
+      return;
+    }
+    Object.assign(sticker, canvasPointToPercent(clientPointToCanvasPoint(event)));
+    sticker.updatedAt = new Date().toISOString();
+    dragState.moved = true;
+    renderTimeline();
+    return;
+  }
+
+  if (dragState.kind === "canvas-text-item") {
+    const textItem = getCanvas().textItems.find((item) => item.id === dragState.textId);
+    if (!textItem) {
+      return;
+    }
+    Object.assign(textItem, canvasPointToPercent(clientPointToCanvasPoint(event)));
+    textItem.updatedAt = new Date().toISOString();
+    dragState.moved = true;
+    renderTimeline();
+    return;
+  }
+
+  if (dragState.kind === "canvas-node") {
+    const selected = getNodeById(dragState.nodeId);
+    if (!selected) {
+      return;
+    }
+    const point = clientPointToCanvasPoint(event);
+    if (Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY) > 4) {
+      dragState.moved = true;
+      uiState.lastPointerWasDrag = true;
+    }
+    if (selected.node.anchorMode === "free") {
+      selected.node.x = point.x;
+      selected.node.y = point.y;
+    } else {
+      const nearest = getNearestVisibleRoute(point);
+      if (nearest) {
+        selected.node.routeId = nearest.route.id;
+        selected.node.routeT = nearest.routeT;
+        const routePoint = getPointAtRouteT(nearest.route.id, nearest.routeT);
+        selected.node.x = routePoint.x;
+        selected.node.y = routePoint.y;
+      }
+    }
+    markDirty("canvas node dragged");
+    renderTimeline();
+    return;
+  }
+
+  if (dragState.kind === "canvas-freehand") {
+    const point = clientPointToCanvasPoint(event);
+    const previous = editorState.drawingPreviewPoints[editorState.drawingPreviewPoints.length - 1];
+    if (!previous || distanceBetweenPoints(previous, point) >= DRAW_POINT_MIN_DISTANCE) {
+      editorState.drawingPreviewPoints.push(point);
+      renderTimeline();
+    }
     return;
   }
 
@@ -6305,6 +7902,9 @@ const handlePointerMove = (event) => {
 
 const handlePointerUp = () => {
   if (dragState) {
+    if (dragState.kind === "canvas-freehand") {
+      finishCanvasFreehandDrawing();
+    }
     if (dragState.kind === "freehand") {
       finishFreehandDrawing();
     }
@@ -6320,6 +7920,14 @@ const handlePointerUp = () => {
     }
     if (dragState.kind === "text-item" && dragState.moved) {
       markDirty("journey text item dragged");
+      renderTimeline();
+    }
+    if (dragState.kind === "canvas-sticker" && dragState.moved) {
+      markDirty("canvas sticker dragged");
+      renderTimeline();
+    }
+    if (dragState.kind === "canvas-text-item" && dragState.moved) {
+      markDirty("canvas text item dragged");
       renderTimeline();
     }
     logHomepage("Completed drag interaction.", dragState);

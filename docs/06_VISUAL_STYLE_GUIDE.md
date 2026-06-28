@@ -33,7 +33,11 @@ It should also prevent old navigation behavior from returning by accident.
 * The editor UI is prototype-level and not secure admin.
 * Major and minor nodes are part of the journey prototype.
 * The Overview and Details switch is part of the prototype.
-* Freehand curve editing and path-anchored nodes are prototype editor features.
+* The normal journey editor should present one complete editable canvas, not separate Area 01 / 02 / 03 regions.
+* The canvas contains background, routes, nodes, stickers, and text in one coordinate system.
+* Multiple routes may exist on the canvas.
+* Nodes should bind to routes with a route id and a route position value, or remain free-positioned.
+* Freehand curve editing and route-anchored nodes are prototype editor features.
 * Hand-drawn curve input should be treated as the full rough route, not exact final geometry.
 * The active journey curve pipeline should directly smooth the full point sequence.
 * The smoothing pipeline is: remove consecutive duplicates, resample by equal arc-length distance, apply Gaussian low-pass smoothing, then apply Catmull-Rom interpolation.
@@ -54,19 +58,19 @@ It should also prevent old navigation behavior from returning by accident.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
 * Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
 * Curve debug export may be used to inspect raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
-* Journey areas may use replaceable background images in the editor.
-* Background images should adapt to area height through `object-fit` and `object-position`, not fixed image heights.
+* The journey canvas may use a replaceable background image in the editor.
+* Background images should adapt to canvas height through `object-fit` and `object-position`, not fixed image heights.
 * Journey stickers are transparent irregular images such as PNG, WebP, or SVG.
 * Stickers should render as natural transparent images without rectangular cards or white backgrounds.
 * Stickers may be added by project-relative path, testing URL, or by dragging a local image into the editor drop zone.
 * Dragged local images are stored as Data URLs for local prototype preview only.
 * Final project assets should live under `assets/journey/backgrounds/` or `assets/journey/stickers/` and be referenced with relative paths.
-* Sticker positions and sizes should use percent coordinates so they remain stable when area size changes.
+* Sticker positions and sizes should use percent coordinates so they remain stable when canvas size changes.
 * Sticker editor actions may drag, resize, rotate, layer, hide, lock, duplicate, and delete stickers.
 * The left journey visual editor panel may collapse into a small tab so the canvas remains inspectable.
-* Journey areas should not force fixed default labels, titles, or placeholder descriptions onto the canvas.
+* Journey areas should not appear as normal editable regions or force fixed default labels, titles, or placeholder descriptions onto the canvas.
 * Page text should be composed with draggable text boxes instead of default area copy blocks.
-* Text boxes should use percent-based position and width so they remain stable across area height and viewport changes.
+* Text boxes should use percent-based position and width so they remain stable across canvas height and viewport changes.
 * Text box content is plain text only and must not be rendered as HTML.
 * Text boxes may be moved, resized, styled, layered, hidden, locked, duplicated, and deleted in editor mode.
 * The journey page should not contain real private personal history yet.

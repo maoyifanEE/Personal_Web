@@ -1,5 +1,33 @@
 # Project History
 
+## 2026-06-28 - Refactor Journey editor to one editable canvas
+
+### Goal
+
+* Continue on `Feature/homepage-update` from the accepted branch state.
+* Replace normal Journey editing based on separate Area 01 / 02 / 03 regions with one complete editable canvas.
+* Keep the accepted direct smoothing route pipeline.
+* Preserve homepage visible entrances, ICP footer, login page, backend files, backend docs, and RBAC foundation.
+
+### Completed
+
+* Added a canvas model with shared background, multiple routes, nodes, stickers, and text items.
+* Migrated legacy area path data into canvas routes during state sanitization.
+* Rendered the Journey page as one canvas instead of stacked editable area sections.
+* Added canvas route selection, route creation, route redraw, route visibility, route locking, and route deletion controls.
+* Bound nodes to routes with `routeId` and `routeT`, while still allowing free-positioned nodes.
+* Updated Stroke repair so it edits only the selected route and writes the repaired sampled stroke back directly.
+* Updated curve tuning and debug export to work on the selected canvas route.
+* Kept background, sticker, text, and node editing inside the single canvas coordinate system.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No external libraries or binary assets were added.
+* No Data URLs were committed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-27 - Add collapsible journey editor panel and text boxes
 
 ### Goal

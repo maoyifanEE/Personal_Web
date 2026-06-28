@@ -184,6 +184,23 @@ select {
     linear-gradient(180deg, var(--area-color-a) 0%, var(--area-color-b) 100%);
 }
 
+.journey-canvas {
+  position: relative;
+  min-height: var(--canvas-height, 2400px);
+  overflow: hidden;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.64), transparent 54%),
+    linear-gradient(180deg, var(--area-color-a) 0%, var(--area-color-b) 100%);
+}
+
+.journey-canvas-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 .journey-area-background,
 .journey-area-background-gradient,
 .journey-area-background-image,
@@ -234,6 +251,11 @@ select {
 
 .journey-area[data-selected="true"] {
   outline: 2px solid rgba(22, 143, 144, 0.26);
+  outline-offset: -2px;
+}
+
+.timeline-home[data-editor-mode="edit"] .journey-canvas {
+  outline: 2px solid rgba(22, 143, 144, 0.2);
   outline-offset: -2px;
 }
 
@@ -422,8 +444,20 @@ select {
   overflow: visible;
 }
 
+.journey-canvas-routes {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
 .area-path__shadow,
 .area-path__main,
+.journey-canvas-route__shadow,
+.journey-canvas-route__main,
 .journey-route-stroke__shadow,
 .journey-route-stroke__main,
 .journey-route-patch__shadow,
@@ -435,9 +469,14 @@ select {
 }
 
 .area-path__shadow,
+.journey-canvas-route__shadow,
 .journey-route-stroke__shadow,
 .journey-route-patch__shadow {
   transform: translateY(3px);
+}
+
+.journey-canvas-route__main.is-selected {
+  filter: drop-shadow(0 0 10px rgba(22, 143, 144, 0.3));
 }
 
 .journey-route-strokes-layer {
@@ -612,11 +651,11 @@ select {
   display: none;
 }
 
-.timeline-home[data-editor-mode="edit"][data-active-tool="freehand"] .journey-area[data-selected="true"] {
+.timeline-home[data-editor-mode="edit"][data-active-tool="freehand"] .journey-canvas {
   cursor: crosshair;
 }
 
-.timeline-home[data-editor-mode="edit"][data-active-tool="add-node"] .journey-area[data-selected="true"] {
+.timeline-home[data-editor-mode="edit"][data-active-tool="add-node"] .journey-canvas {
   cursor: copy;
 }
 
