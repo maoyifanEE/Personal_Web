@@ -1,5 +1,63 @@
 # Project History
 
+## 2026-06-27 - Add collapsible journey editor panel and text boxes
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Make the journey visual editor panel collapsible so it does not cover the canvas.
+* Remove fixed default area copy from the journey canvas.
+* Add draggable plain-text boxes as editable design elements.
+* Preserve background/sticker editing, Stroke topology editing, route smoothing, homepage entrances, ICP footer, and backend/RBAC files.
+
+### Completed
+
+* Added a collapse/expand control for the journey visual editor panel.
+* Persisted the collapsed panel preference in browser localStorage under `journeyEditorPanelCollapsed`.
+* Stopped rendering the fixed Area label/title/placeholder description block in journey areas.
+* Added per-area `textItems` with percent-based position and width.
+* Added text box add, select, drag, edit, resize, font size, color, weight, alignment, rotation, opacity, layer, lock, hide, duplicate, reset, and delete controls.
+* Rendered text content with `textContent` so user-entered text remains plain text and is not executed as HTML.
+* Kept the existing background/sticker editor, route editor, Stroke topology editor, and `simple-strong-smooth` route smoothing intact.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No binary image files or Data URLs were committed.
+* No merge into `main` was performed in this task.
+
+## 2026-06-27 - Add journey background and sticker editor
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Add visual controls for per-area background images and transparent stickers.
+* Preserve homepage entrances, ICP footer, route editing, Stroke topology editing, and simple freehand smoothing.
+* Keep backend, database, RBAC, migrations, configuration, deployment, and secrets unchanged.
+
+### Completed
+
+* Added per-area background image settings for path/URL sources and local drag/drop preview.
+* Added background fit, position, image opacity, and overlay opacity controls.
+* Added transparent sticker support with percent-based position and size.
+* Added sticker add, select, drag, resize, rotate, opacity, duplicate, delete, layer, lock, and hide/show controls.
+* Added local image file validation and Data URL preview handling for background and sticker drop zones.
+* Added UI warning that dragged local files are prototype-only Data URLs and final assets should use project-relative `assets` paths.
+* Kept sticker rendering as transparent images without card wrappers or white backgrounds.
+* Kept the existing route editor, Stroke topology editor, and `simple-strong-smooth` route smoothing intact.
+
+### Safety boundaries
+
+* No backend upload API was added.
+* No dragged image files were written into the repository.
+* No Data URLs were committed into source files.
+* No backend code was modified.
+* No backend migrations or configuration were modified.
+* No database, log, upload, backup, `.env`, `.venv`, or secret files were added.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-26 - Add stroke topology route editing
 
 ### Goal
