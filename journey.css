@@ -1905,6 +1905,388 @@ select {
   }
 }
 
+.journey-sketch-canvas {
+  position: relative;
+  width: min(100%, 1080px);
+  height: var(--canvas-height, 2400px);
+  margin: 0 auto 84px;
+  overflow: hidden;
+  touch-action: none;
+  border: 1px solid rgba(23, 37, 52, 0.12);
+  border-radius: 18px;
+  background:
+    linear-gradient(rgba(23, 37, 52, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(23, 37, 52, 0.035) 1px, transparent 1px),
+    rgba(255, 253, 248, 0.9);
+  background-size: 32px 32px;
+  box-shadow: 0 28px 80px rgba(23, 37, 52, 0.12);
+}
+
+.timeline-home[data-editor-mode="edit"] .journey-sketch-canvas {
+  outline: 2px dashed rgba(22, 143, 144, 0.28);
+  outline-offset: 6px;
+}
+
+.journey-sketch-background,
+.journey-sketch-stickers,
+.journey-sketch-strokes,
+.journey-sketch-nodes,
+.journey-sketch-interaction {
+  position: absolute;
+  inset: 0;
+}
+
+.journey-sketch-background {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+
+.journey-sketch-strokes {
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.journey-sketch-stroke-shadow {
+  fill: none;
+  stroke: rgba(23, 37, 52, 0.22);
+  stroke-width: calc(var(--sketch-line-width, 16px) + 9px);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.42;
+}
+
+.journey-sketch-stroke-main {
+  fill: none;
+  stroke: rgba(255, 253, 248, 0.95);
+  stroke-width: var(--sketch-line-width, 16px);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 3px 10px rgba(23, 37, 52, 0.14));
+}
+
+.journey-sketch-preview-line {
+  fill: none;
+  stroke: rgba(22, 143, 144, 0.72);
+  stroke-width: 4px;
+  stroke-dasharray: 10 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.journey-sketch-snap-hint,
+.journey-sketch-endpoint,
+.journey-sketch-sample {
+  fill: #ffffff;
+  stroke: var(--teal);
+  stroke-width: 2px;
+}
+
+.journey-sketch-sample {
+  fill: rgba(22, 143, 144, 0.82);
+  stroke: #ffffff;
+  opacity: 0.82;
+}
+
+.journey-sketch-eraser-preview {
+  fill: rgba(173, 60, 45, 0.12);
+  stroke: rgba(173, 60, 45, 0.58);
+  stroke-width: 2px;
+  stroke-dasharray: 5 5;
+}
+
+.journey-sketch-stickers {
+  z-index: 1;
+}
+
+.journey-sketch-sticker {
+  position: absolute;
+  left: calc(var(--sticker-x) * 1%);
+  top: calc(var(--sticker-y) * 1%);
+  width: calc(var(--sticker-width) * 1%);
+  transform: translate(-50%, -50%) rotate(calc(var(--sticker-rotation) * 1deg));
+  transform-origin: center;
+}
+
+.journey-sketch-sticker img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(23, 37, 52, 0.16);
+  pointer-events: none;
+  user-select: none;
+}
+
+.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected img {
+  outline: 2px solid var(--teal);
+  outline-offset: 4px;
+}
+
+.journey-sticker-resize,
+.journey-sticker-rotate,
+.journey-sticker-delete {
+  position: absolute;
+  display: none;
+}
+
+.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected .journey-sticker-resize,
+.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected .journey-sticker-rotate,
+.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected .journey-sticker-delete {
+  display: block;
+}
+
+.journey-sticker-resize {
+  right: -12px;
+  bottom: -12px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 5px 12px rgba(23, 37, 52, 0.2);
+}
+
+.journey-sticker-rotate {
+  left: 50%;
+  top: -30px;
+  width: 18px;
+  height: 18px;
+  cursor: grab;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #d9a441;
+  box-shadow: 0 5px 12px rgba(23, 37, 52, 0.2);
+}
+
+.journey-sticker-delete {
+  right: -10px;
+  top: -12px;
+  min-height: 24px;
+  padding: 2px 7px;
+  cursor: pointer;
+  border: 1px solid rgba(173, 60, 45, 0.28);
+  border-radius: 999px;
+  color: #ad3c2d;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.journey-sketch-nodes {
+  z-index: 3;
+  pointer-events: none;
+}
+
+.journey-sketch-node {
+  position: absolute;
+  left: calc(var(--node-x) * 1%);
+  top: calc(var(--node-y) * 1%);
+  display: grid;
+  min-width: 34px;
+  height: 34px;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--teal);
+  box-shadow: 0 10px 24px rgba(23, 37, 52, 0.18);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.timeline-home[data-editor-mode="edit"] .journey-sketch-node {
+  cursor: grab;
+}
+
+.journey-sketch-node.is-selected {
+  background: var(--ink);
+  box-shadow: 0 0 0 5px rgba(22, 143, 144, 0.18), 0 12px 28px rgba(23, 37, 52, 0.2);
+}
+
+.journey-sketch-interaction {
+  z-index: 4;
+}
+
+.journey-sketch-interaction.is-drag-over {
+  background: rgba(22, 143, 144, 0.08);
+}
+
+.journey-sketch-toolbar {
+  position: fixed;
+  z-index: 80;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 12px;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 18px 54px rgba(23, 37, 52, 0.16);
+  backdrop-filter: blur(16px);
+}
+
+.journey-sketch-toolbar__row,
+.journey-sketch-height,
+.journey-sketch-setting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.journey-sketch-toolbar__row {
+  margin-bottom: 10px;
+}
+
+.journey-sketch-toolbar button,
+.journey-sketch-node-panel button {
+  min-height: 34px;
+  padding: 7px 11px;
+  cursor: pointer;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #ffffff;
+  font-weight: 800;
+}
+
+.journey-sketch-toolbar button[aria-pressed="true"] {
+  color: #ffffff;
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.journey-sketch-toolbar button:focus-visible,
+.journey-sketch-node:focus-visible,
+.journey-sketch-node-panel input:focus-visible {
+  outline: 3px solid rgba(22, 143, 144, 0.32);
+  outline-offset: 3px;
+}
+
+.journey-sketch-height {
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.journey-sketch-height input[type="range"] {
+  width: min(260px, 48vw);
+}
+
+.journey-sketch-height input[type="number"] {
+  width: 92px;
+}
+
+.journey-sketch-curve-settings {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(23, 37, 52, 0.1);
+}
+
+.journey-sketch-curve-settings summary {
+  cursor: pointer;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.journey-sketch-setting {
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.journey-sketch-setting span {
+  min-width: 86px;
+}
+
+.journey-sketch-setting input {
+  width: min(240px, 48vw);
+}
+
+.journey-sketch-setting strong {
+  min-width: 36px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: rgba(22, 143, 144, 0.1);
+  text-align: center;
+}
+
+.journey-sketch-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.journey-sketch-node-panel {
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.journey-sketch-node-panel label {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.journey-sketch-node-panel input {
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid rgba(23, 37, 52, 0.16);
+  border-radius: 8px;
+}
+
+.journey-sketch-node-panel dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 10px 0;
+}
+
+.journey-sketch-node-panel dl div {
+  display: flex;
+  gap: 5px;
+}
+
+.journey-sketch-node-panel dt {
+  color: var(--ink-soft);
+}
+
+.journey-sketch-node-panel dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.journey-sketch-node-panel .danger-button {
+  color: #ad3c2d;
+  border-color: rgba(173, 60, 45, 0.22);
+}
+
+.journey-sketch-status {
+  margin: 8px 0 0;
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 850;
+}
+
 @media (max-width: 900px) {
   .timeline-home[data-editor-mode="edit"] {
     padding-right: 0;
@@ -2060,6 +2442,41 @@ select {
 
   .journey-tuning-value {
     justify-self: start;
+  }
+
+  .journey-sketch-canvas {
+    width: calc(100vw - 24px);
+    margin-bottom: 260px;
+    border-radius: 14px;
+  }
+
+  .journey-sketch-toolbar {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    max-height: 48vh;
+    overflow: auto;
+    padding: 10px;
+  }
+
+  .journey-sketch-toolbar__row {
+    gap: 6px;
+  }
+
+  .journey-sketch-toolbar button,
+  .journey-sketch-node-panel button {
+    min-height: 36px;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .journey-sketch-height input[type="range"],
+  .journey-sketch-setting input {
+    width: 100%;
+  }
+
+  .journey-sketch-setting {
+    align-items: stretch;
   }
 }
 

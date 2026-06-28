@@ -1,5 +1,31 @@
 # Project History
 
+## 2026-06-28 - Rebuild Journey canvas sketch editor
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the overly complicated route/editor model with a simple draft-paper style sketch canvas.
+* Preserve the accepted large-canvas direction while fixing the line drawing, erasing, endpoint snapping, node attachment, and sticker editing workflow.
+
+### Completed
+
+* Rebuilt `journey.js` around a new blank sketch-canvas state instead of migrating old Area/route/text data into the visible canvas.
+* Added freehand drawing anywhere on the canvas with smoothing, endpoint snapping, and data-level stroke merging.
+* Added erasing that splits remaining stroke runs into independent strokes.
+* Added right-click node creation on the nearest stroke projection and node dragging along connected stroke components.
+* Added direct background upload/clear and transparent sticker upload, drag, resize, rotate, and delete behavior.
+* Replaced the complex editor controls with a compact toolbar for drawing, erasing, node/select, uploads, saving, clearing, exiting, canvas height, and collapsed curve settings.
+* Added `window.__journeySketchDebug.runGeometryTests()` for automated geometry smoke checks.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No external libraries or binary assets were added.
+* No Data URLs were committed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-28 - Refactor Journey editor to one editable canvas
 
 ### Goal

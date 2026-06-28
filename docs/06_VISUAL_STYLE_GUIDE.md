@@ -33,46 +33,30 @@ It should also prevent old navigation behavior from returning by accident.
 * The editor UI is prototype-level and not secure admin.
 * Major and minor nodes are part of the journey prototype.
 * The Overview and Details switch is part of the prototype.
-* The normal journey editor should present one complete editable canvas, not separate Area 01 / 02 / 03 regions.
-* The canvas contains background, routes, nodes, stickers, and text in one coordinate system.
-* Multiple routes may exist on the canvas.
-* Nodes should bind to routes with a route id and a route position value, or remain free-positioned.
-* Freehand curve editing and route-anchored nodes are prototype editor features.
-* Hand-drawn curve input should be treated as the full rough route, not exact final geometry.
-* The active journey curve pipeline should directly smooth the full point sequence.
-* The smoothing pipeline is: remove consecutive duplicates, resample by equal arc-length distance, apply Gaussian low-pass smoothing, then apply Catmull-Rom interpolation.
-* Do not reduce freehand curves to only a few designer waypoints.
-* Do not skip large middle arcs from the original hand-drawn route.
-* Preserve enough resampled points so broad S-shaped and loop-like gestures remain recognizable.
-* Normal hand-drawn route auto smoothing remains automatic and should not require manual confirmation.
-* Stroke topology editing is the current manual route repair layer.
-* Stroke topology editing should store ordered sampled strokes in journey-global coordinates.
-* A new drawn stroke may snap to true free endpoints and merge at the data level.
-* When two endpoints are connected, the result should become one continuous stroke rather than an overlay patch.
-* The join window should be rebuilt with a cubic Bezier bridge that follows incoming and outgoing tangents.
-* Erasing part of a route should split the remaining runs into independent strokes with new free endpoints.
+* The normal journey editor should present one complete editable sketch canvas, not separate Area 01 / 02 / 03 regions.
+* The canonical canvas starts as a blank sketch state with background, strokes, nodes, stickers, and `nextNodeNumber`.
+* Old Area, route, routeStroke, canvas route, and text box data must not be migrated into the visible canvas.
+* Freehand drawing should work anywhere on the canvas.
+* The active stroke pipeline is direct and simple: remove near duplicates, resample by equal distance, smooth with repeated Chaikin-style passes, then render a dense rounded SVG path.
+* New strokes may snap to true free endpoints and merge at the data level.
+* Erasing part of a stroke should split the remaining runs into independent strokes with new free endpoints.
 * Endpoint dots should appear only for true free endpoints in editor mode.
-* The old visual connector or interval patch approach should not be the active normal route repair UI.
-* Ordinary freehand route smoothing remains automatic and should not become opt-in because of topology editing.
-* Tuning should stay simple: smooth strength, sample spacing, interpolation density, and debug overlays.
-* Normal preview should stay clean: no raw dashed stroke, dense debug points, or tangent marks.
-* Debug overlays and curve tuning controls are editor tools only and should not clutter normal public preview.
-* Curve debug export may be used to inspect raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
+* Nodes are created by right-clicking near a stroke projection.
+* Nodes store line-topology metadata such as `strokeId`, `segmentIndex`, and `componentId`, not old route percentages.
+* Dragging a node should keep it attached to the nearest projection along the same connected stroke component.
+* The editor should stay simple: hand drawing, eraser, node/select, background upload, sticker upload, save, clear canvas, exit edit, canvas height, and collapsed curve settings.
+* Text box creation is not part of the current Journey sketch editor.
+* Normal preview should stay clean: no raw dashed stroke, dense debug points, endpoint dots, or editor toolbar.
+* Debug overlays and geometry tests are editor/developer tools only and should not clutter normal public preview.
 * The journey canvas may use a replaceable background image in the editor.
 * Background images should adapt to canvas height through `object-fit` and `object-position`, not fixed image heights.
 * Journey stickers are transparent irregular images such as PNG, WebP, or SVG.
 * Stickers should render as natural transparent images without rectangular cards or white backgrounds.
-* Stickers may be added by project-relative path, testing URL, or by dragging a local image into the editor drop zone.
+* Stickers may be added by dragging a local image into the editor drop zone or using the upload control.
 * Dragged local images are stored as Data URLs for local prototype preview only.
 * Final project assets should live under `assets/journey/backgrounds/` or `assets/journey/stickers/` and be referenced with relative paths.
 * Sticker positions and sizes should use percent coordinates so they remain stable when canvas size changes.
-* Sticker editor actions may drag, resize, rotate, layer, hide, lock, duplicate, and delete stickers.
-* The left journey visual editor panel may collapse into a small tab so the canvas remains inspectable.
-* Journey areas should not appear as normal editable regions or force fixed default labels, titles, or placeholder descriptions onto the canvas.
-* Page text should be composed with draggable text boxes instead of default area copy blocks.
-* Text boxes should use percent-based position and width so they remain stable across canvas height and viewport changes.
-* Text box content is plain text only and must not be rendered as HTML.
-* Text boxes may be moved, resized, styled, layered, hidden, locked, duplicated, and deleted in editor mode.
+* Sticker editor actions should be direct: drag the image, resize with a corner handle, rotate with a top handle, and delete from the selected sticker.
 * The journey page should not contain real private personal history yet.
 * The journey page should not contain real photos.
 * The journey page should not expose private app data.
