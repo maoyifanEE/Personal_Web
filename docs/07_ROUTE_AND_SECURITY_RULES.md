@@ -19,7 +19,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Category | Route | Current status | Security status |
 | --- | --- | --- | --- |
 | Public page | `index.html` | Public cover page | Public |
-| Public prototype | `journey.html` | Curved path timeline prototype | Public/static prototype |
+| Public prototype | `journey.html` | Journey sketch canvas public prototype | Public/static prototype |
 | Login mock | `login.html` | Static fixed test-password route | Not real authentication |
 | Private placeholder | `hub.html` | Static hub placeholder | Not real authorization |
 | Child app prototype | `apps/tasks/index.html` | Task List prototype | Direct URL access possible |
@@ -53,6 +53,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Message list, status update, soft delete, and admin summary endpoints are disabled in production until real auth exists.
 * The database now has RBAC foundation tables, but route permission checks are not implemented yet.
 * RBAC schema does not make any static page or API route production-secure by itself.
+* Local code changes and merges do not mean public server deployment.
+* Server/public deployment happens only after explicit user instruction.
 
 ## Current Data Rule
 
@@ -108,8 +110,8 @@ Real private data must wait for the future security model.
 * [ ] Static hub is not described as real authorization.
 * [ ] Child apps do not claim protected access.
 * [ ] Real private data is not added to static files.
-* [ ] Backend work is marked planned until implemented.
-* [ ] Database work is marked planned until implemented.
+* [ ] Local backend/database foundations are described separately from production deployment.
+* [ ] Backend and database status does not imply real authentication or authorization.
 * [ ] Authentication work is marked planned until implemented.
 * [ ] Authorization work is marked planned until implemented.
 
@@ -130,7 +132,9 @@ It is not a real protected admin page yet.
 
 Direct URL access is possible until backend authentication and authorization exist.
 
-Production visitor message submission must not be enabled until rate limiting, abuse controls, logging policy, privacy review, and production deployment review are complete.
+Production visitor message submission must not be enabled until review is complete.
+
+Required review areas include rate limiting, abuse controls, logging policy, privacy, and production deployment.
 
 Admin message reading, status changes, and soft delete must require real authentication and authorization before production use.
 

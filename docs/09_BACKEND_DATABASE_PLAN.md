@@ -25,9 +25,11 @@
 
 ## Architecture Reference
 
-Read `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` before implementing backend, database, authentication, authorization, admin data management, migrations, or backup features.
+Read `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` before implementing backend, database, authentication,
+authorization, admin data management, migrations, or backup features.
 
-That document defines the target Nginx, backend API, PostgreSQL, admin data center, test-data classification, soft-delete, purge, and phased implementation plan.
+That document defines the target Nginx, backend API, PostgreSQL, admin data center,
+test-data classification, soft-delete, purge, and phased implementation plan.
 
 This file remains a concise planning overview.
 
@@ -55,6 +57,7 @@ The following components are planned only for production use:
 
 * Authentication.
 * Authorization.
+* Auth/RBAC v1 with admin-created accounts only.
 * Backup system.
 * Admin/user roles.
 * Server-side validation.
@@ -65,6 +68,12 @@ The following components are planned only for production use:
 The local FastAPI, PostgreSQL, Alembic, and visitor-message API foundation exists for development testing only.
 
 It is not a production system.
+
+The next planned major step is auth/RBAC v1 before database-backed homepage or Journey editing.
+
+Future auth work should use admin-created accounts first.
+
+Public registration is not part of the current plan.
 
 ## Phase 2 Local Foundation Status
 
@@ -197,14 +206,16 @@ Real passwords must never be stored in static HTML, CSS, JavaScript, Markdown, o
 * Any production credential must be configured outside the public repository.
 * Any backend branch must include explicit manual testing instructions.
 
-## Not Implemented Yet
+## Production Features Not Implemented Yet
 
 The following are not implemented in the current project:
 
-* Real backend.
-* Real database.
+* Production backend deployment.
+* Production database deployment.
+* Real authenticated production data system.
 * Real login.
 * Real authorization.
+* Real session handling.
 * Real cloud sync.
 * Real reminders.
 * Real payment integration.
@@ -212,7 +223,7 @@ The following are not implemented in the current project:
 * Real user roles.
 * Real protected APIs.
 
-This document is only a plan.
+This document is a planning overview plus local foundation status.
 
 ## Manual Backend Planning Checklist
 

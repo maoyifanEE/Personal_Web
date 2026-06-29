@@ -41,14 +41,16 @@ It should also prevent old navigation behavior from returning by accident.
 * The canonical canvas starts as a blank sketch state with background, strokes, nodes, stickers, and `nextNodeNumber`.
 * Old Area, route, routeStroke, canvas route, and text box data must not be migrated into the visible canvas.
 * Freehand drawing should work anywhere on the canvas.
-* The active stroke pipeline is direct and simple: remove near duplicates, resample by equal distance, smooth with repeated Chaikin-style passes, then render a dense rounded SVG path.
+* Strokes should render as smooth, rounded lines while preserving the user's broad sketch direction.
 * New strokes may snap to true free endpoints and merge at the data level.
 * Erasing part of a stroke should split the remaining runs into independent strokes with new free endpoints.
 * Endpoint dots should appear only for true free endpoints in editor mode.
 * Nodes are created by right-clicking near a stroke projection.
 * Nodes store line-topology metadata such as `strokeId`, `segmentIndex`, and `componentId`, not old route percentages.
 * Dragging a node should keep it attached to the nearest projection along the same connected stroke component.
-* The editor should stay simple: hand drawing, eraser, node/select, background upload, sticker upload, save, clear canvas, exit edit, canvas height, and collapsed curve settings.
+* The editor should stay simple.
+* Current tools include hand drawing, eraser, node/select, background upload, sticker upload, save, clear canvas,
+  exit edit, canvas height, and collapsed curve settings.
 * Text box creation is not part of the current Journey sketch editor.
 * Normal preview should stay clean: no raw dashed stroke, dense debug points, endpoint dots, or editor toolbar.
 * Debug overlays and geometry tests are editor/developer tools only and should not clutter normal public preview.
