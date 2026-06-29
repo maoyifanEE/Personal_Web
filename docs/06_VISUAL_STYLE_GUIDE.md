@@ -34,6 +34,9 @@ It should also prevent old navigation behavior from returning by accident.
 * Major and minor nodes are part of the journey prototype.
 * The Overview and Details switch is part of the prototype.
 * The normal journey editor should present one complete editable sketch canvas, not separate Area 01 / 02 / 03 regions.
+* The sketch canvas should feel like an invisible homepage layer in preview, not a visible drawing-board card.
+* Preview mode should not show a grid, border, dashed outline, white paper rectangle, or card shadow around the canvas.
+* The sketch canvas should render full-bleed across the browser width while keeping the internal `0..1000` coordinate system.
 * The canonical canvas starts as a blank sketch state with background, strokes, nodes, stickers, and `nextNodeNumber`.
 * Old Area, route, routeStroke, canvas route, and text box data must not be migrated into the visible canvas.
 * Freehand drawing should work anywhere on the canvas.

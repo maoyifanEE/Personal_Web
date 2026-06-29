@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-06-29 - Make Journey sketch canvas transparent and full-bleed
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Keep the current Journey sketch editor logic and data model unchanged.
+* Fix only the visual presentation so the canvas feels like a homepage layer instead of a visible drawing-board card.
+
+### Completed
+
+* Removed the default grid, border, dashed outline, card background, and shadow from the Journey sketch canvas.
+* Changed the sketch canvas display to full-bleed browser width while preserving the existing internal coordinate system.
+* Kept the floating editor toolbar available in edit mode without making the canvas look boxed.
+* Updated Journey visual guidance to describe the transparent full-bleed canvas expectation.
+
+### Safety boundaries
+
+* No drawing, erasing, snapping, node, sticker, save/load, or localStorage logic was intentionally changed.
+* No backend code, migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No Data URLs or binary image files were committed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-28 - Rebuild Journey canvas sketch editor
 
 ### Goal

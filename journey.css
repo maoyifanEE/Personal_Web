@@ -1907,24 +1907,17 @@ select {
 
 .journey-sketch-canvas {
   position: relative;
-  width: min(100%, 1080px);
-  height: var(--canvas-height, 2400px);
-  margin: 0 auto 84px;
+  width: 100%;
+  height: max(100vh, var(--canvas-height, 2400px));
+  min-height: 100vh;
+  margin: 0 0 84px;
   overflow: hidden;
   touch-action: none;
-  border: 1px solid rgba(23, 37, 52, 0.12);
-  border-radius: 18px;
-  background:
-    linear-gradient(rgba(23, 37, 52, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(23, 37, 52, 0.035) 1px, transparent 1px),
-    rgba(255, 253, 248, 0.9);
-  background-size: 32px 32px;
-  box-shadow: 0 28px 80px rgba(23, 37, 52, 0.12);
-}
-
-.timeline-home[data-editor-mode="edit"] .journey-sketch-canvas {
-  outline: 2px dashed rgba(22, 143, 144, 0.28);
-  outline-offset: 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
 }
 
 .journey-sketch-background,
@@ -2445,9 +2438,11 @@ select {
   }
 
   .journey-sketch-canvas {
-    width: calc(100vw - 24px);
+    width: 100%;
+    height: max(100vh, var(--canvas-height, 2400px));
+    margin-left: 0;
     margin-bottom: 260px;
-    border-radius: 14px;
+    border-radius: 0;
   }
 
   .journey-sketch-toolbar {
