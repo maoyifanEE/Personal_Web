@@ -8,11 +8,18 @@
   const accountInput = form.querySelector("[data-login-account]");
   const passwordInput = form.querySelector("[data-login-password]");
   const errorMessage = form.querySelector("[data-login-error]");
-  const testPassword = "demo1234";
+  const submitButton = form.querySelector("[data-login-submit]");
 
   const setError = (message) => {
     if (errorMessage) {
       errorMessage.textContent = message;
+    }
+  };
+
+  const setSubmitting = (isSubmitting) => {
+    if (submitButton) {
+      submitButton.disabled = isSubmitting;
+      submitButton.textContent = isSubmitting ? "Entering..." : "Enter";
     }
   };
 
@@ -22,19 +29,19 @@
     }
 
     if (event.target instanceof HTMLInputElement) {
-      console.info("[login] Enter key submitted the static mock login form");
+      console.info("[login] Enter key submitted the backend login form");
       event.preventDefault();
       form.requestSubmit();
     }
   });
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const account = accountInput.value.trim();
     const password = passwordInput.value;
 
-    console.info("[login] Static mock login submitted", {
+    console.info("[login] Backend login submitted", {
       hasAccount: Boolean(account),
       hasPassword: Boolean(password)
     });
@@ -51,18 +58,29 @@
       return;
     }
 
-    // Temporary mock routing only. This is not security; real authentication
-    // must be implemented later with backend sessions and permission checks.
-    if (password !== testPassword) {
-      console.warn("[login] Static mock login rejected: incorrect test password");
-      setError("Incorrect test password.");
+    if (!window.PersonalWebAuth) {
+      console.error("[login] Auth helper is unavailable");
+      setError("Login service is not available.");
       passwordInput.focus();
-      passwordInput.select();
       return;
     }
 
-    console.info("[login] Static mock login accepted; redirecting to hub.html");
-    setError("");
-    window.location.href = "./hub.html";
+    try {
+      setSubmitting(true);
+      setError("");
+      await window.PersonalWebAuth.login({
+        usernameOrEmail: account,
+        password
+      });
+      console.info("[login] Backend login accepted; redirecting to hub.html");
+      window.location.href = "./hub.html";
+    } catch (error) {
+      console.warn("[login] Backend login rejected", error);
+      setError("Incorrect account or password.");
+      passwordInput.focus();
+      passwordInput.select();
+    } finally {
+      setSubmitting(false);
+    }
   });
 })();

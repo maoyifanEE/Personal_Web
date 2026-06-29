@@ -74,6 +74,39 @@ let rawDrawPoints = [];
 let startSnap = null;
 let currentPointer = null;
 let lastGeometryTestResult = null;
+let journeyAuthState = {
+  authenticated: false,
+  roles: [],
+  permissions: []
+};
+let journeyCanEdit = false;
+
+function canEditJourney() {
+  return Boolean(journeyCanEdit);
+}
+
+async function loadJourneyAuthState() {
+  if (!window.PersonalWebAuth) {
+    logJourney("Auth helper unavailable; journey editor remains read-only.");
+    return;
+  }
+  try {
+    journeyAuthState = await window.PersonalWebAuth.getCurrentAuthState({ force: true });
+    journeyCanEdit =
+      window.PersonalWebAuth.hasRole(journeyAuthState, "admin") ||
+      window.PersonalWebAuth.hasPermission(journeyAuthState, "homepage:edit");
+    logJourney("Loaded journey auth state.", {
+      authenticated: journeyAuthState.authenticated,
+      canEdit: journeyCanEdit,
+      roles: journeyAuthState.roles
+    });
+  } catch (error) {
+    journeyCanEdit = false;
+    logJourney("Failed to load journey auth state; editor remains read-only.", {
+      error: error.message
+    });
+  }
+}
 
 const sanitizeBackground = (background = {}) => ({
   imageSrc: typeof background.imageSrc === "string" ? background.imageSrc : "",
@@ -755,9 +788,19 @@ function render() {
   if (!root || !canvasHost) {
     return;
   }
+  if (!canEditJourney() && state.mode === "edit") {
+    state.mode = "preview";
+    logJourney("Blocked edit mode because current user cannot edit journey.");
+  }
   root.dataset.view = state.view;
   root.dataset.editorMode = state.mode;
   root.dataset.activeTool = state.editor.activeTool;
+  root.dataset.canEdit = String(canEditJourney());
+  const editorToggle = document.querySelector("[data-editor-toggle]");
+  if (editorToggle) {
+    editorToggle.hidden = !canEditJourney();
+    editorToggle.setAttribute("aria-disabled", String(!canEditJourney()));
+  }
   canvasHost.innerHTML = "";
 
   const canvas = document.createElement("section");
@@ -966,7 +1009,7 @@ function renderEditorPanel() {
     return;
   }
   editorRoot.innerHTML = "";
-  if (state.mode !== "edit") {
+  if (state.mode !== "edit" || !canEditJourney()) {
     return;
   }
   const toolbar = document.createElement("section");
@@ -1537,6 +1580,10 @@ function installGlobalControls() {
     });
   });
   document.querySelector("[data-editor-toggle]")?.addEventListener("click", () => {
+    if (!canEditJourney()) {
+      logJourney("Ignored editor toggle because current user lacks homepage:edit.");
+      return;
+    }
     state.mode = state.mode === "edit" ? "preview" : "edit";
     render();
   });
@@ -1617,12 +1664,18 @@ window.__journeySketchDebug = {
   testPointerMapping: (clientX, clientY) => clientPointToCanvasPoint({ clientX, clientY })
 };
 
-installGlobalControls();
-state = loadInitialState();
-render();
-logJourney("Initialized sketch canvas editor.", {
-  version: state.version,
-  strokes: state.canvas.strokes.length,
-  nodes: state.canvas.nodes.length,
-  stickers: state.canvas.stickers.length
-});
+async function initializeJourney() {
+  installGlobalControls();
+  state = loadInitialState();
+  await loadJourneyAuthState();
+  render();
+  logJourney("Initialized sketch canvas editor.", {
+    version: state.version,
+    strokes: state.canvas.strokes.length,
+    nodes: state.canvas.nodes.length,
+    stickers: state.canvas.stickers.length,
+    canEdit: canEditJourney()
+  });
+}
+
+initializeJourney();

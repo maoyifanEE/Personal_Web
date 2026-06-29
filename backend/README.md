@@ -12,7 +12,7 @@ It is not production deployment.
 
 It is not deployed to the public server unless the user explicitly requests deployment.
 
-It does not implement real authentication yet.
+It now includes a local-development Auth/RBAC v1 foundation.
 
 It does not protect the current static private pages yet.
 
@@ -35,18 +35,20 @@ Implemented in this phase:
   * `permissions`
   * `user_roles`
   * `role_permissions`
+  * `auth_sessions`
 * Safe system role and permission definitions for future admin access planning.
+* Local-development login/logout/me/CSRF APIs.
+* Local-development admin user management APIs.
 * Development-only seed, reset, export, and admin summary endpoints.
 
 Not implemented yet:
 
-* Real login.
-* Real sessions.
-* Real authentication.
-* Real authorization.
-* Login API.
-* Route permission checks.
-* Real administrator user.
+* Production login deployment.
+* Production session hardening.
+* Production authentication.
+* Production authorization across every private API.
+* Full route permission checks.
+* Production administrator lifecycle.
 * Production admin UI.
 * Production deployment.
 * Front-end visitor message API integration.
@@ -137,16 +139,39 @@ This creates the local PostgreSQL tables:
 * `permissions`
 * `user_roles`
 * `role_permissions`
+* `auth_sessions`
 
-The RBAC tables are schema foundation only.
+The RBAC tables are local-development foundation.
 
 The migration seeds system role and permission definitions.
 
-It does not create an `app_users` row.
+It does not create an `app_users` row automatically.
 
-It does not create any password hash.
+It does not create any password hash automatically.
 
-It does not implement login or permission checks.
+Use the development seed script to create local test users.
+
+## Seed Local Auth Users
+
+From `backend/`, after migrations:
+
+```bash
+python -m app.scripts.seed_dev_auth_users
+```
+
+This command refuses to run unless:
+
+* `APP_ENV=development`
+* `ALLOW_DEV_TOOLS=true`
+
+It creates or updates:
+
+* admin username `1`
+* normal user username `2`
+
+The seed script stores password hashes only.
+
+The seed accounts are for local browser smoke tests only.
 
 ## Start Backend
 
@@ -210,6 +235,14 @@ View admin data foundation summary:
 curl http://127.0.0.1:8000/api/admin/data/summary
 ```
 
+Test local login:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"usernameOrEmail\":\"1\",\"password\":\"1\"}"
+```
+
 Soft-delete test/demo data:
 
 ```bash
@@ -250,7 +283,7 @@ Status and lifecycle fields answer whether a record is active, disabled, locked,
 
 Plaintext passwords must never be stored.
 
-`app_users.password_hash` is nullable until real authentication is designed and must only store future secure password hashes.
+`app_users.password_hash` stores password hashes only.
 
 Production data must use a separate production database later.
 
@@ -281,13 +314,17 @@ The following endpoints return `403` outside development tools mode:
 * `GET /api/dev/export`
 * `GET /api/admin/data/summary`
 
+The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
+
+They must be reviewed and hardened before production deployment.
+
 ## Future Phases
 
 Future work should add:
 
-* Real admin authentication.
-* Server-side sessions or another chosen auth design.
-* Protected admin routes.
+* Production admin authentication hardening.
+* Session expiry, CSRF, cookie, and deployment review.
+* Full protected admin route coverage.
 * Admin data center UI.
 * Front-end visitor message integration.
 * Task, health, subscription, and journey database migrations.

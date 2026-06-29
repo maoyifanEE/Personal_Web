@@ -1,5 +1,39 @@
 # Project History
 
+## 2026-06-29 - Add local Auth/RBAC v1 foundation
+
+### Goal
+
+* Work on `Feature/auth-rbac-v1`.
+* Add a local-development authentication and RBAC foundation.
+* Keep production deployment, real private data migration, and public registration out of scope.
+
+### Completed
+
+* Added password hashing with `passlib[bcrypt]`.
+* Added database-backed `auth_sessions` with hashed session and CSRF token material.
+* Added local `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`, and `/api/auth/csrf` endpoints.
+* Added local admin user management API routes under `/api/admin/users`.
+* Added Auth/RBAC v1 permissions:
+  * `homepage:view`
+  * `homepage:edit`
+  * `apps:access`
+  * `users:manage`
+  * `admin:access`
+* Added a development-only seed script for local admin username `1` and local user username `2`.
+* Connected `login.html` to the local backend auth API.
+* Added `auth.js` and `hub.js` for frontend auth state, logout, CSRF-aware API calls, and role-aware Hub rendering.
+* Added a local admin user management page at `apps/admin-users/index.html`.
+* Gated Journey edit mode so public/guest users remain read-only and admins can access editor controls.
+
+### Safety boundaries
+
+* This is local-development Auth/RBAC only.
+* Production deployment was not changed.
+* No public registration, OAuth, upload persistence, homepage database persistence, or Journey database persistence was added.
+* Static route access is still not a production security boundary.
+* Real private production data must not be stored until deployment and security hardening are reviewed.
+
 ## 2026-06-29 - Fix raw Markdown formatting after docs sync
 
 ### Goal

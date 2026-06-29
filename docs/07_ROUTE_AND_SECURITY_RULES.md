@@ -6,11 +6,9 @@ This document records current route categories and security boundaries.
 
 It is not an implementation document.
 
-It does not add authentication.
+It now records the local-development Auth/RBAC v1 boundary.
 
-It does not add authorization.
-
-It does not add backend route protection.
+It does not claim production authentication or production authorization.
 
 It explains what is public, what is a placeholder, and what must not be treated as secure yet.
 
@@ -20,8 +18,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | --- | --- | --- | --- |
 | Public page | `index.html` | Public cover page | Public |
 | Public prototype | `journey.html` | Journey sketch canvas public prototype | Public/static prototype |
-| Login mock | `login.html` | Static fixed test-password route | Not real authentication |
-| Private placeholder | `hub.html` | Static hub placeholder | Not real authorization |
+| Login entry | `login.html` | Local backend Auth/RBAC v1 login when backend is running | Development only |
+| Private hub preview | `hub.html` | Role-aware static hub shell | Static route is not production protection |
 | Child app prototype | `apps/tasks/index.html` | Task List prototype | Direct URL access possible |
 | Child app prototype | `apps/health/index.html` | Health Management prototype | Direct URL access possible |
 | Child app placeholder | `apps/special-subscription/index.html` | Special Subscription placeholder | Direct URL access possible |
@@ -30,6 +28,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Backend message create | `/api/messages` | Local visitor message create endpoint | No auth yet |
 | Backend dev tools | `/api/dev/*` | Local development data tools | Disabled outside development |
 | Backend admin summary | `/api/admin/data/summary` | Local admin data foundation endpoint | Disabled outside development |
+| Backend auth | `/api/auth/*` | Local Auth/RBAC v1 login, logout, me, CSRF | Development only |
+| Backend user admin | `/api/admin/users/*` | Local admin user management API | Requires local admin permission |
 
 ## Important Security Boundary
 
@@ -38,21 +38,21 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Homepage entrance buttons are not authorization.
 * Homepage entrance buttons are not access control.
 * Homepage entrance buttons are not private data protection.
-* `login.html` is a static mock private entrance.
-* The fixed test-password redirect is route verification only.
-* The fixed test-password redirect is not authentication.
-* The fixed test-password redirect is not security.
-* `hub.html` is a static placeholder.
+* `login.html` is now wired to the local backend Auth/RBAC v1 login API.
+* Local login creates a database-backed session and an HttpOnly browser cookie.
+* Local login is for development only and is not production deployment.
+* `hub.html` is still a static shell; it can display local auth state but is not a production security boundary.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.
 * Local backend and database foundations exist for development.
 * Production backend deployment is not implemented.
-* Real authentication, session handling, authorization enforcement, and frontend backend integration are not implemented.
+* Local authentication/session handling and selected authorization checks are started for development.
+* Production authentication, production authorization, and server deployment are not implemented.
 * Future protected admin and data routes must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.
 * `/api/dev/*` must never be enabled in production.
 * Message list, status update, soft delete, and admin summary endpoints are disabled in production until real auth exists.
-* The database now has RBAC foundation tables, but route permission checks are not implemented yet.
-* RBAC schema does not make any static page or API route production-secure by itself.
+* The database now has RBAC foundation tables and local development role checks for user management.
+* RBAC schema and frontend hiding do not make static pages production-secure by themselves.
 * Local code changes and merges do not mean public server deployment.
 * Server/public deployment happens only after explicit user instruction.
 
@@ -74,17 +74,17 @@ It explains what is public, what is a placeholder, and what must not be treated 
 
 ## Future Required Security Model
 
-The following items are planned and not implemented yet:
+The following items are still planned for production use:
 
-* Real authentication.
-* Server-side session or token handling.
-* Authorization checks.
+* Production authentication.
+* Production session hardening.
+* Production authorization checks across every private API.
 * Protected private routes.
 * Protected APIs.
 * User-specific data isolation.
 * Secure server-side database.
 * Server-side permission checks.
-* RBAC enforcement on private/admin APIs.
+* Full RBAC enforcement on every private/admin API.
 * Backup and recovery rules.
 * Production secret management.
 
@@ -105,15 +105,14 @@ Real private data must wait for the future security model.
 * [ ] Public pages are clearly marked public.
 * [ ] Placeholder private pages are not described as secure.
 * [ ] Homepage entrance buttons are described as navigation only.
-* [ ] Static login is not described as real authentication.
-* [ ] Static mock login is not described as real session creation.
-* [ ] Static hub is not described as real authorization.
+* [ ] Login is described as local development Auth/RBAC only.
+* [ ] Hub is not described as production authorization.
 * [ ] Child apps do not claim protected access.
 * [ ] Real private data is not added to static files.
 * [ ] Local backend/database foundations are described separately from production deployment.
 * [ ] Backend and database status does not imply real authentication or authorization.
-* [ ] Authentication work is marked planned until implemented.
-* [ ] Authorization work is marked planned until implemented.
+* [ ] Production authentication work is marked planned until implemented.
+* [ ] Production authorization work is marked planned until implemented.
 
 
 ## Visitor Message Route Boundary

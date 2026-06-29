@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     api_prefix: str = Field("/api", alias="API_PREFIX")
     database_url: str = Field(..., alias="DATABASE_URL")
     allow_dev_tools: bool = Field(False, alias="ALLOW_DEV_TOOLS")
+    session_cookie_name: str = Field("personal_web_session", alias="SESSION_COOKIE_NAME")
+    session_expire_days: int = Field(7, alias="SESSION_EXPIRE_DAYS")
+    session_secret: str = Field("development-only-change-me", alias="SESSION_SECRET")
+    cookie_secure: bool = Field(False, alias="COOKIE_SECURE")
+    csrf_header_name: str = Field("X-CSRF-Token", alias="CSRF_HEADER_NAME")
     cors_allow_origins: str = Field(
         "http://127.0.0.1:4173,http://localhost:4173",
         alias="CORS_ALLOW_ORIGINS",
@@ -43,6 +48,10 @@ class Settings(BaseSettings):
             raise ValueError("ALLOW_DEV_TOOLS must be false when APP_ENV=production")
         if self.app_env == "production" and "*" in self.cors_origins:
             raise ValueError("Wildcard CORS is not allowed when APP_ENV=production")
+        if self.app_env == "production" and self.session_secret == "development-only-change-me":
+            raise ValueError("SESSION_SECRET must be configured for production")
+        if self.app_env == "production" and not self.cookie_secure:
+            raise ValueError("COOKIE_SECURE must be true when APP_ENV=production")
         return self
 
     @property
