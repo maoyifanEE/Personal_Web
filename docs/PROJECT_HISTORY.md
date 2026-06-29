@@ -1,5 +1,102 @@
 # Project History
 
+## 2026-06-29 - Fix Journey sketch canvas pointer mapping
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Fix pointer offset after the Journey sketch canvas became transparent and full-bleed.
+* Preserve existing sketch algorithms, localStorage schema, and editor behavior.
+
+### Completed
+
+* Aligned the pointer coordinate conversion with the SVG stroke coordinate surface.
+* Ensured the background, stroke SVG, node layer, sticker layer, and interaction layer share the same rectangle.
+* Added small debug helpers for layer rectangle inspection and pointer mapping checks.
+
+### Safety boundaries
+
+* No drawing, erasing, snapping, node, sticker, save/load, or localStorage schema logic was intentionally changed.
+* No backend code, migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No Data URLs or binary image files were committed.
+* No merge into `main` was performed in this task.
+
+## 2026-06-29 - Make Journey sketch canvas transparent and full-bleed
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Keep the current Journey sketch editor logic and data model unchanged.
+* Fix only the visual presentation so the canvas feels like a homepage layer instead of a visible drawing-board card.
+
+### Completed
+
+* Removed the default grid, border, dashed outline, card background, and shadow from the Journey sketch canvas.
+* Changed the sketch canvas display to full-bleed browser width while preserving the existing internal coordinate system.
+* Kept the floating editor toolbar available in edit mode without making the canvas look boxed.
+* Updated Journey visual guidance to describe the transparent full-bleed canvas expectation.
+
+### Safety boundaries
+
+* No drawing, erasing, snapping, node, sticker, save/load, or localStorage logic was intentionally changed.
+* No backend code, migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No Data URLs or binary image files were committed.
+* No merge into `main` was performed in this task.
+
+## 2026-06-28 - Rebuild Journey canvas sketch editor
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Replace the overly complicated route/editor model with a simple draft-paper style sketch canvas.
+* Preserve the accepted large-canvas direction while fixing the line drawing, erasing, endpoint snapping, node attachment, and sticker editing workflow.
+
+### Completed
+
+* Rebuilt `journey.js` around a new blank sketch-canvas state instead of migrating old Area/route/text data into the visible canvas.
+* Added freehand drawing anywhere on the canvas with smoothing, endpoint snapping, and data-level stroke merging.
+* Added erasing that splits remaining stroke runs into independent strokes.
+* Added right-click node creation on the nearest stroke projection and node dragging along connected stroke components.
+* Added direct background upload/clear and transparent sticker upload, drag, resize, rotate, and delete behavior.
+* Replaced the complex editor controls with a compact toolbar for drawing, erasing, node/select, uploads, saving, clearing, exiting, canvas height, and collapsed curve settings.
+* Added `window.__journeySketchDebug.runGeometryTests()` for automated geometry smoke checks.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No external libraries or binary assets were added.
+* No Data URLs were committed.
+* No merge into `main` was performed in this task.
+
+## 2026-06-28 - Refactor Journey editor to one editable canvas
+
+### Goal
+
+* Continue on `Feature/homepage-update` from the accepted branch state.
+* Replace normal Journey editing based on separate Area 01 / 02 / 03 regions with one complete editable canvas.
+* Keep the accepted direct smoothing route pipeline.
+* Preserve homepage visible entrances, ICP footer, login page, backend files, backend docs, and RBAC foundation.
+
+### Completed
+
+* Added a canvas model with shared background, multiple routes, nodes, stickers, and text items.
+* Migrated legacy area path data into canvas routes during state sanitization.
+* Rendered the Journey page as one canvas instead of stacked editable area sections.
+* Added canvas route selection, route creation, route redraw, route visibility, route locking, and route deletion controls.
+* Bound nodes to routes with `routeId` and `routeT`, while still allowing free-positioned nodes.
+* Updated Stroke repair so it edits only the selected route and writes the repaired sampled stroke back directly.
+* Updated curve tuning and debug export to work on the selected canvas route.
+* Kept background, sticker, text, and node editing inside the single canvas coordinate system.
+
+### Safety boundaries
+
+* No backend code was modified.
+* No backend migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No external libraries or binary assets were added.
+* No Data URLs were committed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-27 - Add collapsible journey editor panel and text boxes
 
 ### Goal
