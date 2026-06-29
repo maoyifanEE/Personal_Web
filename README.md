@@ -4,17 +4,21 @@
 
 `Personal_Web` is a long-term personal website and personal tools platform.
 
-The current project stage is a static front-end preview.
+The current project stage is a local-development website and tools preview.
 
 Current implementation boundaries:
 
+* Static front-end pages exist for local development and local testing.
 * Backend skeleton exists for local development only.
 * Local PostgreSQL development foundation exists.
+* Local RBAC database schema foundation exists.
 * Real login is not implemented.
 * Authentication is not implemented.
 * Authorization is not implemented.
 * Cloud sync is not implemented.
 * Private pages are placeholders and are not secure yet.
+* Code merged to `main` is not automatically deployed to the public server.
+* Public/server deployment happens only after explicit user instruction.
 * Real private data must not be committed to GitHub.
 
 The repository may contain source code, static structure, safe assets, project notes, and clearly fake sample data.
@@ -26,7 +30,7 @@ The repository must not contain real private data, secrets, production database 
 | Page | Purpose | Current status |
 | --- | --- | --- |
 | `index.html` | Public cover homepage | Implemented static page |
-| `journey.html` | Curved path timeline prototype | Static/local prototype |
+| `journey.html` | Journey sketch canvas prototype | Static/local prototype |
 | `login.html` | Static mock private entrance | Fixed test-password route only; not real authentication |
 | `hub.html` | Private hub placeholder | Not real authorization |
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
@@ -34,17 +38,35 @@ The repository must not contain real private data, secrets, production database 
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 | `apps/messages/index.html` | Visitor Message Management prototype | Static/front-end prototype |
 
-The journey prototype includes editable curve paths.
-Hand-drawn strokes are treated as full rough route input, not reduced to a few designer waypoints.
-The active smoothing pipeline removes consecutive duplicate points, resamples by equal arc-length distance, applies Gaussian low-pass smoothing, and then uses Catmull-Rom interpolation.
-The journey editor includes simple smoothing sliders for strength, sample spacing, and interpolation density.
-The journey editor can show and export front-end curve debug data for raw points, resampled points, smoothed control points, final smooth points, and simple smoothing stats.
+The journey prototype now uses a draft-paper style sketch canvas.
+
+Current Journey sketch canvas v1 behavior:
+
+* Transparent and full-bleed preview.
+* Browser-local sketch state stored in `localStorage`.
+* State key: `journeySketchCanvasStateV1`.
+* Schema version: `sketch-canvas-v1`.
+* State includes background, strokes, nodes, stickers, and `nextNodeNumber`.
+* Freehand drawing with smoothed strokes.
+* Endpoint snap and merge behavior.
+* Eraser split logic.
+* Right-click node creation.
+* Node dragging along a stroke component.
+* Sticker upload, drag, resize, rotate, and delete for local prototype preview.
+* Background upload and clear for local prototype preview.
+
+Journey state is not persisted to the backend yet.
+
+Sticker and background uploads are local prototype Data URL previews only.
+
+Do not store real private data or real private images in the current Journey prototype.
 
 ## Navigation Behavior
 
 * Visible visitor entrance on `index.html` opens `journey.html`.
-* Normal cover background clicks do not navigate.
 * Visible user entrance opens `login.html`.
+* There is no hidden homepage button in the current behavior.
+* Normal cover background clicks do not navigate.
 * `login.html` accepts a fixed test password only to verify the route to `hub.html`.
 * ICP footer opens `https://beian.miit.gov.cn/`.
 * `hub.html` links to child app prototypes.
@@ -129,8 +151,8 @@ Personal_Web/
 * `docs/06_VISUAL_STYLE_GUIDE.md`: visual and navigation style rules.
 * `docs/07_ROUTE_AND_SECURITY_RULES.md`: route categories and security limits.
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`: structure and branch standards.
-* `docs/09_BACKEND_DATABASE_PLAN.md`: future backend and database planning.
-* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture before implementation.
+* `docs/09_BACKEND_DATABASE_PLAN.md`: backend/database status and next-stage planning.
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture and implementation status.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 ## Development Rules
@@ -169,9 +191,10 @@ Then open these URLs as needed:
 
 ## Current Non-Goals
 
-* Real backend server.
-* Production database.
+* Production backend deployment.
+* Production database deployment.
 * Real login.
+* Real authentication.
 * Real authorization.
 * Real sessions or protected private routes.
 * Real cloud synchronization.

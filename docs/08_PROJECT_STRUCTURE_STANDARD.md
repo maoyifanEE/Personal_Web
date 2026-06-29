@@ -98,8 +98,8 @@ Backend rules:
 * `docs/05_APP_MODULES.md` owns the child app registry.
 * `docs/06_VISUAL_STYLE_GUIDE.md` owns visual and navigation style rules.
 * `docs/07_ROUTE_AND_SECURITY_RULES.md` owns route and security boundaries.
-* `docs/09_BACKEND_DATABASE_PLAN.md` owns future backend planning.
-* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` owns target backend/database architecture before implementation.
+* `docs/09_BACKEND_DATABASE_PLAN.md` owns backend/database status and next-stage planning.
+* `docs/10_BACKEND_DATABASE_ARCHITECTURE.md` owns target backend/database architecture and implementation status.
 * `docs/PROJECT_HISTORY.md` records completed project changes.
 * Markdown source files must use real newline characters.
 * Tables must have one row per source line.
@@ -137,6 +137,12 @@ Backend rules:
 * Do not merge unless explicitly instructed.
 * Do not push unless explicitly instructed.
 * Do not delete existing branches unless explicitly instructed.
+* Old remote branches may be deleted only after verifying they are fully merged into `origin/main`.
+* Never delete `main`.
+* Never delete the active working branch.
+* Preserve unmerged backup branches unless the user explicitly approves deletion.
+* Prefer `git branch -d <branch-name>` for safe local branch cleanup.
+* Use force deletion only after explicit user approval.
 
 ## Merge Readiness Notes
 

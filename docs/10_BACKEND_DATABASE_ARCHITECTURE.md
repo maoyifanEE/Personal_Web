@@ -2,16 +2,16 @@
 
 ## 1. Purpose
 
-This document defines the backend and database architecture before implementation starts.
+This document defines the backend and database architecture and records current implementation status.
 
 It is a planning document.
 
-It does not create backend code.
-It does not create database files.
-It does not create API routes.
+It does not create backend code in documentation-only tasks.
+It does not create database files in documentation-only tasks.
+It does not create new API routes in documentation-only tasks.
 It does not create authentication or authorization code.
 
-The goal is to make the next development stage safe, maintainable, and practical for a personal website
+The goal is to keep the next development stage safe, maintainable, and practical for a personal website
 that will eventually store real long-term private data.
 
 ## 2. Current Boundary
@@ -38,7 +38,7 @@ Current boundaries:
 * There is no production backend deployment.
 * Existing static front-end pages are not wired to the backend.
 
-Hidden links are not security.
+Visible or hidden navigation is not security.
 
 The fixed test password in login.html is not security.
 
@@ -400,9 +400,11 @@ Non-negotiable requirements:
 
 ## 11. API Design Principles
 
-Do not implement API routes yet.
+Some local development API routes already exist for the backend foundation.
 
-Future route groups may include:
+Static front-end pages are not wired to those APIs yet.
+
+Future production route groups may include:
 
 * `/api/auth/*`
 * `/api/admin/data/*`
@@ -423,6 +425,9 @@ Principles:
 * Bulk actions must provide count previews and audit records.
 * Delete actions should soft-delete by default.
 * Purge actions should be separate from delete actions.
+
+Existing local development endpoints must not be treated as production-ready until authentication,
+authorization, rate limiting, deployment review, and frontend integration are completed.
 
 ## 12. Database Schema Planning
 
@@ -890,7 +895,8 @@ Must not do:
 
 Acceptance criteria:
 
-* Documentation clearly says backend is still not implemented.
+* Documentation clearly separates local backend foundation from production deployment.
+* Documentation clearly says real authentication and authorization are not implemented.
 * Architecture choices and risks are documented.
 
 ### Phase 2: Backend skeleton

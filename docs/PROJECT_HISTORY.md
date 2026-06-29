@@ -1,5 +1,36 @@
 # Project History
 
+## 2026-06-29 - Sync project state docs and audit branches
+
+### Goal
+
+* Work on `BugFix/project-state-docs-and-branch-audit`.
+* Align project documentation with current `main` after Journey sketch canvas v1 was merged.
+* Clarify that the homepage now has visible visitor and user entrances.
+* Clarify the local-only development and deployment boundary before auth/RBAC implementation.
+* Audit old merged branches without deleting them.
+
+### Completed
+
+* Documented that Journey sketch canvas v1 was merged into `main` at `ac3a60ee5a4469826926c7643f3dba6824856ccf`.
+* Updated current-state docs to describe the draft-paper Journey sketch canvas with background, strokes, nodes, stickers, and browser `localStorage` state.
+* Clarified that `journeySketchCanvasStateV1` and schema version `sketch-canvas-v1` are local prototype state only.
+* Clarified that visible visitor and user entrances are navigation only, not security.
+* Clarified that local FastAPI, PostgreSQL, Alembic, visitor message, audit log, and RBAC schema foundations exist for development.
+* Clarified that production backend deployment, real login, authentication, authorization, sessions, and frontend-backend integration are not implemented yet.
+* Clarified that code merged to `main` is not automatically deployed to the public server.
+* Audited remote and local branches for future cleanup recommendations.
+
+### Safety boundaries
+
+* No website behavior was changed.
+* No Journey drawing behavior was changed.
+* No authentication or authorization was implemented.
+* No homepage or Journey database persistence was implemented.
+* No image upload persistence was implemented.
+* No backend code, migrations, server configuration, deployment files, secrets, logs, uploads, backups, or database files were modified.
+* No branches were deleted.
+
 ## 2026-06-29 - Fix Journey sketch canvas pointer mapping
 
 ### Goal

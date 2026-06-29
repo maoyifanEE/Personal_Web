@@ -15,11 +15,14 @@ It prevents accidental mixing of source code, private data, production secrets, 
 ## Project Role
 
 * `Personal_Web` is a personal website and personal tools platform.
-* It contains a public cover page and private-tool placeholders.
-* The current implementation is a static front-end preview.
-* Future backend and database work must be planned separately.
-* A static page can demonstrate UI direction, but it cannot protect private data.
-* A hidden link can hide visual navigation, but it cannot provide security.
+* It contains a public cover page, visible homepage entrances, local prototypes, and backend foundations.
+* The current implementation is for local development and local testing.
+* Local backend, PostgreSQL, Alembic, visitor message, audit log, and RBAC schema foundations exist.
+* Production backend deployment is not active unless explicitly requested.
+* Real authentication and authorization are not implemented.
+* Static pages can demonstrate UI direction, but they cannot protect private data.
+* Visible or hidden navigation is not security.
+* Backend authentication, authorization, and permission checks are required for real protection.
 
 ## Code Ownership
 
@@ -63,7 +66,9 @@ Meaning:
 * Production server is the runtime environment.
 * Code is edited and tested locally first.
 * Reviewed code can be merged into `main`.
-* The server should pull deployed code from GitHub.
+* Merging code to `main` does not automatically deploy it to the public server.
+* The public server should be updated only after explicit user deployment instruction.
+* When deployment is requested, the server should pull deployed code from GitHub.
 * The server should not be used as the normal source editing place.
 
 The normal private data flow is:
@@ -120,6 +125,8 @@ Code is developed locally, versioned in GitHub, and deployed to the server; real
 * The current ICP filing number belongs on the public homepage footer.
 * Public security filing can be added later after approval.
 * Deployment should use repository files, not hidden local-only resources.
+* Local development and GitHub source updates are separate from public server deployment.
+* Public/server deployment happens only after explicit user instruction.
 * Do not commit server credentials.
 * Do not commit production environment files.
 * Do not commit backup archives.
@@ -197,7 +204,7 @@ Real personal records should not be stored in the local repository.
 * Keep README concise.
 * Keep the app registry updated before changing child apps.
 * Keep route and security rules clear.
-* Keep backend and database planning marked as planned until implemented.
+* Keep local backend/database foundation status separate from production deployment status.
 * Keep raw Markdown readable with real newline characters.
 * Keep tables, checklists, bullets, and code fences properly formatted.
 

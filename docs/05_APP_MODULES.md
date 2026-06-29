@@ -16,9 +16,10 @@ It also prevents placeholder pages from being mistaken for production systems.
 
 | Module | Chinese name | Path | Status | Storage | Backend | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Real sync requires future backend, database, and authentication. |
-| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype storage if implemented | Not implemented | Health-related data is sensitive; do not commit real private data. |
-| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not implemented | No real subscription, payment, API, or backend logic yet. |
+| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype if implemented | Not wired | Future sync needs backend, database, auth. |
+| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype if implemented | Not wired | Sensitive; do not commit real data. |
+| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not wired to backend | No real subscription, payment, API, or backend logic yet. |
+| Visitor Messages | 留言 / 留言管理 | `apps/messages/index.html` | Static/front-end prototype | None in frontend | Local foundation only | Static frontend does not save submissions. |
 
 ## Module Details
 
@@ -28,12 +29,12 @@ It also prevents placeholder pages from being mistaken for production systems.
 * English/internal name: Task List
 * Path: `apps/tasks/index.html`
 * Current status: static/local prototype
-* Backend status: not implemented
-* Database status: not implemented
+* Backend status: not wired to frontend
+* Database status: not implemented for this module
 * Cloud sync status: not implemented
 * Data sensitivity: private task data can become sensitive
 * Current limitation: no production sync or real user isolation
-* Notes: real sync requires future backend, database, and authentication
+* Notes: real sync requires future backend integration, database persistence, authentication, and authorization
 
 ### Health Management
 
@@ -41,8 +42,8 @@ It also prevents placeholder pages from being mistaken for production systems.
 * English/internal name: Health Management
 * Path: `apps/health/index.html`
 * Current status: static/local prototype
-* Backend status: not implemented
-* Database status: not implemented
+* Backend status: not wired to frontend
+* Database status: not implemented for this module
 * Cloud sync status: not implemented
 * Data sensitivity: health-related data is sensitive
 * Current limitation: no production sync or real user isolation
@@ -54,8 +55,8 @@ It also prevents placeholder pages from being mistaken for production systems.
 * English/internal name: Special Subscription
 * Path: `apps/special-subscription/index.html`
 * Current status: blank placeholder
-* Backend status: not implemented
-* Database status: not implemented
+* Backend status: not wired to frontend
+* Database status: not implemented for this module
 * Cloud sync status: not implemented
 * Data sensitivity: none in the current placeholder
 * Current limitation: no real subscription logic exists
@@ -67,13 +68,13 @@ It also prevents placeholder pages from being mistaken for production systems.
 * English/internal name: Visitor Messages / Message Management
 * Path: `apps/messages/index.html`
 * Current status: static/front-end prototype
-* Backend status: not implemented
-* Database status: not implemented
+* Backend status: local visitor message backend foundation exists, but static frontend is not wired to it
+* Database status: local `visitor_messages` table exists for backend testing only
 * Cloud sync status: not implemented
-* Storage: none in current phase; no localStorage message persistence
+* Storage: none in current static frontend; no localStorage message persistence
 * Data sensitivity: visitor-submitted message data is private user-submitted data
-* Current limitation: visitor submissions are not saved
-* Notes: real persistence requires backend, database, authentication, and admin authorization
+* Current limitation: visitor submissions from the static homepage modal are not saved
+* Notes: real production persistence requires backend deployment, authentication, admin authorization, and rate limiting
 
 ## Future / Proposed Modules
 
@@ -140,8 +141,8 @@ Use this template before creating a new child app.
 * [ ] The app has a clear current status.
 * [ ] The app has a documented storage boundary.
 * [ ] The app does not commit real private data.
-* [ ] The app does not claim backend support unless implemented.
-* [ ] The app does not claim database support unless implemented.
+* [ ] The app does not claim backend support unless implemented or explicitly marked local-only.
+* [ ] The app does not claim production database support unless implemented.
 * [ ] The app does not claim real authentication unless implemented.
 * [ ] The app links back to `../../hub.html` when appropriate.
 * [ ] The app does not break other child apps.
@@ -150,7 +151,7 @@ Use this template before creating a new child app.
 ## Current Non-Goals
 
 * The child app registry does not implement application behavior.
-* The child app registry does not define a database schema.
+* The child app registry does not define a final database schema.
 * The child app registry does not define production API routes.
 * The child app registry does not provide access control.
 * Those topics require future dedicated planning and implementation work.

@@ -41,7 +41,7 @@ It should also prevent old navigation behavior from returning by accident.
 * The canonical canvas starts as a blank sketch state with background, strokes, nodes, stickers, and `nextNodeNumber`.
 * Old Area, route, routeStroke, canvas route, and text box data must not be migrated into the visible canvas.
 * Freehand drawing should work anywhere on the canvas.
-* The active stroke pipeline is direct and simple: remove near duplicates, resample by equal distance, smooth with repeated Chaikin-style passes, then render a dense rounded SVG path.
+* Strokes should render as smooth, rounded lines while preserving the user's broad sketch direction.
 * New strokes may snap to true free endpoints and merge at the data level.
 * Erasing part of a stroke should split the remaining runs into independent strokes with new free endpoints.
 * Endpoint dots should appear only for true free endpoints in editor mode.

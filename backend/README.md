@@ -6,11 +6,17 @@ This backend is the first local PostgreSQL development foundation for `Personal_
 
 It exists so future modules can test real database-backed data through a backend API.
 
+It is local development only.
+
 It is not production deployment.
+
+It is not deployed to the public server unless the user explicitly requests deployment.
 
 It does not implement real authentication yet.
 
 It does not protect the current static private pages yet.
+
+The production `.env` file and production database must remain separate from this local development setup.
 
 ## Current Scope
 
