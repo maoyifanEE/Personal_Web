@@ -1,5 +1,26 @@
 # Project History
 
+## 2026-06-29 - Fix Journey sketch canvas pointer mapping
+
+### Goal
+
+* Continue on `Feature/homepage-update`.
+* Fix pointer offset after the Journey sketch canvas became transparent and full-bleed.
+* Preserve existing sketch algorithms, localStorage schema, and editor behavior.
+
+### Completed
+
+* Aligned the pointer coordinate conversion with the SVG stroke coordinate surface.
+* Ensured the background, stroke SVG, node layer, sticker layer, and interaction layer share the same rectangle.
+* Added small debug helpers for layer rectangle inspection and pointer mapping checks.
+
+### Safety boundaries
+
+* No drawing, erasing, snapping, node, sticker, save/load, or localStorage schema logic was intentionally changed.
+* No backend code, migrations, database configuration, deployment files, secrets, uploads, logs, or backups were modified.
+* No Data URLs or binary image files were committed.
+* No merge into `main` was performed in this task.
+
 ## 2026-06-29 - Make Journey sketch canvas transparent and full-bleed
 
 ### Goal

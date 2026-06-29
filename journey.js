@@ -676,9 +676,47 @@ function reattachAllNodes() {
   });
 }
 
-function clientPointToCanvasPoint(event) {
+function getSketchCanvasElement() {
   const canvas = document.querySelector(".journey-sketch-canvas");
-  const rect = canvas.getBoundingClientRect();
+  return canvas;
+}
+
+function getSketchCoordinateSurface() {
+  return document.querySelector(".journey-sketch-strokes");
+}
+
+function getSketchCoordinateRect() {
+  return getSketchCoordinateSurface()?.getBoundingClientRect() || getSketchCanvasElement()?.getBoundingClientRect() || null;
+}
+
+function transformClientPointWithMatrix(event, matrix) {
+  return {
+    x: (matrix.a * event.clientX) + (matrix.c * event.clientY) + matrix.e,
+    y: (matrix.b * event.clientX) + (matrix.d * event.clientY) + matrix.f
+  };
+}
+
+function clientPointToCanvasPoint(event) {
+  const svg = getSketchCoordinateSurface();
+  const matrix = svg?.getScreenCTM?.();
+  if (svg && matrix) {
+    const inverse = matrix.inverse();
+    const transformed = transformClientPointWithMatrix(event, inverse);
+    if (Number.isFinite(transformed.x) && Number.isFinite(transformed.y)) {
+      return clampCanvasPoint({
+        x: transformed.x,
+        y: transformed.y
+      });
+    }
+  }
+
+  const rect = getSketchCoordinateRect();
+  if (!rect) {
+    return clampCanvasPoint({
+      x: 0,
+      y: 0
+    });
+  }
   return clampCanvasPoint({
     x: ((event.clientX - rect.left) / rect.width) * CANVAS_WIDTH,
     y: ((event.clientY - rect.top) / rect.height) * state.canvas.height
@@ -1347,15 +1385,10 @@ window.addEventListener("keydown", (event) => {
 });
 
 function clientPointToCanvasPointSafe(event) {
-  const canvas = document.querySelector(".journey-sketch-canvas");
-  if (!canvas) {
+  if (!getSketchCoordinateSurface() && !getSketchCanvasElement()) {
     return null;
   }
-  const rect = canvas.getBoundingClientRect();
-  return clampCanvasPoint({
-    x: ((event.clientX - rect.left) / rect.width) * CANVAS_WIDTH,
-    y: ((event.clientY - rect.top) / rect.height) * state.canvas.height
-  });
+  return clientPointToCanvasPoint(event);
 }
 
 function updateStickerDrag(point) {
@@ -1549,10 +1582,39 @@ function runGeometryTests() {
   return lastGeometryTestResult;
 }
 
+function getLayerRects() {
+  const pick = (selector) => {
+    const element = document.querySelector(selector);
+    if (!element) {
+      return null;
+    }
+    const rect = element.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      right: rect.right,
+      bottom: rect.bottom
+    };
+  };
+
+  return {
+    canvas: pick(".journey-sketch-canvas"),
+    strokes: pick(".journey-sketch-strokes"),
+    nodes: pick(".journey-sketch-nodes"),
+    stickers: pick(".journey-sketch-stickers"),
+    background: pick(".journey-sketch-background"),
+    interaction: pick(".journey-sketch-interaction")
+  };
+}
+
 window.__journeySketchDebug = {
   runGeometryTests,
   getState: () => clone(state),
-  getLastGeometryTestResult: () => clone(lastGeometryTestResult)
+  getLastGeometryTestResult: () => clone(lastGeometryTestResult),
+  getLayerRects,
+  testPointerMapping: (clientX, clientY) => clientPointToCanvasPoint({ clientX, clientY })
 };
 
 installGlobalControls();

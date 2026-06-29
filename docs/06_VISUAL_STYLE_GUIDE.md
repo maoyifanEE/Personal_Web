@@ -37,6 +37,7 @@ It should also prevent old navigation behavior from returning by accident.
 * The sketch canvas should feel like an invisible homepage layer in preview, not a visible drawing-board card.
 * Preview mode should not show a grid, border, dashed outline, white paper rectangle, or card shadow around the canvas.
 * The sketch canvas should render full-bleed across the browser width while keeping the internal `0..1000` coordinate system.
+* Pointer interaction should use the same SVG/layer coordinate surface as the visible strokes, nodes, stickers, background, and interaction layer.
 * The canonical canvas starts as a blank sketch state with background, strokes, nodes, stickers, and `nextNodeNumber`.
 * Old Area, route, routeStroke, canvas route, and text box data must not be migrated into the visible canvas.
 * Freehand drawing should work anywhere on the canvas.
