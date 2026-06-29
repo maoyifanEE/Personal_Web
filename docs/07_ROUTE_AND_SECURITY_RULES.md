@@ -19,7 +19,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Category | Route | Current status | Security status |
 | --- | --- | --- | --- |
 | Public page | `index.html` | Public cover page | Public |
-| Public prototype | `journey.html` | Curved path timeline prototype | Public/static prototype |
+| Public prototype | `journey.html` | Journey sketch canvas public prototype | Public/static prototype |
 | Login mock | `login.html` | Static fixed test-password route | Not real authentication |
 | Private placeholder | `hub.html` | Static hub placeholder | Not real authorization |
 | Child app prototype | `apps/tasks/index.html` | Task List prototype | Direct URL access possible |
@@ -132,7 +132,9 @@ It is not a real protected admin page yet.
 
 Direct URL access is possible until backend authentication and authorization exist.
 
-Production visitor message submission must not be enabled until rate limiting, abuse controls, logging policy, privacy review, and production deployment review are complete.
+Production visitor message submission must not be enabled until review is complete.
+
+Required review areas include rate limiting, abuse controls, logging policy, privacy, and production deployment.
 
 Admin message reading, status changes, and soft delete must require real authentication and authorization before production use.
 

@@ -86,9 +86,11 @@ Meaning:
 * The production database should become the source of truth.
 * GitHub should not receive real private data.
 
-Summary sentence:
+Summary:
 
-Code is developed locally, versioned in GitHub, and deployed to the server; real private data is created during website use and stored in the server-side database, never in GitHub.
+Code is developed locally, versioned in GitHub, and deployed to the server only when requested.
+
+Real private data is created during website use and stored in the server-side database, never in GitHub.
 
 ## Current Storage Boundary
 

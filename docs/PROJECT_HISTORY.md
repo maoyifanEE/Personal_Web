@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-06-29 - Fix raw Markdown formatting after docs sync
+
+### Goal
+
+* Continue on `BugFix/project-state-docs-and-branch-audit`.
+* Fix raw Markdown formatting after the project-state documentation sync.
+* Keep documentation readable in plain text and raw GitHub view.
+
+### Completed
+
+* Confirmed edited documentation files have headings, bullets, tables, and code fences on real source lines.
+* Added `apps/messages/index.html` to the README file tree.
+* Updated the `journey.html` route description to the current Journey sketch canvas wording.
+* Split remaining long current-state documentation lines.
+
+### Safety boundaries
+
+* No application behavior was changed.
+* No HTML, CSS, JavaScript, Python, backend code, migrations, or deployment files were modified.
+* No authentication, authorization, database persistence, upload persistence, or Journey behavior was implemented.
+* No branches were deleted.
+
 ## 2026-06-29 - Sync project state docs and audit branches
 
 ### Goal
@@ -13,11 +35,13 @@
 ### Completed
 
 * Documented that Journey sketch canvas v1 was merged into `main` at `ac3a60ee5a4469826926c7643f3dba6824856ccf`.
-* Updated current-state docs to describe the draft-paper Journey sketch canvas with background, strokes, nodes, stickers, and browser `localStorage` state.
+* Updated current-state docs to describe the draft-paper Journey sketch canvas.
+* Documented background, strokes, nodes, stickers, and browser `localStorage` state.
 * Clarified that `journeySketchCanvasStateV1` and schema version `sketch-canvas-v1` are local prototype state only.
 * Clarified that visible visitor and user entrances are navigation only, not security.
-* Clarified that local FastAPI, PostgreSQL, Alembic, visitor message, audit log, and RBAC schema foundations exist for development.
-* Clarified that production backend deployment, real login, authentication, authorization, sessions, and frontend-backend integration are not implemented yet.
+* Clarified that local FastAPI, PostgreSQL, Alembic, visitor message, audit log, and RBAC schema foundations exist.
+* Clarified that production backend deployment is not implemented yet.
+* Clarified that real login, authentication, authorization, sessions, and frontend-backend integration are not implemented yet.
 * Clarified that code merged to `main` is not automatically deployed to the public server.
 * Audited remote and local branches for future cleanup recommendations.
 
@@ -28,7 +52,8 @@
 * No authentication or authorization was implemented.
 * No homepage or Journey database persistence was implemented.
 * No image upload persistence was implemented.
-* No backend code, migrations, server configuration, deployment files, secrets, logs, uploads, backups, or database files were modified.
+* No backend code, migrations, server configuration, deployment files, secrets, logs, uploads, backups, or database files
+  were modified.
 * No branches were deleted.
 
 ## 2026-06-29 - Fix Journey sketch canvas pointer mapping
@@ -89,7 +114,8 @@
 * Added erasing that splits remaining stroke runs into independent strokes.
 * Added right-click node creation on the nearest stroke projection and node dragging along connected stroke components.
 * Added direct background upload/clear and transparent sticker upload, drag, resize, rotate, and delete behavior.
-* Replaced the complex editor controls with a compact toolbar for drawing, erasing, node/select, uploads, saving, clearing, exiting, canvas height, and collapsed curve settings.
+* Replaced the complex editor controls with a compact toolbar.
+* Kept drawing, erasing, node/select, uploads, saving, clearing, exiting, canvas height, and collapsed curve settings.
 * Added `window.__journeySketchDebug.runGeometryTests()` for automated geometry smoke checks.
 
 ### Safety boundaries
@@ -144,7 +170,8 @@
 * Persisted the collapsed panel preference in browser localStorage under `journeyEditorPanelCollapsed`.
 * Stopped rendering the fixed Area label/title/placeholder description block in journey areas.
 * Added per-area `textItems` with percent-based position and width.
-* Added text box add, select, drag, edit, resize, font size, color, weight, alignment, rotation, opacity, layer, lock, hide, duplicate, reset, and delete controls.
+* Added text box add, select, drag, edit, resize, font size, color, weight, alignment, rotation, opacity, layer, lock,
+  hide, duplicate, reset, and delete controls.
 * Rendered text content with `textContent` so user-entered text remains plain text and is not executed as HTML.
 * Kept the existing background/sticker editor, route editor, Stroke topology editor, and `simple-strong-smooth` route smoothing intact.
 
@@ -229,7 +256,9 @@
 ### Completed
 
 * Added `routePatches` state for local route interval replacement.
-* Added a transient local redraw draft flow for selecting a start point, selecting an end point, drawing a replacement stroke, previewing it, applying it, cancelling it, or clearing the saved patch.
+* Added a transient local redraw draft flow.
+* The flow supports selecting a start point, selecting an end point, drawing a replacement stroke, previewing it,
+  applying it, cancelling it, or clearing the saved patch.
 * Added a global renderable route index so clicks can snap to the nearest existing route point.
 * Replaced the old Area 01 -> Area 02 boundary overlay control with a local redraw editor tool.
 * Updated route rendering so the original selected interval is removed from the affected area paths before the replacement segment is drawn.
@@ -818,7 +847,8 @@
 * `processRawFreehandPoints` 现在生成 `designerWaypoints`、`tangentVectors` 和 `bezierSegments`。
 * 设计点默认压缩到少量 meaningful waypoints，并移除近共线或过近的冗余点。
 * 每个 waypoint 计算一个平滑切线方向，内部 Bezier join 使用同一方向生成成对控制柄。
-* diagnostics 新增 `maxInternalJoinTangentMismatchDeg`、`internalJoinTangentMismatches`、`handleClampCount`、`redundantWaypointRemovalCount` 和 `smoothnessQualityPass`。
+* diagnostics 新增 `maxInternalJoinTangentMismatchDeg`、`internalJoinTangentMismatches`、`handleClampCount`、
+  `redundantWaypointRemovalCount` 和 `smoothnessQualityPass`。
 * debug export 保留旧字段兼容，同时新增 designer-route 字段。
 * README 和视觉规范已更新为 designer-route Bezier 说明。
 

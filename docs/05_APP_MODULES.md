@@ -16,10 +16,10 @@ It also prevents placeholder pages from being mistaken for production systems.
 
 | Module | Chinese name | Path | Status | Storage | Backend | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser/local prototype if implemented | Not wired | Future sync needs backend, database, auth. |
-| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser/local prototype if implemented | Not wired | Sensitive; do not commit real data. |
-| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not wired to backend | No real subscription, payment, API, or backend logic yet. |
-| Visitor Messages | 留言 / 留言管理 | `apps/messages/index.html` | Static/front-end prototype | None in frontend | Local foundation only | Static frontend does not save submissions. |
+| Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser-local if used | Not wired | Future sync needs backend/auth. |
+| Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser-local if used | Not wired | Sensitive; no real data. |
+| Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not wired | No real subscription logic. |
+| Visitor Messages | 留言 / 留言管理 | `apps/messages/index.html` | Static prototype | None | Local foundation only | Static frontend does not save. |
 
 ## Module Details
 
