@@ -194,7 +194,13 @@ From the repository root on Windows:
 ```
 
 The launcher checks `backend/.env`, runs migrations, runs the development auth seed,
-starts the backend, starts the static frontend, and opens:
+starts the backend, starts the static frontend, and opens the homepage:
+
+```text
+http://127.0.0.1:4173/
+```
+
+The login page remains available at:
 
 ```text
 http://127.0.0.1:4173/login.html
@@ -228,6 +234,26 @@ Common login setup problems:
 * Development auth seed was not run.
 * `ALLOW_DEV_TOOLS` is not `true`.
 * CORS origins do not include the local frontend origin.
+* Backend readiness failed because port `8000` is occupied by another process.
+* Frontend readiness failed because port `4173` is occupied by another process.
+
+Manual backend troubleshooting command from `backend/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Manual frontend troubleshooting command from the repository root:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m http.server 4173 --bind 127.0.0.1
+```
+
+If a port is occupied, run:
+
+```powershell
+.\scripts\stop-local-dev.ps1
+```
 
 ## Test Health
 

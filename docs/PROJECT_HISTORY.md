@@ -1,5 +1,29 @@
 # Project History
 
+## 2026-06-30 - Fix local launcher homepage startup
+
+### Goal
+
+* Continue on `Feature/auth-rbac-v1`.
+* Fix the one-click local development launcher after manual backend startup worked but launcher readiness failed.
+* Open the public homepage by default instead of opening `login.html`.
+
+### Completed
+
+* Reworked backend startup to use the backend venv Python with the backend directory as the process working directory.
+* Reworked frontend startup to use the backend venv Python with the repository root as the process working directory.
+* Added safe port reuse checks for local ports `8000` and `4173`.
+* Increased backend readiness polling and added fallback readiness URLs.
+* Added frontend readiness polling before opening the browser.
+* Updated launcher output and docs so homepage opens by default while login remains available.
+
+### Safety boundaries
+
+* No backend auth logic, migrations, seed data, database models, Journey algorithms, or deployment configuration were changed.
+* No production deployment was performed.
+* No homepage or Journey database persistence was added.
+* No upload persistence was added.
+
 ## 2026-06-30 - Add one-click local Auth/RBAC development launcher
 
 ### Goal

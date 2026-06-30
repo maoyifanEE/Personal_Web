@@ -68,7 +68,9 @@ Local Auth/RBAC development can be started with the repository-root launcher:
 ```
 
 The launcher checks local development environment settings, runs migrations, runs the development seed,
-starts the backend and static frontend on localhost, and opens `login.html`.
+starts the backend and static frontend on localhost, and opens the public homepage.
+
+The local login page remains available at `http://127.0.0.1:4173/login.html`.
 
 This is not deployment.
 

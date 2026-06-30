@@ -217,7 +217,7 @@ The launcher:
 * runs the development auth seed script
 * starts the backend at `http://127.0.0.1:8000`
 * starts the static frontend at `http://127.0.0.1:4173`
-* opens `http://127.0.0.1:4173/login.html`
+* opens `http://127.0.0.1:4173/`
 
 Local development accounts:
 
@@ -238,18 +238,19 @@ Manual equivalent:
 cd backend
 alembic upgrade head
 python -m app.scripts.seed_dev_auth_users
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 In another terminal:
 
 ```powershell
-python -m http.server 4173 --bind 127.0.0.1
+.\backend\.venv\Scripts\python.exe -m http.server 4173 --bind 127.0.0.1
 ```
 
 Then open:
 
 ```text
+http://127.0.0.1:4173/
 http://127.0.0.1:4173/login.html
 ```
 
@@ -262,6 +263,16 @@ Common login failure causes:
 * `DATABASE_URL` points to a different local database.
 * `ALLOW_DEV_TOOLS` is not `true`.
 * `CORS_ALLOW_ORIGINS` does not include `http://127.0.0.1:4173`.
+* Backend readiness failed because port `8000` is occupied by another process.
+* Frontend readiness failed because port `4173` is occupied by another process.
+
+If a startup window reports readiness or port problems, check the Backend or Frontend PowerShell window.
+
+If a local development port is occupied, stop only the local dev listeners with:
+
+```powershell
+.\scripts\stop-local-dev.ps1
+```
 
 Stop local servers:
 

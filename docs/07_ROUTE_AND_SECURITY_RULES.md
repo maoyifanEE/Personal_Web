@@ -157,13 +157,19 @@ Manual backend startup:
 cd backend
 alembic upgrade head
 python -m app.scripts.seed_dev_auth_users
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Manual frontend startup from the repository root:
 
 ```powershell
-python -m http.server 4173 --bind 127.0.0.1
+.\backend\.venv\Scripts\python.exe -m http.server 4173 --bind 127.0.0.1
+```
+
+Homepage URL:
+
+```text
+http://127.0.0.1:4173/
 ```
 
 Login URL:
@@ -177,4 +183,12 @@ Local development accounts:
 ```text
 Admin: 1 / 1
 User: 2 / 2
+```
+
+If backend or frontend readiness fails, check the named PowerShell server window.
+
+If ports `8000` or `4173` are occupied, run:
+
+```powershell
+.\scripts\stop-local-dev.ps1
 ```

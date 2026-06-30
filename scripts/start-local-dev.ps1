@@ -43,11 +43,132 @@ function Invoke-LoggedStep {
   }
 }
 
+function Get-PortListener {
+  param([int]$Port)
+
+  try {
+    return Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop |
+      Select-Object -First 1
+  } catch {
+    return $null
+  }
+}
+
+function Test-UrlReady {
+  param(
+    [string]$Uri,
+    [int[]]$AcceptedStatusCodes = @(200)
+  )
+
+  try {
+    $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 2
+    return $AcceptedStatusCodes -contains [int]$response.StatusCode
+  } catch {
+    $statusCode = $null
+    if ($_.Exception.Response) {
+      $statusCode = $_.Exception.Response.StatusCode
+    }
+    if ($statusCode) {
+      return $AcceptedStatusCodes -contains [int]$statusCode
+    }
+    return $false
+  }
+}
+
+function Wait-ForUrl {
+  param(
+    [string]$Name,
+    [string[]]$Uris,
+    [int]$TimeoutSeconds,
+    [int[]]$AcceptedStatusCodes = @(200)
+  )
+
+  for ($i = 0; $i -lt $TimeoutSeconds; $i += 1) {
+    foreach ($uri in $Uris) {
+      if (Test-UrlReady -Uri $uri -AcceptedStatusCodes $AcceptedStatusCodes) {
+        Write-Info "$Name is ready at $uri"
+        return $true
+      }
+    }
+    Start-Sleep -Seconds 1
+    if (($i + 1) % 5 -eq 0) {
+      Write-Info "Waiting for $Name readiness... $($i + 1)s"
+    }
+  }
+  return $false
+}
+
+function Describe-PortOwner {
+  param([int]$Port)
+
+  $listener = Get-PortListener -Port $Port
+  if (-not $listener) {
+    return "none"
+  }
+  $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+  if ($process) {
+    return "PID $($listener.OwningProcess) - $($process.ProcessName)"
+  }
+  return "PID $($listener.OwningProcess)"
+}
+
+function Start-BackendWindow {
+  param(
+    [string]$BackendDir,
+    [string]$BackendPython
+  )
+
+  $backendCommand = @"
+`$Host.UI.RawUI.WindowTitle = 'Personal_Web Backend 8000'
+`$ErrorActionPreference = 'Stop'
+Write-Host '[Personal_Web backend] Working directory: $BackendDir'
+Write-Host '[Personal_Web backend] API: http://127.0.0.1:8000'
+& '$BackendPython' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+Write-Host '[Personal_Web backend] Process exited. Review messages above.'
+"@
+
+  Write-Info "Starting backend server window on 127.0.0.1:8000"
+  Start-Process powershell.exe -WorkingDirectory $BackendDir -ArgumentList @(
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    $backendCommand
+  ) -WindowStyle Normal
+}
+
+function Start-FrontendWindow {
+  param(
+    [string]$RepoRoot,
+    [string]$BackendPython
+  )
+
+  $frontendCommand = @"
+`$Host.UI.RawUI.WindowTitle = 'Personal_Web Frontend 4173'
+Write-Host '[Personal_Web frontend] Working directory: $RepoRoot'
+Write-Host '[Personal_Web frontend] Homepage: http://127.0.0.1:4173/'
+& '$BackendPython' -m http.server 4173 --bind 127.0.0.1
+Write-Host '[Personal_Web frontend] Process exited. Review messages above.'
+"@
+
+  Write-Info "Starting frontend static server window on 127.0.0.1:4173"
+  Start-Process powershell.exe -WorkingDirectory $RepoRoot -ArgumentList @(
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    $frontendCommand
+  ) -WindowStyle Normal
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $backendDir = Join-Path $repoRoot "backend"
 $envPath = Join-Path $backendDir ".env"
-$venvPython = Join-Path $backendDir ".venv\Scripts\python.exe"
-$frontendUrl = "http://127.0.0.1:4173/login.html"
+$backendPython = Join-Path $backendDir ".venv\Scripts\python.exe"
+$homepageUrl = "http://127.0.0.1:4173/"
+$loginUrl = "http://127.0.0.1:4173/login.html"
 
 Set-Location $repoRoot
 
@@ -79,25 +200,25 @@ if ($env:ALLOW_DEV_TOOLS -ne "true") {
   throw "Refusing to seed local users: backend/.env must contain ALLOW_DEV_TOOLS=true"
 }
 
-if (-not (Test-Path $venvPython)) {
+if (-not (Test-Path $backendPython)) {
   Invoke-LoggedStep "Creating backend virtual environment" {
     python -m venv (Join-Path $backendDir ".venv")
   }
 }
 
 Invoke-LoggedStep "Installing backend requirements into backend/.venv" {
-  & $venvPython -m pip install -r (Join-Path $backendDir "requirements.txt")
+  & $backendPython -m pip install -r (Join-Path $backendDir "requirements.txt")
 }
 
 Push-Location $backendDir
 try {
   Invoke-LoggedStep "Running Alembic migrations" {
-    & $venvPython -m alembic upgrade head
+    & $backendPython -m alembic upgrade head
   }
 
   try {
     Invoke-LoggedStep "Seeding local development auth users" {
-      & $venvPython -m app.scripts.seed_dev_auth_users
+      & $backendPython -m app.scripts.seed_dev_auth_users
     }
   } catch {
     Write-Host ""
@@ -113,71 +234,67 @@ try {
   Pop-Location
 }
 
-$backendCommand = @"
-`$ErrorActionPreference = 'Stop'
-Set-Location '$backendDir'
-Get-Content '.env' | ForEach-Object {
-  `$line = `$_.Trim()
-  if (`$line -and -not `$line.StartsWith('#')) {
-    `$parts = `$line -split '=', 2
-    if (`$parts.Count -eq 2) {
-      [System.Environment]::SetEnvironmentVariable(`$parts[0].Trim(), `$parts[1].Trim().Trim('"').Trim("'"), 'Process')
-    }
+$backendListener = Get-PortListener -Port 8000
+if ($backendListener) {
+  if (Test-UrlReady -Uri "http://127.0.0.1:8000/api/health") {
+    Write-Info "Reusing existing backend on port 8000 ($(Describe-PortOwner -Port 8000))."
+  } else {
+    Write-Host "Port 8000 is already in use by $(Describe-PortOwner -Port 8000), but backend health is not ready."
+    Write-Host "Run .\scripts\stop-local-dev.ps1, then start again."
+    throw "Backend port 8000 is occupied by an unexpected process"
   }
+} else {
+  Start-BackendWindow -BackendDir $backendDir -BackendPython $backendPython
 }
-Write-Host 'Backend API: http://127.0.0.1:8000'
-& '$venvPython' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-"@
 
-Write-Info "Starting backend server window on 127.0.0.1:8000"
-Start-Process powershell.exe -ArgumentList @(
-  "-NoExit",
-  "-NoProfile",
-  "-ExecutionPolicy",
-  "Bypass",
-  "-Command",
-  $backendCommand
-) -WindowStyle Normal
-
-$backendReady = $false
-for ($i = 0; $i -lt 30; $i += 1) {
-  Start-Sleep -Seconds 1
-  try {
-    $response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/health" -UseBasicParsing -TimeoutSec 2
-    if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500) {
-      $backendReady = $true
-      break
-    }
-  } catch {
-    Write-Info "Waiting for backend readiness..."
-  }
-}
+$backendReady = Wait-ForUrl `
+  -Name "Backend" `
+  -Uris @("http://127.0.0.1:8000/api/health", "http://127.0.0.1:8000/docs", "http://127.0.0.1:8000/api/auth/me") `
+  -TimeoutSeconds 60 `
+  -AcceptedStatusCodes @(200, 401, 403)
 
 if (-not $backendReady) {
-  Write-Host "Backend did not become ready within 30 seconds."
-  Write-Host "Check the Backend PowerShell window for database/configuration errors."
+  Write-Host ""
+  Write-Host "Backend did not become ready within 60 seconds."
+  Write-Host "Check the 'Personal_Web Backend 8000' PowerShell window for database/configuration errors."
+  Write-Host "If port 8000 is occupied, run .\scripts\stop-local-dev.ps1 and try again."
+  throw "Backend readiness failed"
 }
 
-$frontendCommand = @"
-Set-Location '$repoRoot'
-Write-Host 'Frontend: http://127.0.0.1:4173'
-python -m http.server 4173 --bind 127.0.0.1
-"@
+$frontendListener = Get-PortListener -Port 4173
+if ($frontendListener) {
+  if (Test-UrlReady -Uri $homepageUrl) {
+    Write-Info "Reusing existing frontend on port 4173 ($(Describe-PortOwner -Port 4173))."
+  } else {
+    Write-Host "Port 4173 is already in use by $(Describe-PortOwner -Port 4173), but homepage is not responding."
+    Write-Host "Run .\scripts\stop-local-dev.ps1, then start again."
+    throw "Frontend port 4173 is occupied by an unexpected process"
+  }
+} else {
+  Start-FrontendWindow -RepoRoot $repoRoot -BackendPython $backendPython
+}
 
-Write-Info "Starting frontend static server window on 127.0.0.1:4173"
-Start-Process powershell.exe -ArgumentList @(
-  "-NoExit",
-  "-NoProfile",
-  "-ExecutionPolicy",
-  "Bypass",
-  "-Command",
-  $frontendCommand
-) -WindowStyle Normal
+$frontendReady = Wait-ForUrl -Name "Frontend" -Uris @($homepageUrl) -TimeoutSeconds 30
 
-Start-Sleep -Seconds 2
-Write-Info "Opening login page: $frontendUrl"
-Start-Process $frontendUrl
+if (-not $frontendReady) {
+  Write-Host ""
+  Write-Host "Frontend did not become ready within 30 seconds."
+  Write-Host "Check the 'Personal_Web Frontend 4173' PowerShell window for static server errors."
+  Write-Host "Opening homepage anyway so the browser can retry if the server finishes startup late."
+} else {
+  Write-Info "Opening homepage: $homepageUrl"
+}
 
+Start-Process $homepageUrl
+
+Write-Host ""
+Write-Host "Personal_Web local development is ready."
+Write-Host ""
+Write-Host "Homepage:"
+Write-Host $homepageUrl
+Write-Host ""
+Write-Host "Login:"
+Write-Host $loginUrl
 Write-Host ""
 Write-Host "Local development accounts:"
 Write-Host "Admin: username 1, password 1"
@@ -186,6 +303,5 @@ Write-Host ""
 Write-Host "These are local development accounts only."
 Write-Host "Do not use them in production."
 Write-Host ""
-Write-Host "Stop instructions:"
-Write-Host "* Close the Backend and Frontend PowerShell windows, or"
-Write-Host "* Run scripts/stop-local-dev.ps1 from the repository root."
+Write-Host "Stop:"
+Write-Host ".\scripts\stop-local-dev.ps1"
