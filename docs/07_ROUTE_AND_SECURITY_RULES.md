@@ -42,6 +42,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Local login creates a database-backed session and an HttpOnly browser cookie.
 * Local login is for development only and is not production deployment.
 * `hub.html` is still a static shell; it can display local auth state but is not a production security boundary.
+* `journey.html` is public read-only for guests and normal users.
+* Journey editing controls require local admin permission.
+* Journey still stores prototype editor state in browser `localStorage`.
+* There is no active hidden private entrance link in current HTML.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.
 * Local backend and database foundations exist for development.
@@ -138,3 +142,39 @@ Required review areas include rate limiting, abuse controls, logging policy, pri
 Admin message reading, status changes, and soft delete must require real authentication and authorization before production use.
 
 The current static frontend must not be described as persisting visitor messages.
+
+## Local Auth Development Startup
+
+Use the Windows launcher from the repository root:
+
+```powershell
+.\start-local-dev.bat
+```
+
+Manual backend startup:
+
+```powershell
+cd backend
+alembic upgrade head
+python -m app.scripts.seed_dev_auth_users
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Manual frontend startup from the repository root:
+
+```powershell
+python -m http.server 4173 --bind 127.0.0.1
+```
+
+Login URL:
+
+```text
+http://127.0.0.1:4173/login.html
+```
+
+Local development accounts:
+
+```text
+Admin: 1 / 1
+User: 2 / 2
+```

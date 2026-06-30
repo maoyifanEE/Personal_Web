@@ -25,42 +25,56 @@ That backend foundation is for local development and future data testing only.
 Current boundaries:
 
 * `index.html` is a public static homepage.
-* `login.html` is a static mock private entrance only.
-* `hub.html` is a static private hub preview only.
+* `login.html` is a local-development login entry when the backend is running.
+* `hub.html` is a static shell that can display local auth state.
 * `apps/messages/index.html` is a static admin message management prototype only.
 * Task, health, special subscription, and journey pages are static or local prototypes.
 * A local FastAPI backend skeleton exists for development testing.
 * A local PostgreSQL schema foundation exists for development testing.
 * Local backend API endpoints exist for development testing.
-* There is no real authentication.
-* There is no real authorization.
+* Local-development authentication and selected RBAC checks have started.
+* Production authentication is not deployed.
+* Production authorization is not deployed.
 * There is no real cloud sync.
 * There is no production backend deployment.
-* Existing static front-end pages are not wired to the backend.
+* Most existing static front-end pages are not wired to the backend.
 
 Visible or hidden navigation is not security.
 
-The fixed test password in login.html is not security.
-
 Direct URL access to private preview pages is still possible.
 
-No real private data should be stored until backend, database, authentication, authorization, backup,
-and admin data-management rules are implemented correctly.
+No real private production data should be stored until production backend, database, authentication,
+authorization, backup, and admin data-management rules are implemented correctly.
 
 The first implemented business table is `visitor_messages`.
 
 A database-level RBAC foundation now exists with users, roles, permissions, user-role assignments,
-and role-permission assignments.
+role-permission assignments, and server-side sessions.
 
-The RBAC foundation is schema-only.
+The RBAC foundation is local-development only.
 
-It does not create a real user.
+It includes development seed users for browser smoke tests.
 
-It does not create a password.
+It stores password hashes, not plaintext passwords.
 
-It does not implement login or authorization behavior.
+It implements local login, logout, session lookup, CSRF, and selected admin permission checks.
 
-The `/api/dev/*` endpoints and `/api/admin/data/summary` are development-only until real authentication exists.
+The `/api/dev/*` endpoints and `/api/admin/data/summary` remain development-only.
+
+Local Auth/RBAC development can be started with the repository-root launcher:
+
+```powershell
+.\start-local-dev.bat
+```
+
+The launcher checks local development environment settings, runs migrations, runs the development seed,
+starts the backend and static frontend on localhost, and opens `login.html`.
+
+This is not deployment.
+
+It does not modify the public server.
+
+It does not create production users.
 
 ## 3. Target Architecture
 
@@ -433,7 +447,7 @@ authorization, rate limiting, deployment review, and frontend integration are co
 
 Initial local SQL migrations now exist for the backend skeleton.
 
-The schema is still not a production authentication or authorization system.
+The schema and local auth routes are still not a production authentication or authorization system.
 
 Draft table groups:
 
@@ -472,7 +486,8 @@ Security notes:
 * Store password hashes only.
 * Never store plaintext passwords.
 * Email uniqueness should be enforced.
-* No real users are seeded in the current schema foundation.
+* Local development users are created only by `python -m app.scripts.seed_dev_auth_users`.
+* Seeded users are for local smoke tests only.
 * User status is lifecycle metadata, not `data_scope`.
 
 ### `roles`
@@ -533,8 +548,8 @@ Needs soft delete fields:
 
 Security notes:
 
-* Current seeded permissions are definitions only.
-* They are not enforced by any route yet.
+* Current seeded permissions are enforced by selected local-development admin routes.
+* Full production authorization coverage is not implemented yet.
 
 ### `user_roles`
 
@@ -559,7 +574,7 @@ Needs `data_scope`:
 
 Security notes:
 
-* No user-role rows are seeded in the current foundation.
+* Local development user-role rows are created only by the development seed script.
 * Future assignment changes must require admin authorization and audit logging.
 
 ### `role_permissions`
@@ -582,7 +597,8 @@ Needs `data_scope`:
 Security notes:
 
 * The current migration assigns the seeded permissions to the seeded `admin` role.
-* This is reference data only until real authorization checks are implemented.
+* This supports selected local-development admin permission checks.
+* It is not production authorization coverage.
 
 ### `sessions`
 
@@ -896,7 +912,7 @@ Must not do:
 Acceptance criteria:
 
 * Documentation clearly separates local backend foundation from production deployment.
-* Documentation clearly says real authentication and authorization are not implemented.
+* Documentation clearly separates local-development Auth/RBAC from production authentication and authorization.
 * Architecture choices and risks are documented.
 
 ### Phase 2: Backend skeleton
@@ -917,7 +933,7 @@ Must not do:
 
 * Do not store real private data.
 * Do not expose database publicly.
-* Do not implement real authentication or authorization behavior yet.
+* Do not implement production authentication or authorization behavior yet.
 * Do not wire static front-end pages to backend APIs yet.
 
 Acceptance criteria:
@@ -928,12 +944,12 @@ Acceptance criteria:
 * Baseline migration exists.
 * RBAC schema exists without real users or passwords.
 
-### Phase 3: Real admin login
+### Phase 3: Production-ready auth hardening
 
 Goal:
 
-* Build on the existing RBAC schema to implement real admin login, password hashing,
-  session or token design, and protected routes.
+* Build on the existing local Auth/RBAC foundation to harden production login,
+  session handling, permission checks, and protected routes.
 
 Files likely touched:
 

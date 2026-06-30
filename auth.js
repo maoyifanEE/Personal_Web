@@ -75,18 +75,36 @@
   };
 
   const login = async ({ usernameOrEmail, password }) => {
-    const response = await fetch(`${apiBaseUrl}/auth/login`, {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ usernameOrEmail, password })
-    });
+    let response;
+    try {
+      response = await fetch(`${apiBaseUrl}/auth/login`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ usernameOrEmail, password })
+      });
+    } catch (error) {
+      const authError = new Error("Backend unavailable");
+      authError.code = "BACKEND_UNAVAILABLE";
+      authError.cause = error;
+      console.warn(logPrefix, "Login failed because backend is unavailable", error);
+      throw authError;
+    }
+
     const body = await safeJson(response);
     if (!response.ok) {
-      console.warn(logPrefix, "Login failed", { status: response.status, detail: body.detail });
-      throw new Error(body.detail || "Login failed");
+      const authError = new Error(body.detail || "Login failed");
+      authError.status = response.status;
+      authError.detail = body.detail;
+      authError.code = response.status === 401 ? "INVALID_CREDENTIALS" : "BACKEND_SETUP_ERROR";
+      console.warn(logPrefix, "Login failed", {
+        status: response.status,
+        code: authError.code,
+        detail: body.detail
+      });
+      throw authError;
     }
     cachedState = body;
     cachedCsrfToken = null;

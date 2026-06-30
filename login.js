@@ -23,6 +23,16 @@
     }
   };
 
+  const loginErrorMessage = (error) => {
+    if (error?.code === "BACKEND_UNAVAILABLE") {
+      return "无法连接本地后端，请确认 backend 已在 127.0.0.1:8000 启动。";
+    }
+    if (error?.code === "BACKEND_SETUP_ERROR") {
+      return "本地后端返回错误，请检查数据库迁移和开发账号 seed 是否已执行。";
+    }
+    return "账号或密码不正确。";
+  };
+
   form.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
@@ -75,8 +85,13 @@
       console.info("[login] Backend login accepted; redirecting to hub.html");
       window.location.href = "./hub.html";
     } catch (error) {
-      console.warn("[login] Backend login rejected", error);
-      setError("Incorrect account or password.");
+      console.warn("[login] Backend login rejected", {
+        code: error?.code,
+        status: error?.status,
+        detail: error?.detail,
+        message: error?.message
+      });
+      setError(loginErrorMessage(error));
       passwordInput.focus();
       passwordInput.select();
     } finally {

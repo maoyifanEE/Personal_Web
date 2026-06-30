@@ -69,7 +69,8 @@ The local FastAPI, PostgreSQL, Alembic, and visitor-message API foundation exist
 
 It is not a production system.
 
-The next planned major step is auth/RBAC v1 before database-backed homepage or Journey editing.
+The next planned major step is production hardening and broader permission coverage before
+database-backed homepage or Journey editing.
 
 Future auth work should use admin-created accounts first.
 
@@ -95,8 +96,8 @@ Implemented for local development only:
   * `roles`
   * `permissions`
   * `user_roles`
-* `role_permissions`
-* `auth_sessions`
+  * `role_permissions`
+  * `auth_sessions`
 * Safe system `admin` role and permission definitions.
 * Local `admin` and `user` roles.
 * Local Auth/RBAC v1 permissions:

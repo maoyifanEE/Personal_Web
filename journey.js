@@ -85,6 +85,21 @@ function canEditJourney() {
   return Boolean(journeyCanEdit);
 }
 
+function guardJourneyMutation(action) {
+  if (canEditJourney()) {
+    return true;
+  }
+  dragState = null;
+  rawDrawPoints = [];
+  startSnap = null;
+  currentPointer = null;
+  if (state.mode === "edit") {
+    state.mode = "preview";
+  }
+  logJourney("Blocked Journey edit mutation without homepage:edit permission.", { action });
+  return false;
+}
+
 async function loadJourneyAuthState() {
   if (!window.PersonalWebAuth) {
     logJourney("Auth helper unavailable; journey editor remains read-only.");
@@ -226,12 +241,18 @@ const loadInitialState = () => {
 };
 
 const markDirty = (reason) => {
+  if (!guardJourneyMutation(reason || "markDirty")) {
+    return;
+  }
   state.dirty = true;
   logJourney("State changed.", { reason });
   updateStatus(reason === "saved" ? "已保存" : "未保存");
 };
 
 const saveToLocalStorage = () => {
+  if (!guardJourneyMutation("saveToLocalStorage")) {
+    return;
+  }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state, null, 2));
   state.dirty = false;
   updateStatus("已保存");
@@ -244,6 +265,9 @@ const saveToLocalStorage = () => {
 };
 
 const clearCanvasState = () => {
+  if (!guardJourneyMutation("clearCanvasState")) {
+    return;
+  }
   if (!window.confirm("确认清空画布上的背景、贴纸、线条和节点吗？")) {
     logJourney("Canvas clear cancelled.");
     return;
@@ -1062,6 +1086,9 @@ function renderEditorPanel() {
     field.addEventListener("change", () => updateSetting(field));
   });
   toolbar.querySelector("details")?.addEventListener("toggle", (event) => {
+    if (!guardJourneyMutation("toggleCurveSettings")) {
+      return;
+    }
     state.editor.showCurveSettings = event.currentTarget.open;
   });
   toolbar.querySelectorAll("[data-file-input]").forEach((input) => {
@@ -1107,6 +1134,9 @@ function renderSelectedNodePanel() {
 }
 
 function setTool(tool) {
+  if (!guardJourneyMutation(`setTool:${tool}`)) {
+    return;
+  }
   state.editor.activeTool = tool;
   currentPointer = null;
   rawDrawPoints = [];
@@ -1117,6 +1147,9 @@ function setTool(tool) {
 }
 
 function updateSetting(field) {
+  if (!guardJourneyMutation("updateSetting")) {
+    return;
+  }
   const key = field.dataset.setting;
   if (key === "height") {
     state.canvas.height = Math.round(clamp(Number(field.value), MIN_CANVAS_HEIGHT, MAX_CANVAS_HEIGHT));
@@ -1130,6 +1163,9 @@ function updateSetting(field) {
 }
 
 function handleToolbarAction(action) {
+  if (action !== "exit" && !guardJourneyMutation(`toolbar:${action}`)) {
+    return;
+  }
   const fileInput = document.querySelector(`[data-file-input='${action === "upload-background" ? "background" : "sticker"}']`);
   const actions = {
     "upload-background": () => fileInput?.click(),
@@ -1146,6 +1182,9 @@ function handleToolbarAction(action) {
 }
 
 function clearBackground() {
+  if (!guardJourneyMutation("clearBackground")) {
+    return;
+  }
   state.canvas.background = {
     imageSrc: "",
     fit: "cover"
@@ -1156,6 +1195,10 @@ function clearBackground() {
 }
 
 function handleFileInput(input) {
+  if (!guardJourneyMutation(`fileInput:${input.dataset.fileInput || "unknown"}`)) {
+    input.value = "";
+    return;
+  }
   const file = input.files?.[0];
   if (!file) {
     return;
@@ -1180,7 +1223,7 @@ function handleFileInput(input) {
 function handleCanvasDrop(event) {
   event.preventDefault();
   event.currentTarget.classList.remove("is-drag-over");
-  if (state.mode !== "edit") {
+  if (state.mode !== "edit" || !guardJourneyMutation("handleCanvasDrop")) {
     return;
   }
   const file = event.dataTransfer?.files?.[0];
@@ -1218,6 +1261,9 @@ function readImageFile(file) {
 }
 
 function addSticker(imageSrc, position = { xPercent: 50, yPercent: 30 }) {
+  if (!guardJourneyMutation("addSticker")) {
+    return;
+  }
   const sticker = sanitizeSticker({
     imageSrc,
     ...position,
@@ -1232,7 +1278,7 @@ function addSticker(imageSrc, position = { xPercent: 50, yPercent: 30 }) {
 }
 
 function handleCanvasPointerDown(event) {
-  if (state.mode !== "edit" || event.button !== 0) {
+  if (state.mode !== "edit" || event.button !== 0 || !guardJourneyMutation("handleCanvasPointerDown")) {
     return;
   }
   if (event.target.closest(".journey-sketch-sticker") || event.target.closest(".journey-sketch-node")) {
@@ -1263,7 +1309,7 @@ function handleCanvasPointerDown(event) {
 }
 
 function handleCanvasPointerMove(event) {
-  if (state.mode !== "edit") {
+  if (state.mode !== "edit" || !guardJourneyMutation("handleCanvasPointerMove")) {
     return;
   }
   const point = clientPointToCanvasPoint(event);
@@ -1290,6 +1336,9 @@ function handleCanvasPointerMove(event) {
 
 function handleCanvasPointerUp(event) {
   if (!dragState) {
+    return;
+  }
+  if (!guardJourneyMutation("handleCanvasPointerUp")) {
     return;
   }
   const point = clientPointToCanvasPoint(event);
@@ -1320,7 +1369,7 @@ function handleCanvasPointerUp(event) {
 
 function handleCanvasContextMenu(event) {
   event.preventDefault();
-  if (state.mode !== "edit") {
+  if (state.mode !== "edit" || !guardJourneyMutation("handleCanvasContextMenu")) {
     return;
   }
   if (!state.canvas.strokes.length) {
@@ -1339,7 +1388,7 @@ function handleCanvasContextMenu(event) {
 }
 
 function startNodeDrag(event, nodeId) {
-  if (state.mode !== "edit") {
+  if (state.mode !== "edit" || !guardJourneyMutation("startNodeDrag")) {
     return;
   }
   event.preventDefault();
@@ -1356,7 +1405,7 @@ function startNodeDrag(event, nodeId) {
 }
 
 function startStickerDrag(event, stickerId, mode) {
-  if (state.mode !== "edit") {
+  if (state.mode !== "edit" || !guardJourneyMutation("startStickerDrag")) {
     return;
   }
   event.preventDefault();
@@ -1381,7 +1430,7 @@ function startStickerDrag(event, stickerId, mode) {
 }
 
 window.addEventListener("pointermove", (event) => {
-  if (!dragState || state.mode !== "edit") {
+  if (!dragState || state.mode !== "edit" || !guardJourneyMutation("windowPointerMove")) {
     return;
   }
   const point = clientPointToCanvasPointSafe(event);
@@ -1403,6 +1452,12 @@ window.addEventListener("pointermove", (event) => {
 });
 
 window.addEventListener("pointerup", () => {
+  if (!dragState) {
+    return;
+  }
+  if (!guardJourneyMutation("windowPointerUp")) {
+    return;
+  }
   if (dragState?.kind === "node") {
     showMessage("节点已沿线移动。");
   } else if (dragState?.kind === "sticker") {
@@ -1415,7 +1470,7 @@ window.addEventListener("pointerup", () => {
 });
 
 window.addEventListener("keydown", (event) => {
-  if (state.mode !== "edit" || !["Delete", "Backspace"].includes(event.key)) {
+  if (state.mode !== "edit" || !["Delete", "Backspace"].includes(event.key) || !guardJourneyMutation("deleteKey")) {
     return;
   }
   if (state.editor.selectedNodeId) {
@@ -1435,6 +1490,9 @@ function clientPointToCanvasPointSafe(event) {
 }
 
 function updateStickerDrag(point) {
+  if (!guardJourneyMutation("updateStickerDrag")) {
+    return;
+  }
   const sticker = state.canvas.stickers.find((item) => item.id === dragState.stickerId);
   if (!sticker) {
     return;
@@ -1458,6 +1516,9 @@ function updateStickerDrag(point) {
 }
 
 function selectNode(nodeId) {
+  if (!guardJourneyMutation("selectNode")) {
+    return;
+  }
   state.editor.selectedNodeId = nodeId;
   state.editor.selectedStickerId = null;
   state.editor.activeTool = "select";
@@ -1469,6 +1530,9 @@ function selectedNode() {
 }
 
 function updateSelectedNodeLabel(label) {
+  if (!guardJourneyMutation("updateSelectedNodeLabel")) {
+    return;
+  }
   const node = selectedNode();
   if (!node) {
     return;
@@ -1480,6 +1544,9 @@ function updateSelectedNodeLabel(label) {
 }
 
 function deleteSelectedNode() {
+  if (!guardJourneyMutation("deleteSelectedNode")) {
+    return;
+  }
   if (!state.editor.selectedNodeId) {
     return;
   }
@@ -1491,6 +1558,9 @@ function deleteSelectedNode() {
 }
 
 function deleteSelectedSticker() {
+  if (!guardJourneyMutation("deleteSelectedSticker")) {
+    return;
+  }
   if (!state.editor.selectedStickerId) {
     return;
   }

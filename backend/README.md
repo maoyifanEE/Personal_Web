@@ -185,6 +185,50 @@ The static front-end is still served separately.
 
 FastAPI does not serve the existing static pages in this phase.
 
+## One-Click Local Development Start
+
+From the repository root on Windows:
+
+```powershell
+.\start-local-dev.bat
+```
+
+The launcher checks `backend/.env`, runs migrations, runs the development auth seed,
+starts the backend, starts the static frontend, and opens:
+
+```text
+http://127.0.0.1:4173/login.html
+```
+
+Required local development environment values:
+
+```text
+APP_ENV=development
+ALLOW_DEV_TOOLS=true
+CORS_ALLOW_ORIGINS=http://127.0.0.1:4173,http://localhost:4173
+```
+
+Local development accounts:
+
+```text
+Admin: 1 / 1
+User: 2 / 2
+```
+
+These accounts are created by the development seed script only.
+
+They are not seeded by migrations and must never be used in production.
+
+Common login setup problems:
+
+* Backend is not running on `127.0.0.1:8000`.
+* PostgreSQL is not running.
+* `DATABASE_URL` points to a different database.
+* Alembic migration was not run.
+* Development auth seed was not run.
+* `ALLOW_DEV_TOOLS` is not `true`.
+* CORS origins do not include the local frontend origin.
+
 ## Test Health
 
 Open:

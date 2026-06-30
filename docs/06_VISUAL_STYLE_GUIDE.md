@@ -27,7 +27,7 @@ It should also prevent old navigation behavior from returning by accident.
 
 ## Journey Page
 
-* `journey.html` is the curved path timeline prototype.
+* `journey.html` is the Journey sketch canvas prototype.
 * It uses placeholder data only for now.
 * It is a public/static prototype in the current project stage.
 * The editor UI is prototype-level and not secure admin.

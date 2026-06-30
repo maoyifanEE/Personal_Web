@@ -1,5 +1,33 @@
 # Project History
 
+## 2026-06-30 - Add one-click local Auth/RBAC development launcher
+
+### Goal
+
+* Continue on `Feature/auth-rbac-v1`.
+* Fix Auth/RBAC review follow-ups.
+* Add a Windows one-click local development launcher for the backend and static frontend.
+* Keep production deployment, public server changes, and real private data out of scope.
+
+### Completed
+
+* Removed stale hidden private entrance markup from `journey.html`.
+* Updated stale Journey page title, meta description, heading, and map label wording.
+* Added Journey mutation guards so guests and normal users remain read-only while admins can edit.
+* Preserved the existing Journey drawing, smoothing, eraser, node, sticker, and pointer-mapping algorithms.
+* Improved login error classification for unavailable backend, invalid credentials, and backend setup errors.
+* Added `start-local-dev.bat` and PowerShell start/stop scripts for local Auth/RBAC development.
+* Documented local startup, migration, seed, local accounts, and common login setup failures.
+
+### Safety boundaries
+
+* This remains local-development Auth/RBAC only.
+* No production deployment was performed.
+* No backend persistence was added for homepage or Journey data.
+* No upload persistence was added.
+* No public registration, OAuth, production administrator lifecycle, or production authorization hardening was added.
+* Static route access is still not a production security boundary.
+
 ## 2026-06-29 - Add local Auth/RBAC v1 foundation
 
 ### Goal

@@ -5,6 +5,14 @@
   const logoutButton = document.querySelector("[data-hub-logout]");
   const adminOnlyItems = Array.from(document.querySelectorAll("[data-admin-only]"));
 
+  const setElementHidden = (element, hidden) => {
+    if (!element) {
+      return;
+    }
+    element.hidden = hidden;
+    element.style.display = hidden ? "none" : "";
+  };
+
   const setStatus = (message) => {
     if (statusEl) {
       statusEl.textContent = message;
@@ -18,13 +26,13 @@
       gridEl.hidden = true;
     }
     if (loginLink) {
-      loginLink.hidden = false;
+      setElementHidden(loginLink, false);
     }
     if (logoutButton) {
-      logoutButton.hidden = true;
+      setElementHidden(logoutButton, true);
     }
     adminOnlyItems.forEach((item) => {
-      item.hidden = true;
+      setElementHidden(item, true);
     });
   };
 
@@ -40,16 +48,16 @@
       gridEl.hidden = false;
     }
     if (loginLink) {
-      loginLink.hidden = true;
+      setElementHidden(loginLink, true);
     }
     if (logoutButton) {
-      logoutButton.hidden = false;
+      setElementHidden(logoutButton, false);
     }
     const canManageUsers =
       window.PersonalWebAuth.hasRole(state, "admin") ||
       window.PersonalWebAuth.hasPermission(state, "users:manage");
     adminOnlyItems.forEach((item) => {
-      item.hidden = !canManageUsers;
+      setElementHidden(item, !canManageUsers);
     });
   };
 

@@ -199,6 +199,76 @@ Then open these URLs as needed:
 * `http://127.0.0.1:4173/apps/special-subscription/index.html`
 * `http://127.0.0.1:4173/apps/messages/index.html`
 
+## Local Auth Development Quickstart
+
+The easiest local start path on Windows is:
+
+```powershell
+.\start-local-dev.bat
+```
+
+The launcher:
+
+* checks `backend/.env`
+* requires `APP_ENV=development`
+* requires `ALLOW_DEV_TOOLS=true`
+* installs backend requirements into `backend/.venv`
+* runs Alembic migrations
+* runs the development auth seed script
+* starts the backend at `http://127.0.0.1:8000`
+* starts the static frontend at `http://127.0.0.1:4173`
+* opens `http://127.0.0.1:4173/login.html`
+
+Local development accounts:
+
+```text
+Admin: 1 / 1
+User: 2 / 2
+```
+
+These accounts are local development accounts only.
+
+They are created by `python -m app.scripts.seed_dev_auth_users`.
+
+They are not created by migrations and must not be used in production.
+
+Manual equivalent:
+
+```powershell
+cd backend
+alembic upgrade head
+python -m app.scripts.seed_dev_auth_users
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```powershell
+python -m http.server 4173 --bind 127.0.0.1
+```
+
+Then open:
+
+```text
+http://127.0.0.1:4173/login.html
+```
+
+Common login failure causes:
+
+* Backend is not running on `127.0.0.1:8000`.
+* Frontend is not opened from `127.0.0.1:4173`.
+* Alembic migration was not run.
+* Development auth seed was not run.
+* `DATABASE_URL` points to a different local database.
+* `ALLOW_DEV_TOOLS` is not `true`.
+* `CORS_ALLOW_ORIGINS` does not include `http://127.0.0.1:4173`.
+
+Stop local servers:
+
+```powershell
+.\scripts\stop-local-dev.ps1
+```
+
 ## Current Non-Goals
 
 * Production backend deployment.
