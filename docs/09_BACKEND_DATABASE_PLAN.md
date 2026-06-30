@@ -69,8 +69,8 @@ The local FastAPI, PostgreSQL, Alembic, and visitor-message API foundation exist
 
 It is not a production system.
 
-The next planned major step is production hardening and broader permission coverage before
-database-backed homepage or Journey editing.
+The next planned major step is production hardening and broader permission coverage before broader
+production data editing.
 
 Future auth work should use admin-created accounts first.
 
@@ -91,6 +91,9 @@ Implemented for local development only:
 * `audit_logs` table.
 * Development-only seed, reset, export, and admin summary endpoints.
 * Local development `POST /api/messages` endpoint for backend testing.
+* Local development `GET /api/homepage/canvas` endpoint for shared Journey canvas reading.
+* Local development admin-only `PUT /api/homepage/canvas` endpoint for shared Journey canvas saving.
+* `homepage_canvas_states` JSONB table for Journey canvas state.
 * Database-level RBAC foundation tables:
   * `app_users`
   * `roles`
@@ -117,7 +120,7 @@ Not implemented yet:
 * Production admin UI.
 * Full front-end migration to backend APIs.
 * Production visitor message submission.
-* Task, health, subscription, or journey database persistence.
+* Task, health, subscription, or image upload persistence.
 
 ## RBAC Foundation Status
 
@@ -176,7 +179,7 @@ Future backend work may need to cover these data areas:
 * Task List data.
 * Health Management data.
 * Special Subscription data.
-* Journey page data.
+* Journey page canvas JSON in `homepage_canvas_states`.
 * User/account data.
 * Visitor Message data.
 * Login session data.
@@ -210,7 +213,9 @@ Real passwords must never be stored in static HTML, CSS, JavaScript, Markdown, o
 * Authentication must be designed before storing real private data.
 * Authorization must be designed before storing real private data.
 * No real private data should be committed during development.
-* Any migration from `localStorage` to server storage must include a backup or export plan.
+* Journey `localStorage` remains a local draft and backend-unavailable fallback.
+* Any broader migration from `localStorage` to server storage must include a backup or export plan.
+* Data URL images are not intended for database persistence.
 * Any production credential must be configured outside the public repository.
 * Any backend branch must include explicit manual testing instructions.
 

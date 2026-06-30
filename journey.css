@@ -2280,6 +2280,17 @@ select {
   font-weight: 850;
 }
 
+.journey-sketch-remote-status {
+  margin: 8px 0 0;
+  color: rgba(23, 37, 52, 0.68);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.journey-sketch-remote-status[data-error="true"] {
+  color: #ad3c2d;
+}
+
 @media (max-width: 900px) {
   .timeline-home[data-editor-mode="edit"] {
     padding-right: 0;

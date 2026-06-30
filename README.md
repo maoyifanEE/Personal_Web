@@ -31,7 +31,7 @@ The repository must not contain real private data, secrets, production database 
 | Page | Purpose | Current status |
 | --- | --- | --- |
 | `index.html` | Public cover homepage | Implemented static page |
-| `journey.html` | Journey sketch canvas prototype | Static/local prototype |
+| `journey.html` | Journey sketch canvas prototype | Public read, admin database save in local development |
 | `login.html` | Private entrance | Local backend Auth/RBAC v1 login when backend is running |
 | `hub.html` | Private hub preview | Shows role-aware local development app links |
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
@@ -45,7 +45,9 @@ The journey prototype now uses a draft-paper style sketch canvas.
 Current Journey sketch canvas v1 behavior:
 
 * Transparent and full-bleed preview.
-* Browser-local sketch state stored in `localStorage`.
+* Shared sketch canvas JSON can be read from local PostgreSQL through `GET /api/homepage/canvas`.
+* Admin users with `homepage:edit` can save shared canvas JSON through `PUT /api/homepage/canvas`.
+* Browser-local sketch state remains in `localStorage` as a local draft and backend-unavailable fallback.
 * State key: `journeySketchCanvasStateV1`.
 * Schema version: `sketch-canvas-v1`.
 * State includes background, strokes, nodes, stickers, and `nextNodeNumber`.
@@ -57,9 +59,15 @@ Current Journey sketch canvas v1 behavior:
 * Sticker upload, drag, resize, rotate, and delete for local prototype preview.
 * Background upload and clear for local prototype preview.
 
-Journey state is not persisted to the backend yet.
+Journey canvas JSON can now be persisted to PostgreSQL in local development.
+
+Guests and normal users can read the saved Journey canvas.
+
+Only admins with `homepage:edit` can save it.
 
 Sticker and background uploads are local prototype Data URL previews only.
+
+Data URL image persistence is intentionally rejected by the backend.
 
 Do not store real private data or real private images in the current Journey prototype.
 

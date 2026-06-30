@@ -30,6 +30,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Backend admin summary | `/api/admin/data/summary` | Local admin data foundation endpoint | Disabled outside development |
 | Backend auth | `/api/auth/*` | Local Auth/RBAC v1 login, logout, me, CSRF | Development only |
 | Backend user admin | `/api/admin/users/*` | Local admin user management API | Requires local admin permission |
+| Backend homepage canvas read | `/api/homepage/canvas` GET | Local Journey canvas database read | Public read |
+| Backend homepage canvas save | `/api/homepage/canvas` PUT | Local Journey canvas database save | Requires `homepage:edit` |
 
 ## Important Security Boundary
 
@@ -44,7 +46,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * `hub.html` is still a static shell; it can display local auth state but is not a production security boundary.
 * `journey.html` is public read-only for guests and normal users.
 * Journey editing controls require local admin permission.
-* Journey still stores prototype editor state in browser `localStorage`.
+* Journey reads shared canvas JSON from the local backend when available.
+* Journey keeps browser `localStorage` as a local draft and backend-unavailable fallback.
+* Journey database save requires `homepage:edit`.
+* Journey Data URL image save is rejected by the backend until upload persistence exists.
 * There is no active hidden private entrance link in current HTML.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.

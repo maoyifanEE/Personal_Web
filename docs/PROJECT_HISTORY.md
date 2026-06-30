@@ -1,5 +1,31 @@
 # Project History
 
+## 2026-06-30 - Add Homepage Journey canvas database persistence
+
+### Goal
+
+* Work on `Feature/homepage-canvas-database-v1`.
+* Add local PostgreSQL persistence for the shared Homepage/Journey canvas JSON.
+* Keep Journey drawing, smoothing, eraser, node, and sticker algorithms unchanged.
+* Keep this local-development only with no deployment.
+
+### Completed
+
+* Added `homepage_canvas_states` for shared Journey canvas JSONB state.
+* Added `GET /api/homepage/canvas` for public canvas reads.
+* Added admin-only `PUT /api/homepage/canvas` guarded by `homepage:edit` and CSRF.
+* Added revision metadata and stale revision conflict handling.
+* Added backend rejection for Data URL image payloads.
+* Integrated Journey loading with backend read plus `localStorage` fallback.
+* Added admin-only save-to-database action while keeping local draft save behavior.
+
+### Safety boundaries
+
+* No image upload persistence was added.
+* No production deployment was performed.
+* No public server, Nginx, Certbot, production database, secrets, uploads, logs, or backups were modified.
+* No task, health, subscription, homepage design, or Journey drawing algorithm behavior was intentionally changed.
+
 ## 2026-06-30 - Fix local launcher homepage startup
 
 ### Goal
