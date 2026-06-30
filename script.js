@@ -4,8 +4,8 @@ const logCover = (message, details = {}) => {
 
 const initializeCoverPage = () => {
   logCover("Cover page initialized.", {
-    journeyEntry: document.querySelector(".journey-hidden-entrance")?.getAttribute("href") || null,
-    privateEntry: document.querySelector(".hidden-entrance")?.getAttribute("href") || null,
+    journeyEntry: document.querySelector(".visitor-entrance")?.getAttribute("href") || null,
+    privateEntry: document.querySelector(".user-entrance")?.getAttribute("href") || null,
     clickAnywhereNavigation: false
   });
 };

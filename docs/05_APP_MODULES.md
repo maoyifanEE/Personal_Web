@@ -21,6 +21,8 @@ It also prevents placeholder pages from being mistaken for production systems.
 | Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not wired | No real subscription logic. |
 | Visitor Messages | 留言 / 留言管理 | `apps/messages/index.html` | Static prototype | None | Local foundation only | Static frontend does not save. |
 
+| Admin Users | 用户管理 | `apps/admin-users/index.html` | Local Auth/RBAC v1 admin preview | Backend session only | Wired to local admin users API | Development only; not production admin. |
+
 ## Module Details
 
 ### Task List
@@ -75,6 +77,20 @@ It also prevents placeholder pages from being mistaken for production systems.
 * Data sensitivity: visitor-submitted message data is private user-submitted data
 * Current limitation: visitor submissions from the static homepage modal are not saved
 * Notes: real production persistence requires backend deployment, authentication, admin authorization, and rate limiting
+
+### Admin Users
+
+* Chinese display name: 用户管理
+* English/internal name: Admin Users
+* Path: `apps/admin-users/index.html`
+* Current status: local Auth/RBAC v1 admin preview
+* Backend status: wired to local `/api/admin/users` endpoints
+* Database status: uses local Auth/RBAC v1 tables and sessions
+* Cloud sync status: not implemented
+* Storage: no browser localStorage; state comes from backend API responses
+* Data sensitivity: account and role metadata is sensitive
+* Current limitation: development-only; production deployment and full security hardening are not implemented
+* Notes: this page requires local admin authentication and must not be treated as production-ready admin security
 
 ## Future / Proposed Modules
 

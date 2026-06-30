@@ -5,12 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
-      content="Personal_Web 私人工具中心静态占位页，真实权限保护尚未实现。"
+      content="Personal_Web private hub preview with local Auth/RBAC status."
     >
-    <title>Personal Hub Placeholder</title>
+    <title>Personal Hub</title>
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="./styles.css">
-    <script src="./script.js" defer></script>
+    <link rel="stylesheet" href="./styles.css?v=auth-rbac-v1">
+    <script src="./auth.js" defer></script>
+    <script src="./hub.js?v=auth-rbac-v1" defer></script>
   </head>
   <body data-page="hub">
     <main class="private-page hub-page" aria-labelledby="page-title">
@@ -19,51 +20,60 @@
           <img src="./assets/icon.svg" alt="" width="34" height="34">
         </div>
 
-        <p class="status-badge">静态占位</p>
-        <h1 id="page-title">私人工具中心</h1>
+        <p class="status-badge">本地权限预览</p>
+        <h1 id="page-title">个人工具中心</h1>
         <p class="private-copy">
-          当前尚未实现真实登录、身份验证或权限保护。请不要在这里存放私人数据。
+          当前为本地 Auth/RBAC v1 开发预览。静态页面入口本身不是安全边界；
+          真实权限以后台会话、角色和 API 授权检查为准。
         </p>
 
-        <div class="hub-grid" aria-label="Future app placeholders">
+        <div class="hub-auth-panel" data-hub-auth-panel>
+          <p class="hub-auth-status" data-hub-auth-status>正在检查登录状态...</p>
+          <div class="hub-auth-actions">
+            <a class="primary-action" href="./login.html" data-hub-login-link>前往登录</a>
+            <button class="secondary-action" type="button" data-hub-logout hidden>退出登录</button>
+          </div>
+        </div>
+
+        <div class="hub-grid" aria-label="Private app previews" data-hub-grid hidden>
           <article class="app-card">
             <p class="card-status">V1 原型</p>
             <h2>任务清单</h2>
-            <p>管理待办事项、计划任务、日期任务和个人清单。当前为本地浏览器原型。</p>
+            <p>管理待办事项、计划任务、日期任务和个人清单。当前仍是本地浏览器原型。</p>
             <a class="card-link" href="./apps/tasks/index.html">进入任务清单</a>
           </article>
+
           <article class="app-card">
             <p class="card-status">V1 原型</p>
             <h2>健康管理</h2>
-            <p>管理健康饮食、运动打卡和放纵警告，当前仅使用本机浏览器保存数据。</p>
+            <p>管理饮食、运动打卡和放纵警告。当前仍是本地浏览器原型。</p>
             <a class="card-link" href="./apps/health/index.html">进入健康管理</a>
           </article>
-          <a
-            class="app-card app-card--link-card"
-            href="./apps/special-subscription/index.html"
-          >
-            <p class="card-status">空白占位</p>
+
+          <a class="app-card app-card--link-card" href="./apps/special-subscription/index.html">
+            <p class="card-status">占位原型</p>
             <h2>特别订阅</h2>
-            <p>用于后续整理特殊订阅内容，当前为空白占位。</p>
+            <p>用于后续整理特殊订阅内容，当前为静态占位。</p>
             <span class="card-link">进入特别订阅</span>
           </a>
 
-          <a
-            class="app-card app-card--link-card"
-            href="./apps/messages/index.html"
-          >
-            <p class="card-status">&#31649;&#29702;&#31471;&#21407;&#22411;</p>
-            <h2>&#30041;&#35328;&#31649;&#29702;</h2>
-            <p>
-              &#26597;&#30475;&#35775;&#23458;&#30041;&#35328;&#30340;&#31649;&#29702;&#31471;
-              UI &#21407;&#22411;&#65307;&#30495;&#23454;&#21015;&#34920;&#38656;&#35201;&#21518;&#31471;&#12289;&#25968;&#25454;&#24211;&#12289;&#35748;&#35777;&#21644;&#31649;&#29702;&#21592;&#26435;&#38480;&#12290;
-            </p>
-            <span class="card-link">&#36827;&#20837;&#30041;&#35328;&#31649;&#29702;</span>
+          <a class="app-card app-card--link-card" href="./apps/messages/index.html">
+            <p class="card-status">管理端原型</p>
+            <h2>留言管理</h2>
+            <p>查看访客留言管理 UI 原型；真实列表仍需要后台、数据库、认证和管理员权限。</p>
+            <span class="card-link">进入留言管理</span>
+          </a>
+
+          <a class="app-card app-card--link-card" href="./apps/admin-users/index.html" data-admin-only hidden>
+            <p class="card-status">管理员</p>
+            <h2>用户管理</h2>
+            <p>本地 Auth/RBAC v1 管理界面，用于查看用户、分配角色和重置测试密码。</p>
+            <span class="card-link">进入用户管理</span>
           </a>
         </div>
 
         <div class="private-actions">
-          <a class="secondary-action" href="./login.html">返回私人入口</a>
+          <a class="secondary-action" href="./login.html">返回用户入口</a>
           <a class="secondary-action" href="./index.html">返回公开首页</a>
         </div>
       </section>

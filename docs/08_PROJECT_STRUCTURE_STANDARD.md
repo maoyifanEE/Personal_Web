@@ -28,7 +28,7 @@ Static private placeholders are visually private but not secure.
 
 Child apps live under `apps/` and are linked from the hub.
 
-Current child app folders include `apps/tasks/`, `apps/health/`, `apps/special-subscription/`, and `apps/messages/`.
+Current child app folders include `apps/tasks/`, `apps/health/`, `apps/special-subscription/`, `apps/messages/`, and `apps/admin-users/`.
 
 Prototype pages may include local-only editor behavior.
 
@@ -62,6 +62,8 @@ Backend rules:
 * RBAC ORM models belong in `backend/app/models/`.
 * RBAC migrations may seed system role and permission definitions only.
 * RBAC migrations must not seed real users, real passwords, sessions, or tokens.
+* Development-only auth seed users belong in explicit scripts under `backend/app/scripts/`.
+* Development auth seed scripts must refuse production environments.
 
 ## Root Page Rules
 

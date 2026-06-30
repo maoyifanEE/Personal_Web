@@ -12,6 +12,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   min-height: 100%;
   background: var(--page-bg);
@@ -348,6 +352,31 @@ h1 span {
   margin-top: 30px;
 }
 
+.hub-auth-panel {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 22px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(21, 156, 165, 0.16);
+  border-radius: 14px;
+}
+
+.hub-auth-status {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.hub-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .app-card {
   min-height: 164px;
   display: block;
@@ -477,6 +506,15 @@ h1 span {
 
   .hub-grid {
     grid-template-columns: 1fr;
+  }
+
+  .hub-auth-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hub-auth-actions {
+    justify-content: flex-start;
   }
 }
 

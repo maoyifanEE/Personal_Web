@@ -20,6 +20,7 @@ def write_audit_log(
     data_scope: str = "test",
     actor_type: str = "system",
     actor_id: str | None = None,
+    actor_user_id: int | None = None,
 ) -> AuditLog:
     """Create an audit log row for development and future admin actions."""
 
@@ -31,6 +32,7 @@ def write_audit_log(
         data_scope=data_scope,
         actor_type=actor_type,
         actor_id=actor_id,
+        actor_user_id=actor_user_id,
         summary=summary,
     )
     db.add(log)

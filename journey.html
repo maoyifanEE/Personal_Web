@@ -3,13 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Curved Path Timeline Prototype - Personal_Web</title>
+    <title>Journey Sketch Canvas - Personal_Web</title>
     <meta
       name="description"
-      content="A static Curved Path Timeline Homepage prototype using placeholder areas and events only."
+      content="Journey sketch canvas public read-only prototype with admin-only local editing controls."
     >
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./journey.css">
+    <script src="./auth.js" defer></script>
     <script src="./journey.js" defer></script>
   </head>
   <body data-page="home">
@@ -19,12 +20,12 @@
       data-editor-mode="preview"
       aria-labelledby="page-title"
     >
-      <a class="journey-back-link" href="./index.html">返回封面</a>
+      <a class="journey-back-link" href="./index.html">Back to homepage</a>
 
       <section class="timeline-hero" aria-label="Homepage introduction">
         <div class="timeline-hero__copy">
           <p class="timeline-eyebrow">Hello, World!</p>
-          <h1 id="page-title">A simple curved path timeline prototype.</h1>
+          <h1 id="page-title">Journey sketch canvas prototype.</h1>
         </div>
 
         <div class="timeline-hero__actions">
@@ -41,21 +42,15 @@
             </button>
           </div>
 
-          <button type="button" class="editor-toggle" data-editor-toggle>
-            编辑主页
+          <button type="button" class="editor-toggle" data-editor-toggle hidden>
+            Edit journey
           </button>
         </div>
       </section>
 
-      <section class="journey-map" aria-label="Curved path timeline prototype">
+      <section class="journey-map" aria-label="Journey sketch canvas prototype">
         <div class="journey-areas" id="journey-areas"></div>
       </section>
-
-      <a
-        class="hidden-entrance"
-        href="./login.html"
-        aria-label="Open private entrance placeholder"
-      ></a>
     </main>
 
     <div

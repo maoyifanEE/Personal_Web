@@ -110,11 +110,13 @@ Real private data is created during website use and stored in the server-side da
 * Local backend skeleton exists for development.
 * Local PostgreSQL development foundation exists.
 * Local API endpoints exist for backend testing and development only.
-* Authentication is not implemented.
-* Authorization is not implemented.
+* Local-development Auth/RBAC v1 exists for backend and browser smoke testing.
+* Production authentication is not implemented.
+* Production authorization is not implemented.
 * Cloud sync is not implemented.
 * Production backend deployment is not implemented.
-* Frontend pages are not wired to the backend yet.
+* `login.html`, `hub.html`, and Journey edit gating are partially wired to local Auth/RBAC v1.
+* Most frontend app prototypes are not fully migrated to backend APIs yet.
 * Future production backend work must use a dedicated branch.
 * Future backend work must include documentation updates.
 * Future backend/database implementation must follow `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`.

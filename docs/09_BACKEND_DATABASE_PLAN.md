@@ -5,11 +5,11 @@
 * Backend: local development skeleton started.
 * Database: local PostgreSQL development foundation started.
 * API: local development endpoints started.
-* Authentication: not implemented.
-* Authorization: not implemented.
+* Authentication: local-development Auth/RBAC v1 started.
+* Authorization: local-development RBAC checks started for admin user management.
 * RBAC database foundation: implemented for local development schema only.
 * Cloud sync: not implemented.
-* Real login: not implemented.
+* Real login: local backend login exists for development; production login is not deployed.
 * Real protected private routes: not implemented.
 * This document is a planning overview plus current local backend status.
 * No production backend is deployed yet.
@@ -53,11 +53,11 @@ Refer to `docs/00_DESIGN_GUIDE.md` for the full ownership model.
 
 ## Planned Future Components
 
-The following components are planned only for production use:
+The following components remain planned or incomplete for production use:
 
-* Authentication.
-* Authorization.
-* Auth/RBAC v1 with admin-created accounts only.
+* Production authentication.
+* Production authorization.
+* Auth/RBAC hardening across all private APIs.
 * Backup system.
 * Admin/user roles.
 * Server-side validation.
@@ -69,7 +69,8 @@ The local FastAPI, PostgreSQL, Alembic, and visitor-message API foundation exist
 
 It is not a production system.
 
-The next planned major step is auth/RBAC v1 before database-backed homepage or Journey editing.
+The next planned major step is production hardening and broader permission coverage before
+database-backed homepage or Journey editing.
 
 Future auth work should use admin-created accounts first.
 
@@ -96,19 +97,25 @@ Implemented for local development only:
   * `permissions`
   * `user_roles`
   * `role_permissions`
+  * `auth_sessions`
 * Safe system `admin` role and permission definitions.
+* Local `admin` and `user` roles.
+* Local Auth/RBAC v1 permissions:
+  * `homepage:view`
+  * `homepage:edit`
+  * `apps:access`
+  * `users:manage`
+  * `admin:access`
 
 Not implemented yet:
 
 * Production backend deployment.
-* Real authentication.
-* Real authorization.
-* Login API.
-* Route permission checks.
-* Real administrator user.
-* Real password creation or password reset.
+* Production authentication.
+* Production authorization.
+* Full route permission checks across all private APIs.
+* Production administrator account lifecycle.
 * Production admin UI.
-* Front-end migration to backend APIs.
+* Full front-end migration to backend APIs.
 * Production visitor message submission.
 * Task, health, subscription, or journey database persistence.
 
@@ -125,6 +132,7 @@ Current schema groups:
 * `permissions`: permission definitions such as `visitor_messages:read`.
 * `user_roles`: future user-to-role assignments.
 * `role_permissions`: role-to-permission assignments.
+* `auth_sessions`: database-backed local development browser sessions.
 
 Seeded reference data:
 
@@ -133,12 +141,12 @@ Seeded reference data:
 * Visitor message read/manage permissions.
 * Audit log read permission.
 
-Not seeded:
+Development seed script:
 
-* No real user.
-* No fake admin account.
-* No password hash.
-* No session.
+* `python -m app.scripts.seed_dev_auth_users`
+* Refuses to run unless `APP_ENV=development` and `ALLOW_DEV_TOOLS=true`.
+* Creates or updates local admin username `1` and local user username `2`.
+* Uses password hashes, not plaintext database storage.
 * No token.
 
 Conceptual separation:
@@ -180,15 +188,15 @@ Do not create database files in documentation-formatting tasks.
 
 ## Static Login Mock Boundary
 
-`login.html` currently uses a fixed test-password redirect to `hub.html`.
+`login.html` now calls the local backend `/api/auth/login` endpoint.
 
-This is planned only for static route verification.
+When the local backend and database are running, successful login creates a database-backed session and an HttpOnly cookie.
 
-It is not real authentication.
+This is still local-development Auth/RBAC only.
 
-It is not authorization.
+It is not production authentication.
 
-It does not create a session, token, cookie, or account record.
+It does not make static route access production-secure.
 
 Future real private access must use backend authentication, server-side session or token handling, database-backed accounts, roles, and permission checks.
 
@@ -213,9 +221,9 @@ The following are not implemented in the current project:
 * Production backend deployment.
 * Production database deployment.
 * Real authenticated production data system.
-* Real login.
-* Real authorization.
-* Real session handling.
+* Production login.
+* Production authorization.
+* Production session hardening.
 * Real cloud sync.
 * Real reminders.
 * Real payment integration.

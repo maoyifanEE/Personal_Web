@@ -27,7 +27,7 @@ It should also prevent old navigation behavior from returning by accident.
 
 ## Journey Page
 
-* `journey.html` is the curved path timeline prototype.
+* `journey.html` is the Journey sketch canvas prototype.
 * It uses placeholder data only for now.
 * It is a public/static prototype in the current project stage.
 * The editor UI is prototype-level and not secure admin.
@@ -69,13 +69,12 @@ It should also prevent old navigation behavior from returning by accident.
 
 ## Login and Hub
 
-* `login.html` is a static login placeholder.
-* It is not real authentication.
-* `hub.html` is a static private hub placeholder.
-* It is not real authorization.
-* Direct URL access is still possible until backend security exists.
-* The hub may link to child app prototypes.
-* The hub should not be treated as a secure private dashboard yet.
+* `login.html` is a quiet private entrance wired to local-development Auth/RBAC v1.
+* It must stay minimal, calm, and free of decorative homepage or Journey motifs.
+* `hub.html` is a static shell that can show local auth state and role-aware links.
+* Direct URL access to static pages is still possible until production route protection exists.
+* The hub may link to child app prototypes and local admin previews.
+* The hub should not be treated as a production-secure private dashboard yet.
 
 ## Child Apps
 

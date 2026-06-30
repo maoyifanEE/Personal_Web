@@ -10,6 +10,7 @@
     <title>Private Entrance</title>
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
+    <script src="./auth.js" defer></script>
     <script src="./login.js" defer></script>
   </head>
   <body data-page="login">
@@ -44,7 +45,7 @@
 
           <p class="login-error" role="alert" aria-live="polite" data-login-error></p>
 
-          <button class="primary-action login-submit" type="submit">Enter</button>
+          <button class="primary-action login-submit" type="submit" data-login-submit>Enter</button>
         </form>
 
         <a class="login-back-link" href="./index.html">Back to homepage</a>

@@ -1,5 +1,91 @@
 # Project History
 
+## 2026-06-30 - Fix local launcher homepage startup
+
+### Goal
+
+* Continue on `Feature/auth-rbac-v1`.
+* Fix the one-click local development launcher after manual backend startup worked but launcher readiness failed.
+* Open the public homepage by default instead of opening `login.html`.
+
+### Completed
+
+* Reworked backend startup to use the backend venv Python with the backend directory as the process working directory.
+* Reworked frontend startup to use the backend venv Python with the repository root as the process working directory.
+* Added safe port reuse checks for local ports `8000` and `4173`.
+* Increased backend readiness polling and added fallback readiness URLs.
+* Added frontend readiness polling before opening the browser.
+* Updated launcher output and docs so homepage opens by default while login remains available.
+
+### Safety boundaries
+
+* No backend auth logic, migrations, seed data, database models, Journey algorithms, or deployment configuration were changed.
+* No production deployment was performed.
+* No homepage or Journey database persistence was added.
+* No upload persistence was added.
+
+## 2026-06-30 - Add one-click local Auth/RBAC development launcher
+
+### Goal
+
+* Continue on `Feature/auth-rbac-v1`.
+* Fix Auth/RBAC review follow-ups.
+* Add a Windows one-click local development launcher for the backend and static frontend.
+* Keep production deployment, public server changes, and real private data out of scope.
+
+### Completed
+
+* Removed stale hidden private entrance markup from `journey.html`.
+* Updated stale Journey page title, meta description, heading, and map label wording.
+* Added Journey mutation guards so guests and normal users remain read-only while admins can edit.
+* Preserved the existing Journey drawing, smoothing, eraser, node, sticker, and pointer-mapping algorithms.
+* Improved login error classification for unavailable backend, invalid credentials, and backend setup errors.
+* Added `start-local-dev.bat` and PowerShell start/stop scripts for local Auth/RBAC development.
+* Documented local startup, migration, seed, local accounts, and common login setup failures.
+
+### Safety boundaries
+
+* This remains local-development Auth/RBAC only.
+* No production deployment was performed.
+* No backend persistence was added for homepage or Journey data.
+* No upload persistence was added.
+* No public registration, OAuth, production administrator lifecycle, or production authorization hardening was added.
+* Static route access is still not a production security boundary.
+
+## 2026-06-29 - Add local Auth/RBAC v1 foundation
+
+### Goal
+
+* Work on `Feature/auth-rbac-v1`.
+* Add a local-development authentication and RBAC foundation.
+* Keep production deployment, real private data migration, and public registration out of scope.
+
+### Completed
+
+* Added password hashing with `passlib[bcrypt]`.
+* Added database-backed `auth_sessions` with hashed session and CSRF token material.
+* Added local `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`, and `/api/auth/csrf` endpoints.
+* Added local admin user management API routes under `/api/admin/users`.
+* Added Auth/RBAC v1 permissions:
+  * `homepage:view`
+  * `homepage:edit`
+  * `apps:access`
+  * `users:manage`
+  * `admin:access`
+* Added a development-only seed script for local admin username `1` and local user username `2`.
+* Connected `login.html` to the local backend auth API.
+* Added `auth.js` and `hub.js` for frontend auth state, logout, CSRF-aware API calls, and role-aware Hub rendering.
+* Added a local admin user management page at `apps/admin-users/index.html`.
+* Gated Journey edit mode so public/guest users remain read-only and admins can access editor controls.
+
+### Safety boundaries
+
+* This is local-development Auth/RBAC only.
+* Production deployment was not changed.
+* No public registration, OAuth, upload persistence, homepage database persistence, or Journey database persistence was added.
+* Static route access is still not a production security boundary.
+* Real private production data must not be stored until deployment and security hardening are reviewed.
+
 ## 2026-06-29 - Fix raw Markdown formatting after docs sync
 
 ### Goal

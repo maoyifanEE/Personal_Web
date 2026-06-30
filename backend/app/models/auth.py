@@ -55,6 +55,7 @@ class AppUser(Base):
         nullable=False,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     admin_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -144,3 +145,28 @@ class RolePermission(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+
+class AuthSession(Base):
+    """Database-backed session storing only hashed token material."""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        UniqueConstraint("session_token_hash", name="uq_auth_sessions_session_token_hash"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("app_users.id"), nullable=False, index=True)
+    session_token_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    csrf_token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    user_agent_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)

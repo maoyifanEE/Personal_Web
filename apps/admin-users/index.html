@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Local Auth/RBAC v1 admin user management preview for Personal_Web."
+    >
+    <title>用户管理 - Personal_Web</title>
+    <link rel="icon" href="../../assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../../styles.css">
+    <link rel="stylesheet" href="./admin-users.css">
+    <script src="../../auth.js" defer></script>
+    <script src="./admin-users.js" defer></script>
+  </head>
+  <body data-page="admin-users">
+    <main class="private-page admin-users-page" aria-labelledby="admin-users-title">
+      <section class="private-panel admin-users-panel">
+        <p class="status-badge">管理员工具</p>
+        <h1 id="admin-users-title">用户管理</h1>
+        <p class="private-copy">
+          本页面用于本地 Auth/RBAC v1 开发阶段管理用户、角色和测试密码。
+          只有具备管理员权限的后端会话可以调用管理 API。
+        </p>
+
+        <div class="admin-users-status" role="status" data-admin-users-status>
+          正在检查管理员权限...
+        </div>
+
+        <section class="admin-users-layout" data-admin-users-content hidden>
+          <form class="admin-user-form" data-create-user-form>
+            <h2>创建用户</h2>
+            <label>
+              用户名
+              <input name="username" type="text" autocomplete="off" required>
+            </label>
+            <label>
+              显示名称
+              <input name="displayName" type="text" autocomplete="off">
+            </label>
+            <label>
+              初始密码
+              <input name="password" type="password" autocomplete="new-password" required>
+            </label>
+            <label>
+              角色
+              <select name="role">
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+            </label>
+            <button class="primary-action" type="submit">创建</button>
+          </form>
+
+          <section class="admin-users-table-wrap" aria-label="用户列表">
+            <div class="admin-users-toolbar">
+              <h2>用户列表</h2>
+              <button class="secondary-action" type="button" data-refresh-users>刷新</button>
+            </div>
+            <div class="admin-users-table" data-admin-users-table></div>
+          </section>
+        </section>
+
+        <div class="private-actions">
+          <a class="secondary-action" href="../../hub.html">返回 Hub</a>
+          <a class="secondary-action" href="../../index.html">返回首页</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

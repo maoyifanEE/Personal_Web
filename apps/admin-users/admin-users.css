@@ -1,0 +1,124 @@
+.admin-users-panel {
+  width: min(100%, 1040px);
+}
+
+.admin-users-status {
+  margin: 18px 0;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(21, 156, 165, 0.16);
+  border-radius: 12px;
+}
+
+.admin-users-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.admin-user-form,
+.admin-users-table-wrap,
+.admin-user-row {
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(31, 51, 68, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(24, 42, 58, 0.06);
+}
+
+.admin-user-form {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-user-form h2,
+.admin-users-toolbar h2,
+.admin-user-row h3 {
+  margin: 0;
+}
+
+.admin-user-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.admin-user-form input,
+.admin-user-form select {
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid rgba(31, 51, 68, 0.14);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.admin-user-form input:focus,
+.admin-user-form select:focus {
+  border-color: rgba(21, 156, 165, 0.48);
+  outline: 3px solid rgba(21, 156, 165, 0.14);
+}
+
+.admin-users-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.admin-users-table {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-user-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-user-row p {
+  margin: 6px 0 0;
+  color: var(--ink-soft);
+}
+
+.admin-user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.admin-user-actions button {
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(31, 51, 68, 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.admin-user-actions button:hover,
+.admin-user-actions button:focus-visible {
+  border-color: rgba(21, 156, 165, 0.34);
+  outline: 2px solid rgba(21, 156, 165, 0.16);
+}
+
+@media (max-width: 760px) {
+  .admin-users-layout,
+  .admin-user-row {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .admin-user-actions {
+    justify-content: flex-start;
+  }
+}

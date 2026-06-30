@@ -12,11 +12,12 @@ Current implementation boundaries:
 * Backend skeleton exists for local development only.
 * Local PostgreSQL development foundation exists.
 * Local RBAC database schema foundation exists.
-* Real login is not implemented.
-* Authentication is not implemented.
-* Authorization is not implemented.
+* Local-development Auth/RBAC v1 is started.
+* `login.html` now calls the local backend login API when the backend is running.
+* Backend sessions are stored in the database and sent through an HttpOnly cookie.
+* Production authentication and authorization are not deployed.
 * Cloud sync is not implemented.
-* Private pages are placeholders and are not secure yet.
+* Private pages remain static front-end shells and are not production-secure yet.
 * Code merged to `main` is not automatically deployed to the public server.
 * Public/server deployment happens only after explicit user instruction.
 * Real private data must not be committed to GitHub.
@@ -31,12 +32,13 @@ The repository must not contain real private data, secrets, production database 
 | --- | --- | --- |
 | `index.html` | Public cover homepage | Implemented static page |
 | `journey.html` | Journey sketch canvas prototype | Static/local prototype |
-| `login.html` | Static mock private entrance | Fixed test-password route only; not real authentication |
-| `hub.html` | Private hub placeholder | Not real authorization |
+| `login.html` | Private entrance | Local backend Auth/RBAC v1 login when backend is running |
+| `hub.html` | Private hub preview | Shows role-aware local development app links |
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 | `apps/messages/index.html` | Visitor Message Management prototype | Static/front-end prototype |
+| `apps/admin-users/index.html` | Admin user management | Local Auth/RBAC v1 admin-only backend API preview |
 
 The journey prototype now uses a draft-paper style sketch canvas.
 
@@ -67,7 +69,7 @@ Do not store real private data or real private images in the current Journey pro
 * Visible user entrance opens `login.html`.
 * There is no hidden homepage button in the current behavior.
 * Normal cover background clicks do not navigate.
-* `login.html` accepts a fixed test password only to verify the route to `hub.html`.
+* `login.html` calls the local backend login API and redirects to `hub.html` after a valid local session.
 * ICP footer opens `https://beian.miit.gov.cn/`.
 * `hub.html` links to child app prototypes.
 * Homepage entrance buttons are navigation devices, not security mechanisms.
@@ -105,7 +107,9 @@ The `backend/` folder now contains a FastAPI + PostgreSQL local-development foun
 
 It is not deployed to production yet.
 
-It does not add real authentication or protected private pages yet.
+It now includes a local-development Auth/RBAC v1 foundation, database-backed sessions, and admin-created test users.
+
+It does not make static pages production-secure yet.
 
 ## File Structure
 
@@ -114,6 +118,8 @@ Personal_Web/
 |-- index.html
 |-- journey.html
 |-- login.html
+|-- auth.js
+|-- hub.js
 |-- hub.html
 |-- styles.css
 |-- script.js
@@ -127,6 +133,7 @@ Personal_Web/
 |   |-- alembic/
 |   `-- app/
 |-- apps/
+|   |-- admin-users/
 |   |-- tasks/
 |   |   `-- index.html
 |   |-- health/
@@ -186,19 +193,101 @@ Then open these URLs as needed:
 * `http://127.0.0.1:4173/journey.html`
 * `http://127.0.0.1:4173/login.html`
 * `http://127.0.0.1:4173/hub.html`
+* `http://127.0.0.1:4173/apps/admin-users/index.html`
 * `http://127.0.0.1:4173/apps/tasks/index.html`
 * `http://127.0.0.1:4173/apps/health/index.html`
 * `http://127.0.0.1:4173/apps/special-subscription/index.html`
 * `http://127.0.0.1:4173/apps/messages/index.html`
 
+## Local Auth Development Quickstart
+
+The easiest local start path on Windows is:
+
+```powershell
+.\start-local-dev.bat
+```
+
+The launcher:
+
+* checks `backend/.env`
+* requires `APP_ENV=development`
+* requires `ALLOW_DEV_TOOLS=true`
+* installs backend requirements into `backend/.venv`
+* runs Alembic migrations
+* runs the development auth seed script
+* starts the backend at `http://127.0.0.1:8000`
+* starts the static frontend at `http://127.0.0.1:4173`
+* opens `http://127.0.0.1:4173/`
+
+Local development accounts:
+
+```text
+Admin: 1 / 1
+User: 2 / 2
+```
+
+These accounts are local development accounts only.
+
+They are created by `python -m app.scripts.seed_dev_auth_users`.
+
+They are not created by migrations and must not be used in production.
+
+Manual equivalent:
+
+```powershell
+cd backend
+alembic upgrade head
+python -m app.scripts.seed_dev_auth_users
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+In another terminal:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m http.server 4173 --bind 127.0.0.1
+```
+
+Then open:
+
+```text
+http://127.0.0.1:4173/
+http://127.0.0.1:4173/login.html
+```
+
+Common login failure causes:
+
+* Backend is not running on `127.0.0.1:8000`.
+* Frontend is not opened from `127.0.0.1:4173`.
+* Alembic migration was not run.
+* Development auth seed was not run.
+* `DATABASE_URL` points to a different local database.
+* `ALLOW_DEV_TOOLS` is not `true`.
+* `CORS_ALLOW_ORIGINS` does not include `http://127.0.0.1:4173`.
+* Backend readiness failed because port `8000` is occupied by another process.
+* Frontend readiness failed because port `4173` is occupied by another process.
+
+If a startup window reports readiness or port problems, check the Backend or Frontend PowerShell window.
+
+If a local development port is occupied, stop only the local dev listeners with:
+
+```powershell
+.\scripts\stop-local-dev.ps1
+```
+
+Stop local servers:
+
+```powershell
+.\scripts\stop-local-dev.ps1
+```
+
 ## Current Non-Goals
 
 * Production backend deployment.
 * Production database deployment.
-* Real login.
-* Real authentication.
-* Real authorization.
-* Real sessions or protected private routes.
+* Production login deployment.
+* Production authentication.
+* Production authorization.
+* Production-protected private routes.
 * Real cloud synchronization.
 * Real payment or subscription integration.
 * Production CMS.
