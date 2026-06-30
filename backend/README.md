@@ -200,6 +200,17 @@ starts the backend, starts the static frontend, and opens the homepage:
 http://127.0.0.1:4173/
 ```
 
+When Google Chrome is available, the homepage opens in an app-like browser window with a dedicated
+local profile.
+
+If Chrome is unavailable, the launcher falls back to Microsoft Edge app mode.
+
+```text
+%LOCALAPPDATA%\Personal_Web\browser-profile
+```
+
+The profile is outside the Git working tree and is for Personal_Web local development only.
+
 The login page remains available at:
 
 ```text

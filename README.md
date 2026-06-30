@@ -217,7 +217,18 @@ The launcher:
 * runs the development auth seed script
 * starts the backend at `http://127.0.0.1:8000`
 * starts the static frontend at `http://127.0.0.1:4173`
-* opens `http://127.0.0.1:4173/`
+* opens `http://127.0.0.1:4173/` in an independent Chrome app window when available
+* falls back to Microsoft Edge app mode if Chrome is unavailable
+
+The launcher uses a dedicated local browser profile outside the repository:
+
+```text
+%LOCALAPPDATA%\Personal_Web\browser-profile
+```
+
+This keeps local development login/session state separate from normal browser tabs.
+
+If Chrome and Edge are both unavailable, the launcher falls back to the default browser and prints a warning.
 
 Local development accounts:
 

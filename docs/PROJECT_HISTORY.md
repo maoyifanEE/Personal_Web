@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-06-30 - Open local dev homepage in an app browser window
+
+### Goal
+
+* Continue on `Feature/auth-rbac-v1`.
+* Make the one-click local launcher open Personal_Web as an independent local app window.
+* Keep backend, database, auth, Journey, homepage design, and deployment behavior unchanged.
+
+### Completed
+
+* Added Chrome-first, Edge-second browser detection to the local launcher.
+* Opened `http://127.0.0.1:4173/` with `--app` mode when Chrome or Edge is available.
+* Added a dedicated local browser profile at `%LOCALAPPDATA%\Personal_Web\browser-profile`.
+* Kept default-browser fallback with a clear warning if Chrome/Edge is unavailable.
+* Documented that the local browser profile is outside the repository and for development only.
+
+### Safety boundaries
+
+* No backend auth logic, migrations, seed logic, login logic, Hub logic, Journey logic, homepage design, or deployment configuration was changed.
+* No production deployment was performed.
+* No browser profile files were added to the repository.
+
 ## 2026-06-30 - Fix local launcher homepage startup
 
 ### Goal
