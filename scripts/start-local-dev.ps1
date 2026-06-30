@@ -163,88 +163,12 @@ Write-Host '[Personal_Web frontend] Process exited. Review messages above.'
   ) -WindowStyle Normal
 }
 
-function Find-LocalAppBrowser {
-  $candidates = @(
-    @{
-      Name = "Google Chrome"
-      Paths = @(
-        (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
-        (Join-Path $env:LocalAppData "Google\Chrome\Application\chrome.exe")
-      )
-    },
-    @{
-      Name = "Microsoft Edge"
-      Paths = @(
-        (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
-        (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"),
-        (Join-Path $env:LocalAppData "Microsoft\Edge\Application\msedge.exe")
-      )
-    }
-  )
-
-  foreach ($candidate in $candidates) {
-    foreach ($path in $candidate.Paths) {
-      if ($path -and (Test-Path $path)) {
-        return @{
-          Name = $candidate.Name
-          Path = $path
-        }
-      }
-    }
-  }
-
-  return $null
-}
-
-function Open-PersonalWebBrowserWindow {
-  param(
-    [string]$HomepageUrl,
-    [string]$ProfileDir
-  )
-
-  $browser = Find-LocalAppBrowser
-  if ($browser) {
-    if (-not (Test-Path $ProfileDir)) {
-      New-Item -ItemType Directory -Path $ProfileDir -Force | Out-Null
-    }
-
-    Write-Info "Opening Personal_Web in an independent local app browser window."
-    Write-Info "Browser: $($browser.Name)"
-    Write-Info "Browser profile: $ProfileDir"
-
-    Start-Process -FilePath $browser.Path -ArgumentList @(
-      ('"--user-data-dir={0}"' -f $ProfileDir),
-      ('"--app={0}"' -f $HomepageUrl),
-      "--new-window"
-    )
-
-    return @{
-      Browser = $browser.Name
-      BrowserPath = $browser.Path
-      ProfileDir = $ProfileDir
-      AppMode = $true
-    }
-  }
-
-  Write-Host "Chrome/Edge not found. Falling back to the default browser, which may open a new tab in an existing window."
-  Start-Process $HomepageUrl
-
-  return @{
-    Browser = "Default browser fallback"
-    BrowserPath = ""
-    ProfileDir = $ProfileDir
-    AppMode = $false
-  }
-}
-
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $backendDir = Join-Path $repoRoot "backend"
 $envPath = Join-Path $backendDir ".env"
 $backendPython = Join-Path $backendDir ".venv\Scripts\python.exe"
 $homepageUrl = "http://127.0.0.1:4173/"
 $loginUrl = "http://127.0.0.1:4173/login.html"
-$browserProfileDir = Join-Path $env:LocalAppData "Personal_Web\browser-profile"
 
 Set-Location $repoRoot
 
@@ -361,7 +285,7 @@ if (-not $frontendReady) {
   Write-Info "Opening homepage: $homepageUrl"
 }
 
-$browserLaunch = Open-PersonalWebBrowserWindow -HomepageUrl $homepageUrl -ProfileDir $browserProfileDir
+Start-Process $homepageUrl
 
 Write-Host ""
 Write-Host "Personal_Web local development is ready."
@@ -371,11 +295,6 @@ Write-Host $homepageUrl
 Write-Host ""
 Write-Host "Login:"
 Write-Host $loginUrl
-Write-Host ""
-Write-Host "Browser profile:"
-Write-Host $browserLaunch.ProfileDir
-Write-Host ""
-Write-Host "This local browser profile is for Personal_Web development only."
 Write-Host ""
 Write-Host "Local development accounts:"
 Write-Host "Admin: username 1, password 1"
