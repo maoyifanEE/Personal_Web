@@ -93,6 +93,8 @@ Implemented for local development only:
 * Local development `POST /api/messages` endpoint for backend testing.
 * Local development `GET /api/homepage/canvas` endpoint for shared Journey canvas reading.
 * Local development admin-only `PUT /api/homepage/canvas` endpoint for shared Journey canvas saving.
+* Local development admin-only `POST /api/homepage/canvas/reset` endpoint for shared Journey canvas reset.
+* Local development diagnostics endpoints under `/api/debug/*`.
 * `homepage_canvas_states` JSONB table for Journey canvas state.
 * Database-level RBAC foundation tables:
   * `app_users`

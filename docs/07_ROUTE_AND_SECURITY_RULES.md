@@ -32,6 +32,9 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Backend user admin | `/api/admin/users/*` | Local admin user management API | Requires local admin permission |
 | Backend homepage canvas read | `/api/homepage/canvas` GET | Local Journey canvas database read | Public read |
 | Backend homepage canvas save | `/api/homepage/canvas` PUT | Local Journey canvas database save | Requires `homepage:edit` |
+| Backend homepage canvas reset | `/api/homepage/canvas/reset` POST | Local Journey published canvas reset | Requires `homepage:edit` |
+| Backend debug status | `/api/debug/status` GET | Local diagnostics status | Development tools only |
+| Backend client debug log | `/api/debug/client-log` POST | Local frontend diagnostics collection | Development tools only |
 
 ## Important Security Boundary
 
@@ -45,11 +48,14 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Local login is for development only and is not production deployment.
 * `hub.html` is still a static shell; it can display local auth state but is not a production security boundary.
 * `journey.html` is public read-only for guests and normal users.
-* Journey editing controls require local admin permission.
+* Journey editing controls require `journey.html?edit=1` plus local `homepage:edit` permission.
 * Journey reads shared canvas JSON from the local backend when available.
 * Journey keeps browser `localStorage` as a local draft and backend-unavailable fallback.
 * Journey database save requires `homepage:edit`.
+* Journey database reset requires `homepage:edit`.
 * Journey Data URL image save is rejected by the backend until upload persistence exists.
+* Local diagnostics write only to `.local_logs/`, which must not be committed to GitHub.
+* Read `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md` before changing homepage/Journey flow behavior.
 * There is no active hidden private entrance link in current HTML.
 * Child app pages can still be opened directly by URL.
 * Static pages must not contain real private data.

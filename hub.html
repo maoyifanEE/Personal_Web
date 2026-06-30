@@ -10,6 +10,7 @@
     <title>Personal Hub</title>
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css?v=auth-rbac-v1">
+    <script src="./debug-logger.js" defer></script>
     <script src="./auth.js" defer></script>
     <script src="./hub.js?v=auth-rbac-v1" defer></script>
   </head>
@@ -24,7 +25,7 @@
         <h1 id="page-title">个人工具中心</h1>
         <p class="private-copy">
           当前为本地 Auth/RBAC v1 开发预览。静态页面入口本身不是安全边界；
-          真实权限以后台会话、角色和 API 授权检查为准。
+          真实权限以后端会话、角色和 API 授权检查为准。
         </p>
 
         <div class="hub-auth-panel" data-hub-auth-panel>
@@ -60,8 +61,15 @@
           <a class="app-card app-card--link-card" href="./apps/messages/index.html">
             <p class="card-status">管理端原型</p>
             <h2>留言管理</h2>
-            <p>查看访客留言管理 UI 原型；真实列表仍需要后台、数据库、认证和管理员权限。</p>
+            <p>查看访客留言管理 UI 原型；真实列表仍需要后端、数据库、认证和管理员权限。</p>
             <span class="card-link">进入留言管理</span>
+          </a>
+
+          <a class="app-card app-card--link-card" href="./journey.html?edit=1" data-homepage-editor hidden>
+            <p class="card-status">管理员</p>
+            <h2>首页画布编辑</h2>
+            <p>进入 Journey 首页画布编辑模式，发布共享画布需要 `homepage:edit` 权限。</p>
+            <span class="card-link">编辑首页画布</span>
           </a>
 
           <a class="app-card app-card--link-card" href="./apps/admin-users/index.html" data-admin-only hidden>

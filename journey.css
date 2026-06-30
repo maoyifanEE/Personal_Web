@@ -2141,6 +2141,13 @@ select {
   margin-bottom: 10px;
 }
 
+.journey-sketch-save-hint {
+  margin: 4px 0 10px;
+  color: rgba(23, 37, 52, 0.62);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .journey-sketch-toolbar button,
 .journey-sketch-node-panel button {
   min-height: 34px;

@@ -257,6 +257,42 @@ h1 span {
   outline: none;
 }
 
+.debug-log-panel {
+  width: min(100%, 980px);
+}
+
+.debug-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 22px 0 14px;
+}
+
+.debug-log-status {
+  min-height: 24px;
+  margin: 0 0 12px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.debug-log-status.is-error {
+  color: #9f2d2d;
+}
+
+.debug-log-output {
+  max-height: 520px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid rgba(24, 42, 58, 0.12);
+  border-radius: 14px;
+  color: #12202e;
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
 .private-mark {
   width: 44px;
   height: 44px;

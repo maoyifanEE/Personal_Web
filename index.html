@@ -6,17 +6,19 @@
     <title>MAO Yifan - Personal_Web</title>
     <meta
       name="description"
-      content="Hello, World! Welcome to MAO Yifan’s corner of the web. More is on the way."
+      content="Hello, World! Welcome to MAO Yifan's corner of the web. More is on the way."
     >
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./styles.css">
+    <script src="./debug-logger.js" defer></script>
+    <script src="./auth.js" defer></script>
     <script src="./script.js" defer></script>
   </head>
   <body>
     <main class="hero" aria-labelledby="page-title">
       <section class="hero-copy" aria-label="Homepage introduction">
         <h1 id="page-title">Hello, <span>World!</span></h1>
-        <p>Welcome to MAO Yifan’s corner of the web.</p>
+        <p>Welcome to MAO Yifan's corner of the web.</p>
         <p>More is on the way.</p>
       </section>
 
@@ -24,11 +26,13 @@
         class="user-entrance visible-entrance visible-entrance--user"
         href="./login.html"
         aria-label="Open user entrance"
+        data-user-entrance
       >用户入口</a>
       <a
         class="visitor-entrance visible-entrance visible-entrance--visitor"
-        href="./journey.html"
+        href="./journey.html?view=public"
         aria-label="Open visitor entrance"
+        data-visitor-entrance
       >访客入口</a>
     </main>
 
@@ -84,12 +88,12 @@
       </section>
     </div>
     <footer class="site-footer" aria-label="Site filing information">
-      <!-- TODO: Add the public security filing number after 公安联网备案 approval. -->
+      <!-- TODO: Add the public security filing number after public security filing approval. -->
       <a
         href="https://beian.miit.gov.cn/"
         target="_blank"
         rel="noopener noreferrer"
-      >&#36195;ICP&#22791;2026013131&#21495;-1</a>
+      >赣ICP备2026013131号-1</a>
     </footer>
   </body>
 </html>

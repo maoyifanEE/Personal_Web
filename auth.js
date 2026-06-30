@@ -6,6 +6,16 @@
   let cachedCsrfToken = null;
 
   const logPrefix = "[auth]";
+  const debugLog = (event, details = {}, level = "info") => {
+    if (window.PersonalWebDebug?.log) {
+      window.PersonalWebDebug.log(level, event, details);
+    }
+    const method = level === "error" ? "error" : level === "warn" ? "warn" : "info";
+    console[method](logPrefix, event, details);
+  };
+
+  const makeRequestId = (purpose) =>
+    `${purpose}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   const safeJson = async (response) => {
     const text = await response.text();
@@ -15,7 +25,7 @@
     try {
       return JSON.parse(text);
     } catch (error) {
-      console.warn(logPrefix, "Failed to parse JSON response", error);
+      debugLog("auth.response.invalid_json", { error: error.message }, "warn");
       return {};
     }
   };
@@ -29,17 +39,23 @@
     }
 
     try {
+      const requestId = makeRequestId("auth-me");
       const response = await fetch(`${apiBaseUrl}/auth/me`, {
         method: "GET",
-        credentials: "include"
+        credentials: "include",
+        headers: {
+          "X-Request-ID": requestId
+        }
       });
       if (!response.ok) {
         throw new Error(`Auth state request failed: ${response.status}`);
       }
       cachedState = await response.json();
-      console.info(logPrefix, "Auth state loaded", {
+      debugLog("auth.me.loaded", {
+        requestId,
         authenticated: cachedState.authenticated,
-        role: cachedState.role
+        roles: cachedState.roles,
+        permissions: cachedState.permissions
       });
       return cachedState;
     } catch (error) {
@@ -51,7 +67,7 @@
         permissions: [],
         unavailable: true
       };
-      console.warn(logPrefix, "Backend auth state unavailable; using guest state", error);
+      debugLog("auth.me.unavailable_guest_fallback", { error: error.message }, "warn");
       return cachedState;
     }
   };
@@ -61,27 +77,34 @@
       return cachedCsrfToken;
     }
 
+    const requestId = makeRequestId("auth-csrf");
     const response = await fetch(`${apiBaseUrl}/auth/csrf`, {
       method: "GET",
-      credentials: "include"
+      credentials: "include",
+      headers: {
+        "X-Request-ID": requestId
+      }
     });
     const body = await safeJson(response);
     if (!response.ok || !body.csrfToken) {
+      debugLog("auth.csrf.unavailable", { requestId, status: response.status }, "warn");
       throw new Error("CSRF token unavailable");
     }
     cachedCsrfToken = body.csrfToken;
-    console.info(logPrefix, "CSRF token refreshed");
+    debugLog("auth.csrf.refreshed", { requestId, status: response.status });
     return cachedCsrfToken;
   };
 
   const login = async ({ usernameOrEmail, password }) => {
     let response;
+    const requestId = makeRequestId("auth-login");
     try {
       response = await fetch(`${apiBaseUrl}/auth/login`, {
         method: "POST",
         credentials: "include",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Request-ID": requestId
         },
         body: JSON.stringify({ usernameOrEmail, password })
       });
@@ -89,7 +112,7 @@
       const authError = new Error("Backend unavailable");
       authError.code = "BACKEND_UNAVAILABLE";
       authError.cause = error;
-      console.warn(logPrefix, "Login failed because backend is unavailable", error);
+      debugLog("auth.login.backend_unavailable", { requestId, error: error.message }, "warn");
       throw authError;
     }
 
@@ -99,38 +122,46 @@
       authError.status = response.status;
       authError.detail = body.detail;
       authError.code = response.status === 401 ? "INVALID_CREDENTIALS" : "BACKEND_SETUP_ERROR";
-      console.warn(logPrefix, "Login failed", {
+      debugLog("auth.login.failed", {
+        requestId,
         status: response.status,
         code: authError.code,
         detail: body.detail
-      });
+      }, "warn");
       throw authError;
     }
     cachedState = body;
     cachedCsrfToken = null;
-    console.info(logPrefix, "Login succeeded", {
+    debugLog("auth.login.succeeded", {
+      requestId,
       userId: body.user?.id,
-      role: body.role
+      roles: body.roles
     });
     return body;
   };
 
   const logout = async () => {
+    const requestId = makeRequestId("auth-logout");
     const response = await fetch(`${apiBaseUrl}/auth/logout`, {
       method: "POST",
-      credentials: "include"
+      credentials: "include",
+      headers: {
+        "X-Request-ID": requestId
+      }
     });
     if (!response.ok) {
-      console.warn(logPrefix, "Logout returned non-ok status", response.status);
+      debugLog("auth.logout.non_ok", { requestId, status: response.status }, "warn");
     }
     cachedState = null;
     cachedCsrfToken = null;
-    console.info(logPrefix, "Logout completed");
+    debugLog("auth.logout.completed", { requestId, status: response.status });
   };
 
   const authFetch = async (path, options = {}) => {
     const method = (options.method || "GET").toUpperCase();
     const headers = new Headers(options.headers || {});
+    const requestId = headers.get("X-Request-ID") || makeRequestId("auth-fetch");
+    headers.set("X-Request-ID", requestId);
     if (!headers.has("Content-Type") && options.body) {
       headers.set("Content-Type", "application/json");
     }
@@ -144,9 +175,10 @@
       headers,
       credentials: "include"
     });
+    debugLog("auth.fetch.completed", { requestId, path, method, status: response.status });
     if (response.status === 403 && method !== "GET") {
       cachedCsrfToken = null;
-      console.warn(logPrefix, "Auth fetch rejected; CSRF cache cleared", { path, method });
+      debugLog("auth.fetch.rejected_csrf_cache_cleared", { requestId, path, method }, "warn");
     }
     return response;
   };

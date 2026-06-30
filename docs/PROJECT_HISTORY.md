@@ -1,5 +1,34 @@
 # Project History
 
+## 2026-06-30 - Stabilize homepage canvas flow and diagnostics
+
+### Goal
+
+* Work on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Stabilize the published Homepage/Journey canvas flow after the database persistence branch.
+* Keep this local-development only with no deployment or production server changes.
+
+### Completed
+
+* Added `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md` as the flow acceptance reference.
+* Made the homepage visitor entrance always open the public Journey preview.
+* Made the homepage user entrance auth-aware for login versus Hub routing.
+* Made `login.html` redirect already-authenticated users to `hub.html`.
+* Added a Hub admin entry for `journey.html?edit=1`.
+* Enforced Journey editor mode as `?edit=1` plus `homepage:edit`.
+* Clarified local draft save versus database publish in the Journey editor UI.
+* Added database reload and reset actions for the published Journey canvas.
+* Added local frontend and backend diagnostics with redaction and JSONL logs under `.local_logs/`.
+* Added a local debug log page and a PowerShell debug bundle collection script.
+* Added launcher/stop script logging under `.local_logs/launcher/`.
+
+### Safety boundaries
+
+* No production deployment was performed.
+* No Nginx, Certbot, production database, server config, `.env`, uploads, backups, logs, or secrets were committed.
+* No Journey drawing, smoothing, eraser, node, sticker, or pointer-mapping algorithm was intentionally changed.
+* No task, health, subscription, visitor message, or admin user behavior was intentionally changed.
+
 ## 2026-06-30 - Add Homepage Journey canvas database persistence
 
 ### Goal

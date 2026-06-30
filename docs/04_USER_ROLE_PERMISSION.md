@@ -52,21 +52,19 @@ None of them provide real security yet.
 
 ## 4. Important Security Rule
 
-前端隐藏入口不是安全措施。
-
-前端隐藏按钮不是权限系统。
-
-前端不显示某个入口，也不代表用户真的没有访问能力。
+Frontend entrance buttons are not security controls.
 
 Visible homepage entrance buttons are only navigation elements.
-Visible homepage entrance buttons are not security mechanisms.
 
-未来安全必须依赖真实认证、授权、服务端检查和路由保护。
+Showing or hiding a frontend link does not prove that a user has or lacks permission.
 
-所有私人工具中心页面和 API 最终都必须有登录校验和权限校验。
+Current static routes can still be opened directly by URL.
 
-即使别人猜到了登录页或私有路由地址，如果没有账号和权限，也不能访问个人工具中心和私人数据。
+Future security must rely on real authentication, authorization, server-side checks, and route protection.
 
+All private tool pages and APIs must eventually require login checks and permission checks.
+
+Even if someone knows a private URL, they must not be able to access private tools or private data without a valid account and permission.
 ## 5. TBD
 
 - Member 创建或批准流程 TBD

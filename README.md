@@ -47,6 +47,7 @@ Current Journey sketch canvas v1 behavior:
 * Transparent and full-bleed preview.
 * Shared sketch canvas JSON can be read from local PostgreSQL through `GET /api/homepage/canvas`.
 * Admin users with `homepage:edit` can save shared canvas JSON through `PUT /api/homepage/canvas`.
+* Admin users with `homepage:edit` can reset the published canvas through `POST /api/homepage/canvas/reset`.
 * Browser-local sketch state remains in `localStorage` as a local draft and backend-unavailable fallback.
 * State key: `journeySketchCanvasStateV1`.
 * Schema version: `sketch-canvas-v1`.
@@ -73,8 +74,8 @@ Do not store real private data or real private images in the current Journey pro
 
 ## Navigation Behavior
 
-* Visible visitor entrance on `index.html` opens `journey.html`.
-* Visible user entrance opens `login.html`.
+* Visible visitor entrance on `index.html` opens the Journey public preview at `journey.html?view=public`.
+* Visible user entrance opens `login.html` for guests and `hub.html` for authenticated local users.
 * There is no hidden homepage button in the current behavior.
 * Normal cover background clicks do not navigate.
 * `login.html` calls the local backend login API and redirects to `hub.html` after a valid local session.
@@ -82,6 +83,7 @@ Do not store real private data or real private images in the current Journey pro
 * `hub.html` links to child app prototypes.
 * Homepage entrance buttons are navigation devices, not security mechanisms.
 * Direct URL access is still possible for placeholder private pages.
+* Journey editing requires `journey.html?edit=1` plus local `homepage:edit` permission.
 
 ## Data Safety
 
@@ -170,6 +172,7 @@ Personal_Web/
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`: structure and branch standards.
 * `docs/09_BACKEND_DATABASE_PLAN.md`: backend/database status and next-stage planning.
 * `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture and implementation status.
+* `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md`: homepage, login, Hub, Journey canvas, and diagnostics flow specification.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 ## Development Rules

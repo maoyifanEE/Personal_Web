@@ -6,11 +6,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_csrf_token, require_permission
+from app.core.diagnostics import write_jsonl_event
 from app.db.session import get_db_session
 from app.models.auth import AppUser
 from app.models.homepage_canvas import HomepageCanvasState
 from app.schemas.homepage import CANVAS_KEY_DEFAULT, HomepageCanvasResponse, HomepageCanvasSaveRequest
-from app.services.homepage_canvas_service import get_canvas_state, save_canvas_state
+from app.services.homepage_canvas_service import get_canvas_state, reset_canvas_state, save_canvas_state
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/homepage")
@@ -45,6 +46,7 @@ def read_canvas(db: Session = Depends(get_db_session)) -> HomepageCanvasResponse
     """Publicly read the current shared Journey canvas state."""
 
     state = get_canvas_state(db, CANVAS_KEY_DEFAULT)
+    write_jsonl_event("backend", "homepage.canvas.route.read", {"exists": bool(state)})
     return to_canvas_response(state)
 
 
@@ -59,3 +61,15 @@ def save_canvas(
     state = save_canvas_state(db, payload, actor)
     logger.info("Homepage canvas save route completed: revision=%s user_id=%s", state.revision, actor.id)
     return to_canvas_response(state)
+
+
+@router.post("/canvas/reset", response_model=HomepageCanvasResponse, dependencies=[Depends(require_csrf_token)])
+def reset_canvas(
+    db: Session = Depends(get_db_session),
+    actor: AppUser = Depends(require_permission("homepage:edit")),
+) -> HomepageCanvasResponse:
+    """Admin-only reset for the shared Journey canvas state."""
+
+    reset_canvas_state(db, actor, CANVAS_KEY_DEFAULT)
+    logger.info("Homepage canvas reset route completed: user_id=%s", actor.id)
+    return to_canvas_response(None)
