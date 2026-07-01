@@ -1,5 +1,26 @@
 # Project History
 
+## 2026-07-01 - Add source readability gate for diagnostics review
+
+### Goal
+
+* Continue on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Prove important source files are readable multi-line source.
+* Add a reusable check to prevent one-line source regressions.
+
+### Completed
+
+* Added `scripts/check-source-readability.ps1`.
+* The script reports line count, byte count, and maximum line length for important source files.
+* The script fails when large source files are compressed into too few lines or contain excessive line lengths.
+* Verified committed source objects for the previously suspected compressed files are readable multi-line files.
+
+### Safety boundaries
+
+* No product behavior was changed.
+* No homepage, Journey, Auth/RBAC, database schema, launcher behavior, or deployment configuration was changed.
+* No production deployment was performed.
+
 ## 2026-07-01 - Polish homepage diagnostics framework
 
 ### Goal

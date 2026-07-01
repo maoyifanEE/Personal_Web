@@ -192,6 +192,15 @@ The collector creates a zip and a text summary under `.local_logs/`. It is for
 local troubleshooting only and does not collect `.env`, database files, uploads,
 backups, or previous bundles.
 
+To guard against accidentally committed one-line source files:
+
+```powershell
+.\scripts\check-source-readability.ps1
+```
+
+The readability check prints line counts, byte counts, and maximum line lengths
+for important frontend, backend, and local tooling source files.
+
 ## Development Rules
 
 * Do not work directly on `main` unless explicitly instructed.
