@@ -175,6 +175,23 @@ Personal_Web/
 * `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md`: homepage, login, Hub, Journey canvas, and diagnostics flow specification.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
+## Local Diagnostics
+
+Local development diagnostics are available for the homepage, login, Hub, and
+Journey canvas flow. Browser logs are bounded and redacted through
+`debug-logger.js`, while backend diagnostics are written as JSONL files under
+`.local_logs/`.
+
+To collect a local debug bundle:
+
+```powershell
+.\scripts\collect-debug-logs.ps1
+```
+
+The collector creates a zip and a text summary under `.local_logs/`. It is for
+local troubleshooting only and does not collect `.env`, database files, uploads,
+backups, or previous bundles.
+
 ## Development Rules
 
 * Do not work directly on `main` unless explicitly instructed.

@@ -17,10 +17,25 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LOCAL_LOG_ROOT = PROJECT_ROOT / ".local_logs"
-SENSITIVE_KEY_PATTERN = re.compile(
-    r"password|token|session|csrf|cookie|authorization|database_url|secret|jwt|key",
-    re.IGNORECASE,
-)
+SENSITIVE_KEYS = {
+    "password",
+    "oldpassword",
+    "newpassword",
+    "confirmpassword",
+    "token",
+    "accesstoken",
+    "refreshtoken",
+    "sessiontoken",
+    "sessiontokenhash",
+    "csrf",
+    "csrftoken",
+    "cookie",
+    "setcookie",
+    "authorization",
+    "databaseurl",
+    "secret",
+    "sessionsecret",
+}
 
 
 def utc_now_iso() -> str:
@@ -29,10 +44,30 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def normalize_key(key: str) -> str:
+    """Normalize diagnostic keys for exact sensitive-key checks."""
+
+    return re.sub(r"[^a-z0-9]+", "", str(key or "").lower())
+
+
+def is_sensitive_key(key: str) -> bool:
+    """Return True only for secret-bearing keys, not generic `*Key` fields."""
+
+    normalized = normalize_key(key)
+    if not normalized:
+        return False
+    return (
+        normalized in SENSITIVE_KEYS
+        or normalized.endswith("password")
+        or normalized.endswith("token")
+        or "secret" in normalized
+    )
+
+
 def sanitize_for_diagnostics(value: Any, key: str = "") -> Any:
     """Recursively redact secrets and large browser-only payloads."""
 
-    if key and SENSITIVE_KEY_PATTERN.search(key):
+    if key and is_sensitive_key(key):
         return "[REDACTED]"
     if isinstance(value, str):
         if value.strip().lower().startswith("data:"):

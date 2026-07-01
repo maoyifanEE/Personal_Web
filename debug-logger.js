@@ -1,11 +1,45 @@
 (function () {
   const STORAGE_KEY = "personalWebDebugLogV1";
   const SESSION_KEY = "personalWebDebugSessionIdV1";
-  const MAX_ENTRIES = 500;
+  const MAX_ENTRIES = 2000;
+  const MAX_STORAGE_CHARS = 1_000_000;
   const MAX_DETAIL_LENGTH = 1200;
   const REDACTED = "[REDACTED]";
   const DATA_URL_REDACTED = "[DATA_URL_REDACTED]";
-  const sensitivePattern = /password|token|session|csrf|cookie|authorization|database_url|secret|jwt|key/i;
+
+  const exactSensitiveKeys = new Set([
+    "password",
+    "oldpassword",
+    "newpassword",
+    "confirmpassword",
+    "token",
+    "accesstoken",
+    "refreshtoken",
+    "sessiontoken",
+    "sessiontokenhash",
+    "csrf",
+    "csrftoken",
+    "cookie",
+    "setcookie",
+    "authorization",
+    "databaseurl",
+    "secret",
+    "sessionsecret"
+  ]);
+
+  const normalizeKey = (key) => String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const isSensitiveKey = (key) => {
+    const normalized = normalizeKey(key);
+    if (!normalized) {
+      return false;
+    }
+    return (
+      exactSensitiveKeys.has(normalized) ||
+      normalized.endsWith("password") ||
+      normalized.endsWith("token") ||
+      normalized.includes("secret")
+    );
+  };
 
   const makeId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -27,7 +61,7 @@
   const sessionId = getSessionId();
 
   const sanitize = (value, key = "") => {
-    if (sensitivePattern.test(key)) {
+    if (isSensitiveKey(key)) {
       return REDACTED;
     }
     if (typeof value === "string") {
@@ -40,7 +74,7 @@
       return value;
     }
     if (Array.isArray(value)) {
-      return value.slice(0, 60).map((item) => sanitize(item, key));
+      return value.slice(0, 120).map((item) => sanitize(item, key));
     }
     if (value && typeof value === "object") {
       const output = {};
@@ -63,13 +97,25 @@
     }
   };
 
+  const trimEntries = (entries) => {
+    const output = entries.slice(-MAX_ENTRIES);
+    let encoded = JSON.stringify(output);
+    while (output.length > 0 && encoded.length > MAX_STORAGE_CHARS) {
+      output.shift();
+      encoded = JSON.stringify(output);
+    }
+    return output;
+  };
+
   const writeEntries = (entries) => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(-MAX_ENTRIES)));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(trimEntries(entries)));
     } catch (error) {
       console.warn("[debug] Failed to write local debug log", error);
     }
   };
+
+  const getLogs = () => readEntries();
 
   const log = (level, event, details = {}) => {
     const entry = {
@@ -90,29 +136,86 @@
     return entry;
   };
 
-  const exportLogs = () => {
-    const payload = {
-      exportedAt: new Date().toISOString(),
+  const info = (event, details = {}) => log("info", event, details);
+  const warn = (event, details = {}) => log("warn", event, details);
+  const error = (event, details = {}) => log("error", event, details);
+
+  const clearLogs = () => {
+    const count = readEntries().length;
+    writeEntries([]);
+    return count;
+  };
+
+  const snapshot = () => {
+    const logs = readEntries();
+    const raw = window.localStorage.getItem(STORAGE_KEY) || "";
+    return sanitize({
       sessionId,
+      page,
+      path: window.location.pathname + window.location.search,
       userAgent: navigator.userAgent,
-      location: window.location.href,
-      entries: readEntries()
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      viewport: {
+        width: window.innerWidth,
+        height: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio
+      },
+      logCount: logs.length,
+      localStorageDebugSize: raw.length
+    });
+  };
+
+  const downloadText = (text, filename, type) => {
+    const blob = new Blob([text], { type });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `personal-web-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.local-debug.json`;
+    link.download = filename;
     document.body.append(link);
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    log("info", "debug.exported", { entryCount: payload.entries.length });
   };
 
-  const clear = () => {
-    writeEntries([]);
-    log("info", "debug.cleared");
+  const timestampForFile = () => new Date().toISOString().replace(/[:.]/g, "-");
+
+  const exportLogs = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      snapshot: snapshot(),
+      entries: readEntries()
+    };
+    downloadText(
+      JSON.stringify(payload, null, 2),
+      `personal-web-debug-${timestampForFile()}.local-debug.json`,
+      "application/json"
+    );
+    info("debug.exported_json", { entryCount: payload.entries.length });
+  };
+
+  const exportTextSummary = () => {
+    const currentSnapshot = snapshot();
+    const logs = readEntries();
+    const lines = [
+      "Personal_Web Local Debug Summary",
+      "================================",
+      `Exported at: ${new Date().toISOString()}`,
+      `Session: ${currentSnapshot.sessionId}`,
+      `Page: ${currentSnapshot.page}`,
+      `Path: ${currentSnapshot.path}`,
+      `Viewport: ${currentSnapshot.viewport.width}x${currentSnapshot.viewport.height}`,
+      `Log count: ${currentSnapshot.logCount}`,
+      "",
+      "Recent entries:",
+      ...logs.slice(-120).map((entry) =>
+        `${entry.timestamp} [${entry.level}] ${entry.event} ${JSON.stringify(entry.details)}`
+      )
+    ];
+    downloadText(
+      lines.join("\n"),
+      `personal-web-debug-${timestampForFile()}_summary.local-debug.txt`,
+      "text/plain"
+    );
+    info("debug.exported_text_summary", { entryCount: logs.length });
   };
 
   const sendToBackend = async (extra = {}) => {
@@ -133,19 +236,30 @@
     if (!response.ok) {
       throw new Error(`Debug upload failed: ${response.status}`);
     }
-    log("info", "debug.sent_to_backend", { entryCount: payload.entries.length });
+    info("debug.sent_to_backend", { entryCount: payload.entries.length });
     return response.json();
   };
 
   window.PersonalWebDebug = {
-    clear,
-    entries: readEntries,
-    exportLogs,
     log,
+    info,
+    warn,
+    error,
+    getLogs,
+    clearLogs,
+    exportLogs,
+    exportTextSummary,
+    snapshot,
     sanitize,
     sendToBackend,
-    sessionId
+    sessionId,
+    entries: getLogs,
+    clear: clearLogs
   };
 
-  log("info", "debug.logger.ready", { storageKey: STORAGE_KEY, maxEntries: MAX_ENTRIES });
+  info("debug.logger.ready", {
+    storageKey: STORAGE_KEY,
+    maxEntries: MAX_ENTRIES,
+    maxStorageChars: MAX_STORAGE_CHARS
+  });
 })();

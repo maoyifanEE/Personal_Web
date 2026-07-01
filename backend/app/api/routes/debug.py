@@ -1,5 +1,6 @@
 """Local-development debug endpoints."""
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,6 +9,9 @@ from app.core.config import Settings, get_settings
 from app.core.diagnostics import sanitize_for_diagnostics, write_jsonl_event
 
 router = APIRouter(prefix="/debug")
+MAX_CLIENT_LOG_ENTRIES = 600
+MAX_CLIENT_LOG_JSON_CHARS = 1_200_000
+MAX_CLIENT_LOG_ENTRY_JSON_CHARS = 20_000
 
 
 def require_dev_debug(settings: Settings = Depends(get_settings)) -> Settings:
@@ -47,8 +51,15 @@ async def receive_client_log(
     if entries is not None and not isinstance(entries, list):
         raise HTTPException(status_code=400, detail="entries must be a list when provided")
     entry_count = len(entries or [])
-    if entry_count > 600:
+    if entry_count > MAX_CLIENT_LOG_ENTRIES:
         raise HTTPException(status_code=413, detail="Too many debug entries")
+    payload_size = len(json.dumps(payload, ensure_ascii=False))
+    if payload_size > MAX_CLIENT_LOG_JSON_CHARS:
+        raise HTTPException(status_code=413, detail="Debug payload is too large")
+    for index, entry in enumerate(entries or []):
+        entry_size = len(json.dumps(entry, ensure_ascii=False))
+        if entry_size > MAX_CLIENT_LOG_ENTRY_JSON_CHARS:
+            raise HTTPException(status_code=413, detail=f"Debug entry {index} is too large")
     safe_payload = sanitize_for_diagnostics(payload)
     write_jsonl_event(
         "frontend",

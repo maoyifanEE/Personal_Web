@@ -42,6 +42,7 @@ Implemented in this phase:
 * Local-development admin user management APIs.
 * Local-development homepage/Journey canvas read and admin save APIs.
 * Development-only seed, reset, export, and admin summary endpoints.
+* Development-only diagnostics endpoints and JSONL logs under `.local_logs/`.
 
 Not implemented yet:
 
@@ -410,6 +411,12 @@ The following endpoints return `403` outside development tools mode:
 * `POST /api/dev/reset-test-data`
 * `GET /api/dev/export`
 * `GET /api/admin/data/summary`
+* `GET /api/debug/status`
+* `POST /api/debug/client-log`
+
+The client-log debug endpoint is local-development only. It sanitizes incoming
+payloads before writing JSONL logs and rejects oversized entry counts, oversized
+total JSON payloads, and oversized individual entries.
 
 The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
 

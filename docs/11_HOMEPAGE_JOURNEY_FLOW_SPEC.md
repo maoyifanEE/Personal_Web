@@ -188,7 +188,28 @@ Frontend diagnostics:
 * `window.PersonalWebDebug`
 * bounded browser `localStorage` debug entries
 * JSON export from the browser
+* text summary export from the browser
 * optional upload to the local backend debug endpoint
+
+`window.PersonalWebDebug` exposes:
+
+* `log`
+* `info`
+* `warn`
+* `error`
+* `getLogs`
+* `clearLogs`
+* `exportLogs`
+* `exportTextSummary`
+* `snapshot`
+* `sanitize`
+* `sendToBackend`
+* `sessionId`
+
+Compatibility aliases:
+
+* `entries`
+* `clear`
 
 Backend diagnostics:
 
@@ -198,6 +219,17 @@ Backend diagnostics:
 * CSRF grant/deny events
 * homepage canvas read/save/reset events
 
+Client auth/API diagnostics should include request metadata only:
+
+* request ID
+* HTTP method
+* path
+* status code
+* duration in milliseconds
+* error category
+* whether CSRF was required
+* whether a CSRF header was attached
+
 Debug routes:
 
 * `GET /api/debug/status`
@@ -206,6 +238,12 @@ Debug routes:
 These routes must be available only in local development tools mode.
 
 They must not be treated as production logging infrastructure.
+
+`POST /api/debug/client-log` must reject oversized payloads before writing logs:
+
+* too many entries
+* too large total JSON payload
+* too large individual entry JSON payload
 
 Sensitive values must be redacted:
 
@@ -219,6 +257,12 @@ Sensitive values must be redacted:
 * secrets
 * Data URL payloads
 
+Diagnostic redaction must be precise. Generic application keys such as
+`canvasKey`, `storageKey`, `schemaVersion`, `routeMode`, `path`, `url`, `role`,
+`roles`, `permissions`, `revision`, `baseRevision`, `currentRevision`,
+`strokeCount`, `nodeCount`, and `stickerCount` are not secrets and should remain
+visible in local diagnostics.
+
 Local debug outputs must not be committed to GitHub.
 
 ## Local Debug Collection
@@ -231,7 +275,33 @@ The debug bundle script is:
 
 It collects local `.local_logs/` files and Git status into a local zip bundle.
 
-The bundle is ignored by Git.
+It creates both:
+
+* a `.zip` debug bundle
+* a text summary file
+
+The script collects only local troubleshooting context:
+
+* Git state
+* environment summary without `.env` contents
+* local port listeners for `8000` and `4173`
+* backend status probes without cookies or auth headers
+* `.local_logs/backend`
+* `.local_logs/frontend`
+* `.local_logs/launcher`
+* a safe tracked file inventory
+
+The script must not collect:
+
+* `.env`
+* `.venv`
+* database files
+* uploads
+* backups
+* previous debug bundles
+* large binary files
+
+The bundle and summary are ignored by Git.
 
 ## Non-Goals
 

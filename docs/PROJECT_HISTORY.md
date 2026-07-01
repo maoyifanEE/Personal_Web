@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-01 - Polish homepage diagnostics framework
+
+### Goal
+
+* Continue on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Improve diagnostics maintainability and safety before review.
+* Keep product behavior unchanged except diagnostics.
+
+### Completed
+
+* Reformatted and tightened the frontend debug logger API.
+* Refined frontend and backend diagnostic redaction so generic app keys stay visible.
+* Added request metadata logging for auth/API calls without logging secrets.
+* Added backend client-log payload size guards before log writes.
+* Improved the local debug bundle collector so it writes both a zip and summary.
+* Documented the local diagnostics boundaries and collector behavior.
+
+### Safety boundaries
+
+* No production deployment was performed.
+* No backend schema, migration, auth model, Journey drawing, smoothing, eraser, node, or sticker behavior was intentionally changed.
+* No `.env`, uploads, backups, logs, database files, or secrets were committed.
+
 ## 2026-06-30 - Stabilize homepage canvas flow and diagnostics
 
 ### Goal
