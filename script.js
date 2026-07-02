@@ -126,6 +126,117 @@ const initializeCoverEntrances = async () => {
   });
 };
 
+const createHomepageMediaElement = (media) => {
+  if (!media?.url) {
+    return null;
+  }
+
+  if (media.mediaType === "image") {
+    const image = document.createElement("img");
+    image.src = media.url;
+    image.alt = media.title || "";
+    image.loading = "lazy";
+    return image;
+  }
+
+  if (media.mediaType === "video") {
+    const video = document.createElement("video");
+    video.src = media.url;
+    video.controls = true;
+    video.preload = "metadata";
+    return video;
+  }
+
+  return null;
+};
+
+const renderHomepagePublicItems = (items = []) => {
+  const root = document.querySelector("[data-homepage-public-items]");
+  if (!root) {
+    return;
+  }
+
+  root.replaceChildren();
+  if (!items.length) {
+    root.hidden = true;
+    return;
+  }
+
+  const heading = document.createElement("h2");
+  heading.textContent = "Latest highlights";
+  root.append(heading);
+
+  const list = document.createElement("div");
+  list.className = "homepage-public-items__grid";
+  items.forEach((item) => {
+    const article = document.createElement("article");
+    article.className = "homepage-public-item";
+
+    const mediaElement = createHomepageMediaElement(item.media);
+    if (mediaElement) {
+      const mediaWrap = document.createElement("div");
+      mediaWrap.className = "homepage-public-item__media";
+      mediaWrap.append(mediaElement);
+      article.append(mediaWrap);
+    }
+
+    const title = document.createElement("h3");
+    title.textContent = item.title || "Untitled";
+    article.append(title);
+
+    if (item.subtitle) {
+      const subtitle = document.createElement("p");
+      subtitle.className = "homepage-public-item__subtitle";
+      subtitle.textContent = item.subtitle;
+      article.append(subtitle);
+    }
+
+    const metaParts = [item.locationLabel, item.timeLabel].filter(Boolean);
+    if (metaParts.length) {
+      const meta = document.createElement("p");
+      meta.className = "homepage-public-item__meta";
+      meta.textContent = metaParts.join(" · ");
+      article.append(meta);
+    }
+
+    if (item.description) {
+      const description = document.createElement("p");
+      description.className = "homepage-public-item__description";
+      description.textContent = item.description;
+      article.append(description);
+    }
+
+    list.append(article);
+  });
+
+  root.append(list);
+  root.hidden = false;
+};
+
+const loadHomepagePublicItems = async () => {
+  const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
+  try {
+    const response = await fetch(`${apiBaseUrl}/homepage/public`, {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        "X-Request-ID": `homepage-public-${Date.now().toString(36)}`
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`Homepage public request failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    renderHomepagePublicItems(Array.isArray(payload.items) ? payload.items : []);
+    debugLog("homepage.public_items.loaded", {
+      count: Array.isArray(payload.items) ? payload.items.length : 0
+    });
+  } catch (error) {
+    renderHomepagePublicItems([]);
+    debugLog("homepage.public_items.unavailable", { error: error.message }, "warn");
+  }
+};
+
 document.addEventListener("DOMContentLoaded", () => {
   debugLog("homepage.ready", {
     visitorEntry: document.querySelector("[data-visitor-entrance]")?.getAttribute("href") || null,
@@ -133,6 +244,7 @@ document.addEventListener("DOMContentLoaded", () => {
     clickAnywhereNavigation: false
   });
   initializeCoverEntrances();
+  loadHomepagePublicItems();
 });
 
 const initializeVisitorMessagePrototype = () => {

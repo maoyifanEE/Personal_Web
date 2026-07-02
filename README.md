@@ -72,6 +72,18 @@ Data URL image persistence is intentionally rejected by the backend.
 
 Do not store real private data or real private images in the current Journey prototype.
 
+Homepage media database foundation v1 is available for local development.
+
+Current homepage media behavior:
+
+* Admin upload APIs copy selected local image/video files into `data/uploads/homepage/`.
+* The database stores media metadata and project-relative paths only.
+* Original local absolute paths such as `C:\Users\...` or `D:\Pictures\...` are never stored.
+* Public homepage display items can be read from `GET /api/homepage/public`.
+* Public media files are served only by registered media id through `/api/homepage/media/{id}/file`.
+* `data/uploads/` is runtime data and must not be committed to GitHub.
+* This is local-development only and was not deployed to the public server.
+
 ## Navigation Behavior
 
 * Visible visitor entrance on `index.html` opens the Journey public preview at `journey.html?view=public`.
@@ -201,6 +213,8 @@ The collector creates a zip and a text summary under `.local_logs/`. It is for
 local troubleshooting only and does not collect `.env`, database files, uploads,
 backups, or previous bundles.
 
+The debug bundle also excludes `data/uploads/homepage/` runtime media.
+
 To guard against accidentally committed one-line source files:
 
 ```powershell
@@ -314,6 +328,35 @@ These accounts are local development accounts only.
 They are created by `python -m app.scripts.seed_dev_auth_users`.
 
 They are not created by migrations and must not be used in production.
+
+## Homepage Media API Local Test Notes
+
+Run migrations before testing homepage media APIs:
+
+```powershell
+cd backend
+alembic upgrade head
+python -m app.scripts.seed_dev_auth_users
+```
+
+Public read:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/homepage/public
+```
+
+Admin upload requires a local authenticated admin session, CSRF token, and the
+`homepage:edit` permission. Uploads are copied to `data/uploads/homepage/`.
+
+Supported first-slice media types:
+
+* Images: `.png`, `.jpg`, `.jpeg`, `.webp`
+* Videos: `.mp4`, `.webm`
+
+SVG, scripts, archives, HTML, executables, and PowerShell/batch files are rejected.
+
+Future deployment will need both database migration and runtime upload directory
+migration/backup planning. No deployment was done in this slice.
 
 Manual equivalent:
 

@@ -33,6 +33,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Backend homepage canvas read | `/api/homepage/canvas` GET | Local Journey canvas database read | Public read |
 | Backend homepage canvas save | `/api/homepage/canvas` PUT | Local Journey canvas database save | Requires `homepage:edit` |
 | Backend homepage canvas reset | `/api/homepage/canvas/reset` POST | Local Journey published canvas reset | Requires `homepage:edit` |
+| Backend homepage public items | `/api/homepage/public` GET | Local homepage display item read | Public read |
+| Backend homepage media file | `/api/homepage/media/{media_id}/file` GET | Safe registered media file serving | Public enabled media only |
+| Backend homepage media admin | `/api/homepage/media` GET/POST and `/api/homepage/media/{media_id}` PATCH | Local homepage media management | Requires `homepage:edit`; writes require CSRF |
+| Backend homepage item admin | `/api/homepage/items` GET/POST/PATCH/DELETE | Local homepage display item management | Requires `homepage:edit`; writes require CSRF |
 | Backend debug status | `/api/debug/status` GET | Local diagnostics status | Development tools only |
 | Backend client debug log | `/api/debug/client-log` POST | Local frontend diagnostics collection | Development tools only |
 
@@ -54,6 +58,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Journey database save requires `homepage:edit`.
 * Journey database reset requires `homepage:edit`.
 * Journey Data URL image save is rejected by the backend until upload persistence exists.
+* Homepage media upload now copies files into `data/uploads/homepage/` for local development.
+* Homepage media APIs store project-relative paths only and must not store original local absolute paths.
+* Homepage public display only reads visible items and enabled registered media.
+* Homepage media upload and homepage item write APIs require `homepage:edit` and CSRF.
 * Local diagnostics write only to `.local_logs/`, which must not be committed to GitHub.
 * Read `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md` before changing homepage/Journey flow behavior.
 * There is no active hidden private entrance link in current HTML.

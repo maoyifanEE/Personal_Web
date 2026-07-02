@@ -41,6 +41,7 @@ Implemented in this phase:
 * Local-development login/logout/me/CSRF APIs.
 * Local-development admin user management APIs.
 * Local-development homepage/Journey canvas read and admin save APIs.
+* Local-development homepage media upload and display item APIs.
 * Development-only seed, reset, export, and admin summary endpoints.
 * Development-only diagnostics endpoints and JSONL logs under `.local_logs/`.
 
@@ -56,6 +57,7 @@ Not implemented yet:
 * Production deployment.
 * Front-end visitor message API integration.
 * Task, health, subscription, or image upload database migration.
+* Production homepage media deployment or upload backup automation.
 
 ## Prerequisites
 
@@ -144,10 +146,16 @@ This creates the local PostgreSQL tables:
 * `role_permissions`
 * `auth_sessions`
 * `homepage_canvas_states`
+* `homepage_media`
+* `homepage_items`
 
 The RBAC tables are local-development foundation.
 
 The `homepage_canvas_states` table stores shared Journey canvas JSON for local development.
+
+The `homepage_media` and `homepage_items` tables store the first local-development homepage media
+foundation. Uploaded files are copied to `data/uploads/homepage/`; the database stores metadata and
+project-relative paths only.
 
 The migration seeds system role and permission definitions.
 
@@ -324,6 +332,35 @@ Read the shared Journey canvas:
 ```bash
 curl http://127.0.0.1:8000/api/homepage/canvas
 ```
+
+Read public homepage display items:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/homepage/public
+```
+
+Admin media upload requires a local admin session, CSRF token, and `homepage:edit`.
+
+Endpoint:
+
+```text
+POST /api/homepage/media
+```
+
+Only these file types are accepted in this slice:
+
+* `.png`
+* `.jpg`
+* `.jpeg`
+* `.webp`
+* `.mp4`
+* `.webm`
+
+Uploaded runtime files live under `data/uploads/homepage/`.
+
+They are ignored by Git and must not be committed.
+
+The database stores project-relative paths only. It must not store original local absolute paths.
 
 Save the shared Journey canvas as an authenticated admin:
 

@@ -1,5 +1,85 @@
 # Project History
 
+## 2026-07-02 - Homepage media database foundation v1
+
+### Goal
+
+* Work on `Feature/homepage-media-db-foundation-v1`.
+* Add the first controlled local-development slice for database-backed homepage media and display items.
+* Ensure selected local files are copied into project-controlled runtime upload storage.
+* Ensure the database stores metadata and project-relative paths, not original local absolute paths.
+
+### Actual changes
+
+* Added `homepage_media` and `homepage_items` database models and migration.
+* Added configurable homepage media storage settings with default root `data/uploads/homepage`.
+* Added admin-protected media upload/list/update APIs under `/api/homepage`.
+* Added admin-protected homepage item create/list/update/soft-hide APIs.
+* Added public `GET /api/homepage/public` and safe media serving by media id.
+* Added minimal public homepage rendering for database-backed items when available.
+* Kept public pages free of upload/edit controls.
+* Confirmed debug bundle rules explicitly exclude runtime upload media.
+
+### Files changed
+
+* `backend/app/models/homepage_media.py`
+* `backend/app/models/homepage_item.py`
+* `backend/alembic/versions/20260702_0005_add_homepage_media_items.py`
+* `backend/app/services/homepage_media_service.py`
+* `backend/app/api/routes/homepage.py`
+* `backend/app/schemas/homepage.py`
+* `backend/app/core/config.py`
+* `backend/.env.example`
+* `backend/requirements.txt`
+* `index.html`
+* `script.js`
+* `styles.css`
+* `scripts/check-source-readability.ps1`
+* `README.md`
+* `backend/README.md`
+
+### Database impact
+
+* Adds two new tables: `homepage_media` and `homepage_items`.
+* Adds indexes for sort order, enabled/visible flags, media type/display type, checksum, and media FK.
+* Does not alter existing tables.
+* Requires local `alembic upgrade head`.
+
+### Permission impact
+
+* Public read endpoints remain unauthenticated.
+* Admin media and item write APIs require `homepage:edit`.
+* Admin write APIs also require CSRF validation.
+* Auth/RBAC semantics were not changed.
+
+### Deployment impact
+
+* Local development only.
+* No public server deployment was performed.
+* No Nginx, HTTPS, 1Panel, or production database configuration was changed.
+* Future deployment must migrate both database schema and runtime upload storage/backups.
+
+### Tests
+
+* `node --check` passed for the frontend JavaScript entry points.
+* `python -m compileall app` and backend import checks passed.
+* `alembic upgrade head` applied the homepage media migration locally.
+* Local development auth seed completed after migration.
+* API smoke tests confirmed public reads, unauthenticated upload rejection, admin upload, unsafe SVG rejection, item visibility, soft-hide, media serving, and disabled media 404 behavior.
+* Browser smoke tests confirmed the public homepage renders database-backed items and the Journey page still renders an SVG path.
+* 390px mobile browser smoke confirmed no horizontal overflow and no footer overlap.
+* Debug bundle export smoke confirmed runtime uploads are excluded.
+
+### Remaining issues
+
+* No full CMS or drag-and-drop editor exists yet.
+* No video transcoding, cloud storage, CDN, or production upload backup automation exists yet.
+* Public homepage rendering is intentionally minimal.
+
+### Next suggested step
+
+* Add a small protected local admin UI for managing homepage media and display items after the API slice is accepted.
+
 ## 2026-07-02 - Improve local startup reset and debug export
 
 ### Goal

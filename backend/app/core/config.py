@@ -1,6 +1,7 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -23,6 +24,9 @@ class Settings(BaseSettings):
     session_secret: str = Field("development-only-change-me", alias="SESSION_SECRET")
     cookie_secure: bool = Field(False, alias="COOKIE_SECURE")
     csrf_header_name: str = Field("X-CSRF-Token", alias="CSRF_HEADER_NAME")
+    homepage_media_root: str = Field("data/uploads/homepage", alias="HOMEPAGE_MEDIA_ROOT")
+    homepage_image_max_mb: int = Field(10, alias="HOMEPAGE_IMAGE_MAX_MB")
+    homepage_video_max_mb: int = Field(100, alias="HOMEPAGE_VIDEO_MAX_MB")
     cors_allow_origins: str = Field(
         "http://127.0.0.1:4173,http://localhost:4173",
         alias="CORS_ALLOW_ORIGINS",
@@ -41,6 +45,25 @@ class Settings(BaseSettings):
         if not value.startswith("/"):
             return f"/{value}"
         return value.rstrip("/") or "/api"
+
+    @field_validator("homepage_media_root")
+    @classmethod
+    def normalize_homepage_media_root(cls, value: str) -> str:
+        value = value.strip().replace("\\", "/")
+        if not value:
+            raise ValueError("HOMEPAGE_MEDIA_ROOT must not be empty")
+        if Path(value).is_absolute():
+            raise ValueError("HOMEPAGE_MEDIA_ROOT must be project-relative in local development")
+        if ".." in Path(value).parts:
+            raise ValueError("HOMEPAGE_MEDIA_ROOT must not contain path traversal")
+        return value.strip("/")
+
+    @field_validator("homepage_image_max_mb", "homepage_video_max_mb")
+    @classmethod
+    def require_positive_media_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Homepage media size limits must be positive")
+        return value
 
     @model_validator(mode="after")
     def validate_production_safety(self) -> "Settings":
@@ -65,6 +88,22 @@ class Settings(BaseSettings):
     @property
     def dev_tools_enabled(self) -> bool:
         return self.is_development and self.allow_dev_tools
+
+    @property
+    def homepage_media_root_path(self) -> Path:
+        """Return the project-controlled runtime upload root."""
+
+        from app.core.diagnostics import PROJECT_ROOT
+
+        return PROJECT_ROOT / self.homepage_media_root
+
+    @property
+    def homepage_image_max_bytes(self) -> int:
+        return self.homepage_image_max_mb * 1024 * 1024
+
+    @property
+    def homepage_video_max_bytes(self) -> int:
+        return self.homepage_video_max_mb * 1024 * 1024
 
 
 @lru_cache

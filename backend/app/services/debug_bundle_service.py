@@ -18,6 +18,7 @@ ALLOWED_LOG_DIRS = ("backend", "frontend", "launcher")
 SKIPPED_PARTS = {
     ".env",
     ".venv",
+    "data",
     "uploads",
     "backups",
     "debug-bundles",
@@ -152,6 +153,7 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
             ".env",
             ".venv",
             "database files",
+            "data/uploads runtime media",
             "uploads",
             "backups",
             "previous debug bundles",
