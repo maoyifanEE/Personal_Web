@@ -182,7 +182,16 @@ Journey canvas flow. Browser logs are bounded and redacted through
 `debug-logger.js`, while backend diagnostics are written as JSONL files under
 `.local_logs/`.
 
-To collect a local debug bundle:
+Recommended browser workflow:
+
+1. Open `debug-log.html`.
+2. Click `导出完整调试包 ZIP`.
+3. Send the downloaded zip to ChatGPT.
+
+The browser export asks the local backend to create one zip containing browser
+debug logs plus safe backend/frontend/launcher local logs.
+
+CLI fallback:
 
 ```powershell
 .\scripts\collect-debug-logs.ps1
@@ -244,6 +253,28 @@ The easiest local start path on Windows is:
 .\start-local-dev.bat
 ```
 
+By default, the local launcher opens:
+
+```text
+http://127.0.0.1:4173/?devLogout=1
+```
+
+The homepage handles this local-only flag by calling the logout API and then
+cleaning the URL. This prevents an old admin HttpOnly session cookie from making
+the app appear to start as admin automatically.
+
+To keep the existing browser session intentionally:
+
+```powershell
+.\start-local-dev.bat keep-session
+```
+
+or:
+
+```powershell
+.\scripts\start-local-dev.ps1 -KeepSession
+```
+
 The launcher:
 
 * checks `backend/.env`
@@ -254,7 +285,22 @@ The launcher:
 * runs the development auth seed script
 * starts the backend at `http://127.0.0.1:8000`
 * starts the static frontend at `http://127.0.0.1:4173`
-* opens `http://127.0.0.1:4173/`
+* opens the guest-reset homepage by default
+
+Create a movable Windows shortcut:
+
+```powershell
+.\scripts\create-local-launch-shortcut.ps1
+```
+
+This creates `Personal Web Local.lnk` on the Desktop. The shortcut stores the
+absolute target path and working directory, so the shortcut itself can be moved.
+
+Optional portable `.cmd` launcher:
+
+```powershell
+.\scripts\create-portable-local-launcher.ps1
+```
 
 Local development accounts:
 

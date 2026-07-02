@@ -54,6 +54,41 @@ https://beian.miit.gov.cn/
 
 Entrance buttons must not overlap the ICP footer on mobile.
 
+## Local Launcher Session Reset
+
+The Windows local launcher opens the homepage with:
+
+```text
+http://127.0.0.1:4173/?devLogout=1
+```
+
+This flag is honored only on `127.0.0.1` and `localhost`.
+
+When present, the homepage:
+
+* logs `index.dev_session_reset.detected`
+* calls the local logout API if available
+* renders the homepage as guest/public navigation
+* removes the query parameter with `history.replaceState`
+* does not clear Journey drafts
+* does not clear published database canvas state
+* does not clear debug logs
+
+The goal is to avoid an old admin session cookie making local startup look like
+the app automatically starts as admin.
+
+To preserve the existing browser session intentionally:
+
+```powershell
+.\start-local-dev.bat keep-session
+```
+
+or:
+
+```powershell
+.\scripts\start-local-dev.ps1 -KeepSession
+```
+
 ## Login Flow
 
 `login.html` is connected to the local backend Auth/RBAC v1 API.
@@ -234,6 +269,7 @@ Debug routes:
 
 * `GET /api/debug/status`
 * `POST /api/debug/client-log`
+* `POST /api/debug/export-bundle`
 
 These routes must be available only in local development tools mode.
 
@@ -244,6 +280,10 @@ They must not be treated as production logging infrastructure.
 * too many entries
 * too large total JSON payload
 * too large individual entry JSON payload
+
+`POST /api/debug/export-bundle` creates and returns a local zip bundle in
+development tools mode. It does not require auth because guest/public-flow logs
+are often needed.
 
 Sensitive values must be redacted:
 
@@ -302,6 +342,32 @@ The script must not collect:
 * large binary files
 
 The bundle and summary are ignored by Git.
+
+Recommended no-terminal workflow:
+
+1. Open `debug-log.html`.
+2. Click `导出完整调试包 ZIP`.
+3. Send the downloaded zip to ChatGPT.
+
+The browser-triggered zip includes:
+
+* sanitized browser debug logs
+* browser snapshot and page summary
+* backend logs under `.local_logs/backend`
+* frontend logs under `.local_logs/frontend`
+* launcher logs under `.local_logs/launcher`
+* safe git and environment summaries
+
+The browser-triggered zip excludes:
+
+* `.env`
+* `.venv`
+* database files
+* uploads
+* backups
+* previous debug bundles
+* raw Data URLs
+* cookies, tokens, passwords, secrets, and full database URLs
 
 ## Non-Goals
 

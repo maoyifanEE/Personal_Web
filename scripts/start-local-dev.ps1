@@ -1,3 +1,7 @@
+param(
+  [switch]$KeepSession
+)
+
 $ErrorActionPreference = "Stop"
 $script:LauncherLogPath = $null
 
@@ -174,7 +178,8 @@ $script:LauncherLogPath = Join-Path $launcherLogDir ("start-local-dev-{0}.log" -
 $backendDir = Join-Path $repoRoot "backend"
 $envPath = Join-Path $backendDir ".env"
 $backendPython = Join-Path $backendDir ".venv\Scripts\python.exe"
-$homepageUrl = "http://127.0.0.1:4173/"
+$baseHomepageUrl = "http://127.0.0.1:4173/"
+$homepageUrl = if ($KeepSession) { $baseHomepageUrl } else { "${baseHomepageUrl}?devLogout=1" }
 $loginUrl = "http://127.0.0.1:4173/login.html"
 
 Set-Location $repoRoot
@@ -185,6 +190,8 @@ $branch = git branch --show-current
 $commit = git rev-parse --short HEAD
 Write-Info "Current branch: $branch"
 Write-Info "Current commit: $commit"
+Write-Info "KeepSession: $KeepSession"
+Write-Info "Homepage URL: $homepageUrl"
 
 if (-not (Test-Path $envPath)) {
   Write-Host ""
@@ -282,7 +289,7 @@ if ($frontendListener) {
   Start-FrontendWindow -RepoRoot $repoRoot -BackendPython $backendPython
 }
 
-$frontendReady = Wait-ForUrl -Name "Frontend" -Uris @($homepageUrl) -TimeoutSeconds 30
+$frontendReady = Wait-ForUrl -Name "Frontend" -Uris @($baseHomepageUrl) -TimeoutSeconds 30
 
 if (-not $frontendReady) {
   Write-Host ""

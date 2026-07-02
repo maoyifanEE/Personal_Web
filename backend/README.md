@@ -413,10 +413,15 @@ The following endpoints return `403` outside development tools mode:
 * `GET /api/admin/data/summary`
 * `GET /api/debug/status`
 * `POST /api/debug/client-log`
+* `POST /api/debug/export-bundle`
 
 The client-log debug endpoint is local-development only. It sanitizes incoming
 payloads before writing JSONL logs and rejects oversized entry counts, oversized
 total JSON payloads, and oversized individual entries.
+
+The debug bundle export endpoint is also local-development only. It returns a
+zip assembled from sanitized browser logs, safe local JSONL logs, git summary,
+and environment summary without `.env` contents.
 
 The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
 

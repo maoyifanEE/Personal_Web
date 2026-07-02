@@ -9,9 +9,78 @@ const debugLog = (event, details = {}, level = "info") => {
   );
 };
 
+const isLocalDevelopmentHost = () =>
+  window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+
+const cleanLocalStartUrl = (url) => {
+  url.searchParams.delete("devLogout");
+  url.searchParams.delete("localStart");
+  url.searchParams.delete("resetSession");
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, document.title, nextUrl || "/");
+  debugLog("index.dev_session_reset.url_cleaned", { path: nextUrl || "/" });
+};
+
+const setLocalStartStatus = (message = "") => {
+  const status = document.querySelector("[data-local-start-status]");
+  if (!status) {
+    return;
+  }
+
+  status.textContent = message;
+  status.hidden = !message;
+  debugLog("index.local_start_status.updated", {
+    visible: Boolean(message)
+  });
+};
+
+const shouldResetLocalSession = () => {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    isLocalDevelopmentHost() &&
+    (
+      params.get("devLogout") === "1" ||
+      (params.get("localStart") === "1" && params.get("resetSession") === "1")
+    )
+  );
+};
+
+const resetLocalDevelopmentSession = async () => {
+  const url = new URL(window.location.href);
+  if (!shouldResetLocalSession()) {
+    return false;
+  }
+
+  debugLog("index.dev_session_reset.detected", { host: window.location.hostname });
+  debugLog("index.dev_session_reset.start");
+
+  try {
+    if (window.PersonalWebAuth?.logout) {
+      await window.PersonalWebAuth.logout();
+      debugLog("index.dev_session_reset.success");
+    } else {
+      debugLog("index.dev_session_reset.backend_unavailable", {
+        reason: "auth helper unavailable"
+      }, "warn");
+      setLocalStartStatus("本地启动未能调用后端退出接口；入口已切回登录页。");
+    }
+  } catch (error) {
+    const eventName = /fetch|network|failed/i.test(error.message || "")
+      ? "index.dev_session_reset.backend_unavailable"
+      : "index.dev_session_reset.failure";
+    debugLog(eventName, { error: error.message }, "warn");
+    setLocalStartStatus("本地启动退出检查失败；入口已切回登录页。");
+  } finally {
+    cleanLocalStartUrl(url);
+  }
+
+  return true;
+};
+
 const initializeCoverEntrances = async () => {
   const visitorEntrance = document.querySelector("[data-visitor-entrance]");
   const userEntrance = document.querySelector("[data-user-entrance]");
+  const localSessionReset = await resetLocalDevelopmentSession();
 
   if (visitorEntrance) {
     visitorEntrance.setAttribute("href", "./journey.html?view=public");
@@ -28,17 +97,25 @@ const initializeCoverEntrances = async () => {
   }
 
   let target = "./login.html";
-  try {
-    const authState = await window.PersonalWebAuth?.getCurrentAuthState?.({ force: true });
-    if (authState?.authenticated) {
-      target = "./hub.html";
+  if (!localSessionReset) {
+    try {
+      const authState = await window.PersonalWebAuth?.getCurrentAuthState?.({ force: true });
+      if (authState?.authenticated) {
+        target = "./hub.html";
+      }
+      debugLog("homepage.user_entrance.resolved", {
+        authenticated: Boolean(authState?.authenticated),
+        target
+      });
+    } catch (error) {
+      debugLog("homepage.user_entrance.auth_check_failed", { error: error.message }, "warn");
     }
+  } else {
     debugLog("homepage.user_entrance.resolved", {
-      authenticated: Boolean(authState?.authenticated),
+      authenticated: false,
+      localSessionReset: true,
       target
     });
-  } catch (error) {
-    debugLog("homepage.user_entrance.auth_check_failed", { error: error.message }, "warn");
   }
 
   userEntrance.setAttribute("href", target);

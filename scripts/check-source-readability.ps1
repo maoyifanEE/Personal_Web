@@ -14,6 +14,8 @@ $SourceFiles = @(
   "scripts/collect-debug-logs.ps1",
   "scripts/start-local-dev.ps1",
   "scripts/stop-local-dev.ps1",
+  "scripts/create-local-launch-shortcut.ps1",
+  "scripts/create-portable-local-launcher.ps1",
   "scripts/check-source-readability.ps1"
 )
 
@@ -86,7 +88,7 @@ function Get-GitObjectBytes {
   try {
     $objectName = "${Revision}:$Path"
     $quotedTemp = $tempFile.FullName.Replace('"', '""')
-    cmd /c "git cat-file blob `"$objectName`" > `"$quotedTemp`""
+    cmd /c "git cat-file blob `"$objectName`" > `"$quotedTemp`" 2>nul"
     if ($LASTEXITCODE -ne 0) {
       throw "git cat-file failed for $objectName"
     }

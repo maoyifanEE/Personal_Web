@@ -1,5 +1,30 @@
 # Project History
 
+## 2026-07-02 - Improve local startup reset and debug export
+
+### Goal
+
+* Continue on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Make one-click local startup open in a clean guest state by default.
+* Add a browser button for exporting a complete local debug zip.
+* Add shortcut creation support for a movable Windows launcher.
+
+### Completed
+
+* Local launcher now opens `http://127.0.0.1:4173/?devLogout=1` by default.
+* Homepage handles `devLogout=1` only on localhost and logs the reset flow.
+* Added `-KeepSession` / `keep-session` startup option.
+* Added `POST /api/debug/export-bundle` for local-development debug zip export.
+* Added debug-log page button `导出完整调试包 ZIP`.
+* Added Windows shortcut and portable launcher creation scripts.
+* Kept CLI `scripts/collect-debug-logs.ps1` as fallback.
+
+### Safety boundaries
+
+* No production deployment was performed.
+* No database schema, Auth/RBAC permission model, Journey drawing algorithm, or public server configuration was changed.
+* Debug bundles exclude `.env`, `.venv`, database files, uploads, backups, previous bundles, raw Data URLs, and secrets.
+
 ## 2026-07-01 - Add source readability gate for diagnostics review
 
 ### Goal
