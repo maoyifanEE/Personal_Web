@@ -2,6 +2,9 @@
 Thumbs.db
 desktop.ini
 *.log
+.local_logs/
+*.local-debug.json
+*.local-debug.zip
 .env
 .env.*
 !.env.example

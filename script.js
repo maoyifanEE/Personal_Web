@@ -1,17 +1,139 @@
-const logCover = (message, details = {}) => {
-  console.log(`[Personal_Web][Cover] ${message}`, details);
+const debugLog = (event, details = {}, level = "info") => {
+  if (window.PersonalWebDebug?.log) {
+    window.PersonalWebDebug.log(level, event, details);
+    return;
+  }
+  console[level === "error" ? "error" : level === "warn" ? "warn" : "log"](
+    `[Personal_Web][Cover] ${event}`,
+    details
+  );
 };
 
-const initializeCoverPage = () => {
-  logCover("Cover page initialized.", {
-    journeyEntry: document.querySelector(".visitor-entrance")?.getAttribute("href") || null,
-    privateEntry: document.querySelector(".user-entrance")?.getAttribute("href") || null,
-    clickAnywhereNavigation: false
+const isLocalDevelopmentHost = () =>
+  window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
+
+const cleanLocalStartUrl = (url) => {
+  url.searchParams.delete("devLogout");
+  url.searchParams.delete("localStart");
+  url.searchParams.delete("resetSession");
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  window.history.replaceState({}, document.title, nextUrl || "/");
+  debugLog("index.dev_session_reset.url_cleaned", { path: nextUrl || "/" });
+};
+
+const setLocalStartStatus = (message = "") => {
+  const status = document.querySelector("[data-local-start-status]");
+  if (!status) {
+    return;
+  }
+
+  status.textContent = message;
+  status.hidden = !message;
+  debugLog("index.local_start_status.updated", {
+    visible: Boolean(message)
   });
 };
 
-document.addEventListener("DOMContentLoaded", initializeCoverPage);
+const shouldResetLocalSession = () => {
+  const params = new URLSearchParams(window.location.search);
+  return (
+    isLocalDevelopmentHost() &&
+    (
+      params.get("devLogout") === "1" ||
+      (params.get("localStart") === "1" && params.get("resetSession") === "1")
+    )
+  );
+};
 
+const resetLocalDevelopmentSession = async () => {
+  const url = new URL(window.location.href);
+  if (!shouldResetLocalSession()) {
+    return false;
+  }
+
+  debugLog("index.dev_session_reset.detected", { host: window.location.hostname });
+  debugLog("index.dev_session_reset.start");
+
+  try {
+    if (window.PersonalWebAuth?.logout) {
+      await window.PersonalWebAuth.logout();
+      debugLog("index.dev_session_reset.success");
+    } else {
+      debugLog("index.dev_session_reset.backend_unavailable", {
+        reason: "auth helper unavailable"
+      }, "warn");
+      setLocalStartStatus("本地启动未能调用后端退出接口；入口已切回登录页。");
+    }
+  } catch (error) {
+    const eventName = /fetch|network|failed/i.test(error.message || "")
+      ? "index.dev_session_reset.backend_unavailable"
+      : "index.dev_session_reset.failure";
+    debugLog(eventName, { error: error.message }, "warn");
+    setLocalStartStatus("本地启动退出检查失败；入口已切回登录页。");
+  } finally {
+    cleanLocalStartUrl(url);
+  }
+
+  return true;
+};
+
+const initializeCoverEntrances = async () => {
+  const visitorEntrance = document.querySelector("[data-visitor-entrance]");
+  const userEntrance = document.querySelector("[data-user-entrance]");
+  const localSessionReset = await resetLocalDevelopmentSession();
+
+  if (visitorEntrance) {
+    visitorEntrance.setAttribute("href", "./journey.html?view=public");
+    visitorEntrance.addEventListener("click", () => {
+      debugLog("homepage.visitor_entrance.clicked", {
+        target: visitorEntrance.getAttribute("href")
+      });
+    });
+  }
+
+  if (!userEntrance) {
+    debugLog("homepage.user_entrance.missing", {}, "warn");
+    return;
+  }
+
+  let target = "./login.html";
+  if (!localSessionReset) {
+    try {
+      const authState = await window.PersonalWebAuth?.getCurrentAuthState?.({ force: true });
+      if (authState?.authenticated) {
+        target = "./hub.html";
+      }
+      debugLog("homepage.user_entrance.resolved", {
+        authenticated: Boolean(authState?.authenticated),
+        target
+      });
+    } catch (error) {
+      debugLog("homepage.user_entrance.auth_check_failed", { error: error.message }, "warn");
+    }
+  } else {
+    debugLog("homepage.user_entrance.resolved", {
+      authenticated: false,
+      localSessionReset: true,
+      target
+    });
+  }
+
+  userEntrance.setAttribute("href", target);
+  userEntrance.addEventListener("click", () => {
+    debugLog("homepage.user_entrance.clicked", {
+      target: userEntrance.getAttribute("href")
+    });
+  });
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  debugLog("homepage.ready", {
+    visitorEntry: document.querySelector("[data-visitor-entrance]")?.getAttribute("href") || null,
+    userEntry: document.querySelector("[data-user-entrance]")?.getAttribute("href") || null,
+    clickAnywhereNavigation: false
+  });
+  initializeCoverEntrances();
+});
 
 const initializeVisitorMessagePrototype = () => {
   const modal = document.getElementById("visitor-message-modal");
@@ -20,7 +142,7 @@ const initializeVisitorMessagePrototype = () => {
   const status = document.querySelector("[data-message-status]");
 
   if (!modal || !openButton || !form || !status) {
-    logCover("Visitor message prototype not initialized: required elements missing.");
+    debugLog("visitor_message.prototype.missing_elements", {}, "warn");
     return;
   }
 
@@ -32,7 +154,7 @@ const initializeVisitorMessagePrototype = () => {
     status.textContent = message;
     status.classList.toggle("is-error", type === "error");
     status.classList.toggle("is-prototype-success", type === "success");
-    logCover("Visitor message prototype status updated.", { type, message });
+    debugLog("visitor_message.prototype.status", { type, message });
   };
 
   const openModal = () => {
@@ -41,7 +163,7 @@ const initializeVisitorMessagePrototype = () => {
     document.body.classList.add("visitor-message-open");
     setStatus("当前仅为前端原型，真实留言提交需要后端和数据库支持。", "info");
     window.requestAnimationFrame(() => panel?.focus());
-    logCover("Visitor message modal opened.");
+    debugLog("visitor_message.prototype.opened");
   };
 
   const closeModal = () => {
@@ -50,7 +172,7 @@ const initializeVisitorMessagePrototype = () => {
     if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
       lastFocusedElement.focus();
     }
-    logCover("Visitor message modal closed.");
+    debugLog("visitor_message.prototype.closed");
   };
 
   openButton.addEventListener("click", openModal);
@@ -69,7 +191,7 @@ const initializeVisitorMessagePrototype = () => {
     const nickname = String(formData.get("nickname") || "").trim();
     const message = String(formData.get("message") || "").trim();
 
-    logCover("Visitor message prototype submit attempted.", {
+    debugLog("visitor_message.prototype.submit_attempted", {
       hasNickname: Boolean(nickname),
       hasMessage: Boolean(message),
       persistence: "disabled"
@@ -93,10 +215,10 @@ const initializeVisitorMessagePrototype = () => {
     );
   });
 
-  logCover("Visitor message prototype initialized.", {
+  debugLog("visitor_message.prototype.ready", {
     persistence: "none",
     storage: "disabled",
-    backend: "not implemented"
+    backend: "not used"
   });
 };
 

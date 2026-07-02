@@ -31,7 +31,7 @@ The repository must not contain real private data, secrets, production database 
 | Page | Purpose | Current status |
 | --- | --- | --- |
 | `index.html` | Public cover homepage | Implemented static page |
-| `journey.html` | Journey sketch canvas prototype | Static/local prototype |
+| `journey.html` | Journey sketch canvas prototype | Public read, admin database save in local development |
 | `login.html` | Private entrance | Local backend Auth/RBAC v1 login when backend is running |
 | `hub.html` | Private hub preview | Shows role-aware local development app links |
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
@@ -45,7 +45,10 @@ The journey prototype now uses a draft-paper style sketch canvas.
 Current Journey sketch canvas v1 behavior:
 
 * Transparent and full-bleed preview.
-* Browser-local sketch state stored in `localStorage`.
+* Shared sketch canvas JSON can be read from local PostgreSQL through `GET /api/homepage/canvas`.
+* Admin users with `homepage:edit` can save shared canvas JSON through `PUT /api/homepage/canvas`.
+* Admin users with `homepage:edit` can reset the published canvas through `POST /api/homepage/canvas/reset`.
+* Browser-local sketch state remains in `localStorage` as a local draft and backend-unavailable fallback.
 * State key: `journeySketchCanvasStateV1`.
 * Schema version: `sketch-canvas-v1`.
 * State includes background, strokes, nodes, stickers, and `nextNodeNumber`.
@@ -57,16 +60,22 @@ Current Journey sketch canvas v1 behavior:
 * Sticker upload, drag, resize, rotate, and delete for local prototype preview.
 * Background upload and clear for local prototype preview.
 
-Journey state is not persisted to the backend yet.
+Journey canvas JSON can now be persisted to PostgreSQL in local development.
+
+Guests and normal users can read the saved Journey canvas.
+
+Only admins with `homepage:edit` can save it.
 
 Sticker and background uploads are local prototype Data URL previews only.
+
+Data URL image persistence is intentionally rejected by the backend.
 
 Do not store real private data or real private images in the current Journey prototype.
 
 ## Navigation Behavior
 
-* Visible visitor entrance on `index.html` opens `journey.html`.
-* Visible user entrance opens `login.html`.
+* Visible visitor entrance on `index.html` opens the Journey public preview at `journey.html?view=public`.
+* Visible user entrance opens `login.html` for guests and `hub.html` for authenticated local users.
 * There is no hidden homepage button in the current behavior.
 * Normal cover background clicks do not navigate.
 * `login.html` calls the local backend login API and redirects to `hub.html` after a valid local session.
@@ -74,6 +83,7 @@ Do not store real private data or real private images in the current Journey pro
 * `hub.html` links to child app prototypes.
 * Homepage entrance buttons are navigation devices, not security mechanisms.
 * Direct URL access is still possible for placeholder private pages.
+* Journey editing requires `journey.html?edit=1` plus local `homepage:edit` permission.
 
 ## Data Safety
 
@@ -162,7 +172,43 @@ Personal_Web/
 * `docs/08_PROJECT_STRUCTURE_STANDARD.md`: structure and branch standards.
 * `docs/09_BACKEND_DATABASE_PLAN.md`: backend/database status and next-stage planning.
 * `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture and implementation status.
+* `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md`: homepage, login, Hub, Journey canvas, and diagnostics flow specification.
 * `docs/PROJECT_HISTORY.md`: project change history.
+
+## Local Diagnostics
+
+Local development diagnostics are available for the homepage, login, Hub, and
+Journey canvas flow. Browser logs are bounded and redacted through
+`debug-logger.js`, while backend diagnostics are written as JSONL files under
+`.local_logs/`.
+
+Recommended browser workflow:
+
+1. Open `debug-log.html`.
+2. Click `导出完整调试包 ZIP`.
+3. Send the downloaded zip to ChatGPT.
+
+The browser export asks the local backend to create one zip containing browser
+debug logs plus safe backend/frontend/launcher local logs.
+
+CLI fallback:
+
+```powershell
+.\scripts\collect-debug-logs.ps1
+```
+
+The collector creates a zip and a text summary under `.local_logs/`. It is for
+local troubleshooting only and does not collect `.env`, database files, uploads,
+backups, or previous bundles.
+
+To guard against accidentally committed one-line source files:
+
+```powershell
+.\scripts\check-source-readability.ps1
+```
+
+The readability check prints line counts, byte counts, and maximum line lengths
+for important frontend, backend, and local tooling source files.
 
 ## Development Rules
 
@@ -207,6 +253,28 @@ The easiest local start path on Windows is:
 .\start-local-dev.bat
 ```
 
+By default, the local launcher opens:
+
+```text
+http://127.0.0.1:4173/?devLogout=1
+```
+
+The homepage handles this local-only flag by calling the logout API and then
+cleaning the URL. This prevents an old admin HttpOnly session cookie from making
+the app appear to start as admin automatically.
+
+To keep the existing browser session intentionally:
+
+```powershell
+.\start-local-dev.bat keep-session
+```
+
+or:
+
+```powershell
+.\scripts\start-local-dev.ps1 -KeepSession
+```
+
 The launcher:
 
 * checks `backend/.env`
@@ -217,7 +285,22 @@ The launcher:
 * runs the development auth seed script
 * starts the backend at `http://127.0.0.1:8000`
 * starts the static frontend at `http://127.0.0.1:4173`
-* opens `http://127.0.0.1:4173/`
+* opens the guest-reset homepage by default
+
+Create a movable Windows shortcut:
+
+```powershell
+.\scripts\create-local-launch-shortcut.ps1
+```
+
+This creates `Personal Web Local.lnk` on the Desktop. The shortcut stores the
+absolute target path and working directory, so the shortcut itself can be moved.
+
+Optional portable `.cmd` launcher:
+
+```powershell
+.\scripts\create-portable-local-launcher.ps1
+```
 
 Local development accounts:
 

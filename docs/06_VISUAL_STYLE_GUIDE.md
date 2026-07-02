@@ -18,8 +18,8 @@ It should also prevent old navigation behavior from returning by accident.
 * The public cover homepage is not the journey prototype itself.
 * The ICP footer is subtle and visible.
 * The ICP footer links to `https://beian.miit.gov.cn/`.
-* The visible visitor entrance opens `journey.html`.
-* The visible user entrance opens `login.html`.
+* The visible visitor entrance opens the Journey public preview at `journey.html?view=public`.
+* The visible user entrance opens `login.html` for guests and `hub.html` for authenticated local users.
 * Normal cover background clicks do not navigate.
 * The cover should not feel like a giant button.
 * The visitor and user entrance buttons should stay quiet, compact, and visually separate from the hero text.
@@ -118,8 +118,8 @@ It should also prevent old navigation behavior from returning by accident.
 * [ ] `index.html` still looks like the public cover homepage.
 * [ ] Public hero text is unchanged unless the task requested it.
 * [ ] ICP footer remains visible and subtle.
-* [ ] Visible visitor entrance opens `journey.html`.
-* [ ] Visible user entrance opens `login.html`.
+* [ ] Visible visitor entrance opens `journey.html?view=public`.
+* [ ] Visible user entrance routes guests to `login.html` and authenticated local users to `hub.html`.
 * [ ] Normal cover background clicks do not navigate.
 * [ ] `journey.html` still opens as the timeline prototype.
 * [ ] `hub.html` still opens as a static placeholder.

@@ -1,8 +1,16 @@
+param(
+  [switch]$KeepSession
+)
+
 $ErrorActionPreference = "Stop"
+$script:LauncherLogPath = $null
 
 function Write-Info {
   param([string]$Message)
   Write-Host "[Personal_Web local dev] $Message"
+  if ($script:LauncherLogPath) {
+    Add-Content -Path $script:LauncherLogPath -Value "[$((Get-Date).ToString('o'))] INFO $Message" -Encoding utf8
+  }
 }
 
 function Read-EnvFile {
@@ -164,19 +172,26 @@ Write-Host '[Personal_Web frontend] Process exited. Review messages above.'
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$launcherLogDir = Join-Path $repoRoot ".local_logs\launcher"
+New-Item -ItemType Directory -Force -Path $launcherLogDir | Out-Null
+$script:LauncherLogPath = Join-Path $launcherLogDir ("start-local-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 $backendDir = Join-Path $repoRoot "backend"
 $envPath = Join-Path $backendDir ".env"
 $backendPython = Join-Path $backendDir ".venv\Scripts\python.exe"
-$homepageUrl = "http://127.0.0.1:4173/"
+$baseHomepageUrl = "http://127.0.0.1:4173/"
+$homepageUrl = if ($KeepSession) { $baseHomepageUrl } else { "${baseHomepageUrl}?devLogout=1" }
 $loginUrl = "http://127.0.0.1:4173/login.html"
 
 Set-Location $repoRoot
 
 Write-Info "Repository: $repoRoot"
+Write-Info "Launcher log: $script:LauncherLogPath"
 $branch = git branch --show-current
 $commit = git rev-parse --short HEAD
 Write-Info "Current branch: $branch"
 Write-Info "Current commit: $commit"
+Write-Info "KeepSession: $KeepSession"
+Write-Info "Homepage URL: $homepageUrl"
 
 if (-not (Test-Path $envPath)) {
   Write-Host ""
@@ -274,7 +289,7 @@ if ($frontendListener) {
   Start-FrontendWindow -RepoRoot $repoRoot -BackendPython $backendPython
 }
 
-$frontendReady = Wait-ForUrl -Name "Frontend" -Uris @($homepageUrl) -TimeoutSeconds 30
+$frontendReady = Wait-ForUrl -Name "Frontend" -Uris @($baseHomepageUrl) -TimeoutSeconds 30
 
 if (-not $frontendReady) {
   Write-Host ""

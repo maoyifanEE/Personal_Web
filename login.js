@@ -10,6 +10,14 @@
   const errorMessage = form.querySelector("[data-login-error]");
   const submitButton = form.querySelector("[data-login-submit]");
 
+  const debugLog = (event, details = {}, level = "info") => {
+    if (window.PersonalWebDebug?.log) {
+      window.PersonalWebDebug.log(level, event, details);
+      return;
+    }
+    console[level === "error" ? "error" : level === "warn" ? "warn" : "info"](`[login] ${event}`, details);
+  };
+
   const setError = (message) => {
     if (errorMessage) {
       errorMessage.textContent = message;
@@ -33,13 +41,33 @@
     return "账号或密码不正确。";
   };
 
+  const redirectIfAuthenticated = async () => {
+    if (!window.PersonalWebAuth?.getCurrentAuthState) {
+      debugLog("login.auth_helper_missing", {}, "warn");
+      return;
+    }
+    try {
+      const state = await window.PersonalWebAuth.getCurrentAuthState({ force: true });
+      if (state?.authenticated) {
+        debugLog("login.already_authenticated_redirect", {
+          userId: state.user?.id,
+          roles: state.roles
+        });
+        setError("已登录，正在进入个人工具中心...");
+        window.location.replace("./hub.html");
+      }
+    } catch (error) {
+      debugLog("login.auth_state_check_failed", { error: error.message }, "warn");
+    }
+  };
+
   form.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
     }
 
     if (event.target instanceof HTMLInputElement) {
-      console.info("[login] Enter key submitted the backend login form");
+      debugLog("login.enter_key_submit");
       event.preventDefault();
       form.requestSubmit();
     }
@@ -51,7 +79,7 @@
     const account = accountInput.value.trim();
     const password = passwordInput.value;
 
-    console.info("[login] Backend login submitted", {
+    debugLog("login.submit_attempted", {
       hasAccount: Boolean(account),
       hasPassword: Boolean(password)
     });
@@ -69,7 +97,7 @@
     }
 
     if (!window.PersonalWebAuth) {
-      console.error("[login] Auth helper is unavailable");
+      debugLog("login.auth_helper_unavailable", {}, "error");
       setError("Login service is not available.");
       passwordInput.focus();
       return;
@@ -78,19 +106,22 @@
     try {
       setSubmitting(true);
       setError("");
-      await window.PersonalWebAuth.login({
+      const state = await window.PersonalWebAuth.login({
         usernameOrEmail: account,
         password
       });
-      console.info("[login] Backend login accepted; redirecting to hub.html");
+      debugLog("login.accepted_redirect", {
+        userId: state.user?.id,
+        roles: state.roles
+      });
       window.location.href = "./hub.html";
     } catch (error) {
-      console.warn("[login] Backend login rejected", {
+      debugLog("login.rejected", {
         code: error?.code,
         status: error?.status,
         detail: error?.detail,
         message: error?.message
-      });
+      }, "warn");
       setError(loginErrorMessage(error));
       passwordInput.focus();
       passwordInput.select();
@@ -98,4 +129,6 @@
       setSubmitting(false);
     }
   });
+
+  redirectIfAuthenticated();
 })();

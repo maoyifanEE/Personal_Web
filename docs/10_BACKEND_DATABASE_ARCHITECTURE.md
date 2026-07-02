@@ -28,11 +28,13 @@ Current boundaries:
 * `login.html` is a local-development login entry when the backend is running.
 * `hub.html` is a static shell that can display local auth state.
 * `apps/messages/index.html` is a static admin message management prototype only.
-* Task, health, special subscription, and journey pages are static or local prototypes.
+* Task, health, and special subscription pages are static or local prototypes.
+* Journey is still a prototype page, but its canvas JSON can now use local backend persistence.
 * A local FastAPI backend skeleton exists for development testing.
 * A local PostgreSQL schema foundation exists for development testing.
 * Local backend API endpoints exist for development testing.
 * Local-development authentication and selected RBAC checks have started.
+* Homepage/Journey canvas JSON persistence has started for local development.
 * Production authentication is not deployed.
 * Production authorization is not deployed.
 * There is no real cloud sync.
@@ -223,7 +225,7 @@ Planned data domains:
 * Task list data.
 * Health management data.
 * Special subscription data.
-* Journey data if later persisted.
+* Journey canvas data.
 * Admin audit logs.
 * Data management metadata.
 * Backup metadata.
@@ -668,6 +670,40 @@ Security notes:
 
 * Public create route needs rate limiting.
 * Admin read route requires admin authorization.
+
+### `homepage_canvas_states`
+
+Purpose:
+
+* Store the shared Homepage/Journey canvas JSON.
+* Support a single current canvas row for v1.
+
+Important fields:
+
+* `id`
+* `canvas_key`
+* `schema_version`
+* `canvas_data`
+* `revision`
+* `created_at`
+* `updated_at`
+* `updated_by_user_id`
+
+Needs `data_scope`:
+
+* Not in v1, because this is one shared canvas state rather than user-created record history.
+
+Needs soft delete fields:
+
+* Not in v1.
+
+Security notes:
+
+* Public read is allowed for the current canvas.
+* Save requires authenticated admin permission `homepage:edit`.
+* `canvas_data` stores JSON only.
+* Data URL images are rejected until upload persistence is implemented.
+* Uploaded sticker and background persistence remains future work.
 
 ### `tasks`
 

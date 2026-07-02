@@ -1,5 +1,129 @@
 # Project History
 
+## 2026-07-02 - Improve local startup reset and debug export
+
+### Goal
+
+* Continue on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Make one-click local startup open in a clean guest state by default.
+* Add a browser button for exporting a complete local debug zip.
+* Add shortcut creation support for a movable Windows launcher.
+
+### Completed
+
+* Local launcher now opens `http://127.0.0.1:4173/?devLogout=1` by default.
+* Homepage handles `devLogout=1` only on localhost and logs the reset flow.
+* Added `-KeepSession` / `keep-session` startup option.
+* Added `POST /api/debug/export-bundle` for local-development debug zip export.
+* Added debug-log page button `导出完整调试包 ZIP`.
+* Added Windows shortcut and portable launcher creation scripts.
+* Kept CLI `scripts/collect-debug-logs.ps1` as fallback.
+
+### Safety boundaries
+
+* No production deployment was performed.
+* No database schema, Auth/RBAC permission model, Journey drawing algorithm, or public server configuration was changed.
+* Debug bundles exclude `.env`, `.venv`, database files, uploads, backups, previous bundles, raw Data URLs, and secrets.
+
+## 2026-07-01 - Add source readability gate for diagnostics review
+
+### Goal
+
+* Continue on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Prove important source files are readable multi-line source.
+* Add a reusable check to prevent one-line source regressions.
+
+### Completed
+
+* Added `scripts/check-source-readability.ps1`.
+* The script reports line count, byte count, and maximum line length for important source files.
+* The script fails when large source files are compressed into too few lines or contain excessive line lengths.
+* Verified committed source objects for the previously suspected compressed files are readable multi-line files.
+
+### Safety boundaries
+
+* No product behavior was changed.
+* No homepage, Journey, Auth/RBAC, database schema, launcher behavior, or deployment configuration was changed.
+* No production deployment was performed.
+
+## 2026-07-01 - Polish homepage diagnostics framework
+
+### Goal
+
+* Continue on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Improve diagnostics maintainability and safety before review.
+* Keep product behavior unchanged except diagnostics.
+
+### Completed
+
+* Reformatted and tightened the frontend debug logger API.
+* Refined frontend and backend diagnostic redaction so generic app keys stay visible.
+* Added request metadata logging for auth/API calls without logging secrets.
+* Added backend client-log payload size guards before log writes.
+* Improved the local debug bundle collector so it writes both a zip and summary.
+* Documented the local diagnostics boundaries and collector behavior.
+
+### Safety boundaries
+
+* No production deployment was performed.
+* No backend schema, migration, auth model, Journey drawing, smoothing, eraser, node, or sticker behavior was intentionally changed.
+* No `.env`, uploads, backups, logs, database files, or secrets were committed.
+
+## 2026-06-30 - Stabilize homepage canvas flow and diagnostics
+
+### Goal
+
+* Work on `BugFix/homepage-journey-framework-diagnostics-v1`.
+* Stabilize the published Homepage/Journey canvas flow after the database persistence branch.
+* Keep this local-development only with no deployment or production server changes.
+
+### Completed
+
+* Added `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md` as the flow acceptance reference.
+* Made the homepage visitor entrance always open the public Journey preview.
+* Made the homepage user entrance auth-aware for login versus Hub routing.
+* Made `login.html` redirect already-authenticated users to `hub.html`.
+* Added a Hub admin entry for `journey.html?edit=1`.
+* Enforced Journey editor mode as `?edit=1` plus `homepage:edit`.
+* Clarified local draft save versus database publish in the Journey editor UI.
+* Added database reload and reset actions for the published Journey canvas.
+* Added local frontend and backend diagnostics with redaction and JSONL logs under `.local_logs/`.
+* Added a local debug log page and a PowerShell debug bundle collection script.
+* Added launcher/stop script logging under `.local_logs/launcher/`.
+
+### Safety boundaries
+
+* No production deployment was performed.
+* No Nginx, Certbot, production database, server config, `.env`, uploads, backups, logs, or secrets were committed.
+* No Journey drawing, smoothing, eraser, node, sticker, or pointer-mapping algorithm was intentionally changed.
+* No task, health, subscription, visitor message, or admin user behavior was intentionally changed.
+
+## 2026-06-30 - Add Homepage Journey canvas database persistence
+
+### Goal
+
+* Work on `Feature/homepage-canvas-database-v1`.
+* Add local PostgreSQL persistence for the shared Homepage/Journey canvas JSON.
+* Keep Journey drawing, smoothing, eraser, node, and sticker algorithms unchanged.
+* Keep this local-development only with no deployment.
+
+### Completed
+
+* Added `homepage_canvas_states` for shared Journey canvas JSONB state.
+* Added `GET /api/homepage/canvas` for public canvas reads.
+* Added admin-only `PUT /api/homepage/canvas` guarded by `homepage:edit` and CSRF.
+* Added revision metadata and stale revision conflict handling.
+* Added backend rejection for Data URL image payloads.
+* Integrated Journey loading with backend read plus `localStorage` fallback.
+* Added admin-only save-to-database action while keeping local draft save behavior.
+
+### Safety boundaries
+
+* No image upload persistence was added.
+* No production deployment was performed.
+* No public server, Nginx, Certbot, production database, secrets, uploads, logs, or backups were modified.
+* No task, health, subscription, homepage design, or Journey drawing algorithm behavior was intentionally changed.
+
 ## 2026-06-30 - Fix local launcher homepage startup
 
 ### Goal

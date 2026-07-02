@@ -4,6 +4,15 @@
   const loginLink = document.querySelector("[data-hub-login-link]");
   const logoutButton = document.querySelector("[data-hub-logout]");
   const adminOnlyItems = Array.from(document.querySelectorAll("[data-admin-only]"));
+  const homepageEditorItems = Array.from(document.querySelectorAll("[data-homepage-editor]"));
+
+  const debugLog = (event, details = {}, level = "info") => {
+    if (window.PersonalWebDebug?.log) {
+      window.PersonalWebDebug.log(level, event, details);
+      return;
+    }
+    console[level === "error" ? "error" : level === "warn" ? "warn" : "info"](`[hub] ${event}`, details);
+  };
 
   const setElementHidden = (element, hidden) => {
     if (!element) {
@@ -20,45 +29,41 @@
   };
 
   const renderGuest = (reason) => {
-    console.warn("[hub] Rendering guest state", { reason });
-    setStatus("请先登录后再进入私人工具。");
+    debugLog("hub.render_guest", { reason }, "warn");
+    setStatus("请先登录后再进入个人工具。");
     if (gridEl) {
       gridEl.hidden = true;
     }
-    if (loginLink) {
-      setElementHidden(loginLink, false);
-    }
-    if (logoutButton) {
-      setElementHidden(logoutButton, true);
-    }
-    adminOnlyItems.forEach((item) => {
-      setElementHidden(item, true);
-    });
+    setElementHidden(loginLink, false);
+    setElementHidden(logoutButton, true);
+    adminOnlyItems.forEach((item) => setElementHidden(item, true));
+    homepageEditorItems.forEach((item) => setElementHidden(item, true));
   };
 
   const renderUser = (state) => {
     const displayName = state.user?.displayName || state.user?.username || "用户";
     const roles = state.roles?.join(", ") || "user";
-    console.info("[hub] Rendering authenticated hub", {
+    const canManageUsers =
+      window.PersonalWebAuth.hasRole(state, "admin") ||
+      window.PersonalWebAuth.hasPermission(state, "users:manage");
+    const canEditHomepage =
+      window.PersonalWebAuth.hasRole(state, "admin") ||
+      window.PersonalWebAuth.hasPermission(state, "homepage:edit");
+
+    debugLog("hub.render_user", {
       userId: state.user?.id,
-      roles
+      roles: state.roles,
+      canManageUsers,
+      canEditHomepage
     });
     setStatus(`已登录：${displayName}（${roles}）`);
     if (gridEl) {
       gridEl.hidden = false;
     }
-    if (loginLink) {
-      setElementHidden(loginLink, true);
-    }
-    if (logoutButton) {
-      setElementHidden(logoutButton, false);
-    }
-    const canManageUsers =
-      window.PersonalWebAuth.hasRole(state, "admin") ||
-      window.PersonalWebAuth.hasPermission(state, "users:manage");
-    adminOnlyItems.forEach((item) => {
-      setElementHidden(item, !canManageUsers);
-    });
+    setElementHidden(loginLink, true);
+    setElementHidden(logoutButton, false);
+    adminOnlyItems.forEach((item) => setElementHidden(item, !canManageUsers));
+    homepageEditorItems.forEach((item) => setElementHidden(item, !canEditHomepage));
   };
 
   const initializeHub = async () => {
@@ -84,7 +89,7 @@
       await window.PersonalWebAuth.logout();
       renderGuest("logged out");
     } catch (error) {
-      console.warn("[hub] Logout failed", error);
+      debugLog("hub.logout_failed", { error: error.message }, "warn");
       renderGuest("logout failed");
     }
   });

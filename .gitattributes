@@ -4,6 +4,7 @@
 *.css text eol=lf
 *.js text eol=lf
 *.py text eol=lf
+*.bat text eol=lf
 *.txt text eol=lf
 *.ini text eol=lf
 *.example text eol=lf

@@ -36,10 +36,13 @@ Implemented in this phase:
   * `user_roles`
   * `role_permissions`
   * `auth_sessions`
+* Shared Journey canvas table: `homepage_canvas_states`.
 * Safe system role and permission definitions for future admin access planning.
 * Local-development login/logout/me/CSRF APIs.
 * Local-development admin user management APIs.
+* Local-development homepage/Journey canvas read and admin save APIs.
 * Development-only seed, reset, export, and admin summary endpoints.
+* Development-only diagnostics endpoints and JSONL logs under `.local_logs/`.
 
 Not implemented yet:
 
@@ -52,7 +55,7 @@ Not implemented yet:
 * Production admin UI.
 * Production deployment.
 * Front-end visitor message API integration.
-* Task, health, subscription, or journey database migration.
+* Task, health, subscription, or image upload database migration.
 
 ## Prerequisites
 
@@ -140,8 +143,11 @@ This creates the local PostgreSQL tables:
 * `user_roles`
 * `role_permissions`
 * `auth_sessions`
+* `homepage_canvas_states`
 
 The RBAC tables are local-development foundation.
+
+The `homepage_canvas_states` table stores shared Journey canvas JSON for local development.
 
 The migration seeds system role and permission definitions.
 
@@ -313,6 +319,28 @@ curl -i -X POST http://127.0.0.1:8000/api/auth/login \
   -d "{\"usernameOrEmail\":\"1\",\"password\":\"1\"}"
 ```
 
+Read the shared Journey canvas:
+
+```bash
+curl http://127.0.0.1:8000/api/homepage/canvas
+```
+
+Save the shared Journey canvas as an authenticated admin:
+
+```bash
+curl -X PUT http://127.0.0.1:8000/api/homepage/canvas \
+  -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: <token-from-/api/auth/csrf>" \
+  -b "<admin-session-cookie>" \
+  -d @canvas-payload.example.json
+```
+
+`canvas-payload.example.json` is a local scratch file example only.
+
+Do not commit real canvas data exports.
+
+The save endpoint rejects Data URL images because server-side image upload persistence is not implemented yet.
+
 Soft-delete test/demo data:
 
 ```bash
@@ -383,6 +411,17 @@ The following endpoints return `403` outside development tools mode:
 * `POST /api/dev/reset-test-data`
 * `GET /api/dev/export`
 * `GET /api/admin/data/summary`
+* `GET /api/debug/status`
+* `POST /api/debug/client-log`
+* `POST /api/debug/export-bundle`
+
+The client-log debug endpoint is local-development only. It sanitizes incoming
+payloads before writing JSONL logs and rejects oversized entry counts, oversized
+total JSON payloads, and oversized individual entries.
+
+The debug bundle export endpoint is also local-development only. It returns a
+zip assembled from sanitized browser logs, safe local JSONL logs, git summary,
+and environment summary without `.env` contents.
 
 The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
 
@@ -397,6 +436,6 @@ Future work should add:
 * Full protected admin route coverage.
 * Admin data center UI.
 * Front-end visitor message integration.
-* Task, health, subscription, and journey database migrations.
+* Task, health, subscription, and Journey image upload persistence.
 * Backup and restore automation.
 * Production deployment hardening.
