@@ -141,7 +141,7 @@ def read_homepage_media_file(
 
     media, path = get_public_media_file(db, media_id, settings)
     write_jsonl_event("backend", "homepage.media.file_served", {"mediaId": media.id, "mediaType": media.media_type})
-    return FileResponse(path=path, media_type=media.mime_type, filename=media.original_filename)
+    return FileResponse(path=path, media_type=media.mime_type)
 
 
 @router.get("/media/{media_id}/admin-file", name="read_homepage_media_admin_file")
