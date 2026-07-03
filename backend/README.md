@@ -468,6 +468,10 @@ total JSON payloads, and oversized individual entries.
 The debug bundle export endpoint is also local-development only. It returns a
 zip assembled from sanitized browser logs, safe local JSONL logs, git summary,
 and environment summary without `.env` contents.
+The normal no-terminal path is Hub -> `本地调试日志` -> `导出完整调试包 ZIP`.
+Before login, use the homepage local debug link or open
+`http://127.0.0.1:4173/debug-log.html` directly.
+The local debug UI is hidden outside `localhost` and `127.0.0.1`.
 
 The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
 

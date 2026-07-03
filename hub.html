@@ -78,6 +78,21 @@
             <p>本地 Auth/RBAC v1 管理界面，用于查看用户、分配角色和重置测试密码。</p>
             <span class="card-link">进入用户管理</span>
           </a>
+
+          <article class="app-card hub-debug-card" data-local-debug-card hidden>
+            <p class="card-status">本地调试</p>
+            <h2>本地调试日志</h2>
+            <p>一键导出浏览器日志、后端日志、启动日志和安全摘要，方便发送给 ChatGPT 排查问题。</p>
+            <div class="hub-debug-actions">
+              <button class="primary-action" type="button" data-hub-debug-export>
+                导出完整调试包 ZIP
+              </button>
+              <a class="secondary-action" href="./debug-log.html" data-hub-debug-page>
+                打开调试日志页面
+              </a>
+            </div>
+            <p class="hub-debug-status" data-hub-debug-status aria-live="polite"></p>
+          </article>
         </div>
 
         <div class="private-actions">

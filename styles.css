@@ -234,6 +234,22 @@ h1 span {
   text-decoration: underline;
 }
 
+.local-debug-link {
+  position: fixed;
+  z-index: 5;
+  right: 24px;
+  bottom: 24px;
+  color: rgba(24, 42, 58, 0.52);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.local-debug-link:hover,
+.local-debug-link:focus-visible {
+  color: var(--teal);
+  text-decoration: underline;
+}
+
 .private-page {
   min-height: 100vh;
   min-height: 100svh;
@@ -500,6 +516,24 @@ h1 span {
   justify-content: flex-end;
 }
 
+.hub-debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.hub-debug-status {
+  min-height: 22px;
+  margin: 12px 0 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.hub-debug-status.is-error {
+  color: #9f2d2d;
+}
+
 .app-card {
   min-height: 164px;
   display: block;
@@ -612,6 +646,12 @@ h1 span {
   .visible-entrance--user {
     left: 108px;
     bottom: 56px;
+  }
+
+  .local-debug-link {
+    right: 16px;
+    bottom: 56px;
+    font-size: 12px;
   }
 
   .local-start-status {

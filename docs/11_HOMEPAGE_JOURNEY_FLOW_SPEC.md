@@ -236,6 +236,7 @@ Frontend diagnostics:
 * `clearLogs`
 * `exportLogs`
 * `exportTextSummary`
+* `exportFullDebugBundle`
 * `snapshot`
 * `sanitize`
 * `sendToBackend`
@@ -343,11 +344,36 @@ The script must not collect:
 
 The bundle and summary are ignored by Git.
 
-Recommended no-terminal workflow:
+Recommended no-terminal workflow from Hub:
 
-1. Open `debug-log.html`.
-2. Click `导出完整调试包 ZIP`.
-3. Send the downloaded zip to ChatGPT.
+1. Open `hub.html`.
+2. Click the visible `本地调试日志` card.
+3. Click `导出完整调试包 ZIP`.
+4. Send the downloaded zip to ChatGPT.
+
+Guest or pre-login fallback:
+
+1. Open the homepage on `http://127.0.0.1:4173/`.
+2. Click `本地调试日志`.
+3. Click `导出完整调试包 ZIP` on `debug-log.html`.
+4. Send the downloaded zip to ChatGPT.
+
+Direct URL fallback:
+
+```text
+http://127.0.0.1:4173/debug-log.html
+```
+
+CLI fallback:
+
+```powershell
+.\scripts\collect-debug-logs.ps1
+```
+
+The Hub debug card and homepage debug link must be visible only on
+`localhost` and `127.0.0.1`.
+
+Review the zip before sharing it if privacy is a concern.
 
 The browser-triggered zip includes:
 

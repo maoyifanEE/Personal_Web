@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-03 - Make local debug export discoverable
+
+### Goal
+
+* Continue on `Feature/homepage-media-db-foundation-v1`.
+* Make the existing full debug ZIP export discoverable without manually typing `debug-log.html`.
+* Keep debug export local-development only.
+
+### Actual changes
+
+* Added shared `window.PersonalWebDebug.exportFullDebugBundle()` frontend helper.
+* Refactored `debug-log.js` to use the shared helper for complete ZIP export.
+* Added a local-only Hub debug card with direct `导出完整调试包 ZIP` action.
+* Added a local-only homepage debug link to `debug-log.html` for guest or pre-login debugging.
+* Added UI status messages and frontend debug events for visibility, clicks, success, and failure.
+* Updated local diagnostics documentation with Hub, homepage, direct URL, and CLI fallback workflows.
+
+### Safety boundaries
+
+* Debug UI is hidden outside `localhost` and `127.0.0.1`.
+* No backend schema, Auth/RBAC, media publishing, upload validation, Journey algorithm, or deployment behavior was changed.
+* Existing debug backend export semantics were reused.
+
 ## 2026-07-03 - Harden homepage media publishing rules
 
 ### Goal

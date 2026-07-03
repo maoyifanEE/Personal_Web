@@ -197,14 +197,29 @@ Journey canvas flow. Browser logs are bounded and redacted through
 `debug-logger.js`, while backend diagnostics are written as JSONL files under
 `.local_logs/`.
 
-Recommended browser workflow:
+Recommended local browser workflow from Hub:
 
-1. Open `debug-log.html`.
-2. Click `导出完整调试包 ZIP`.
-3. Send the downloaded zip to ChatGPT.
+1. Open `hub.html`.
+2. Click `本地调试日志`.
+3. Click `导出完整调试包 ZIP`.
+4. Send the downloaded zip to ChatGPT.
+
+Guest or pre-login fallback:
+
+1. Open the homepage on `http://127.0.0.1:4173/`.
+2. Click `本地调试日志`.
+3. Click `导出完整调试包 ZIP` on `debug-log.html`.
+4. Send the downloaded zip to ChatGPT.
 
 The browser export asks the local backend to create one zip containing browser
 debug logs plus safe backend/frontend/launcher local logs.
+The local debug entry points are hidden outside `localhost` and `127.0.0.1`.
+
+Direct URL fallback:
+
+```text
+http://127.0.0.1:4173/debug-log.html
+```
 
 CLI fallback:
 
@@ -217,6 +232,7 @@ local troubleshooting only and does not collect `.env`, database files, uploads,
 backups, or previous bundles.
 
 The debug bundle also excludes `data/uploads/homepage/` runtime media.
+Review the zip before sharing it if privacy is a concern.
 
 To guard against accidentally committed one-line source files:
 

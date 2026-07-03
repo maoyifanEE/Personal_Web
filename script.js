@@ -34,6 +34,23 @@ const setLocalStartStatus = (message = "") => {
   });
 };
 
+const initializeLocalDebugLink = () => {
+  const link = document.querySelector("[data-local-debug-link]");
+  if (!link) {
+    return;
+  }
+  if (!isLocalDevelopmentHost()) {
+    link.hidden = true;
+    debugLog("index.debug_link.hidden_non_local", { host: window.location.hostname });
+    return;
+  }
+  link.hidden = false;
+  debugLog("index.debug_link.visible", { host: window.location.hostname });
+  link.addEventListener("click", () => {
+    debugLog("index.debug_link.click", { target: link.getAttribute("href") });
+  });
+};
+
 const shouldResetLocalSession = () => {
   const params = new URLSearchParams(window.location.search);
   return (
@@ -243,6 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
     userEntry: document.querySelector("[data-user-entrance]")?.getAttribute("href") || null,
     clickAnywhereNavigation: false
   });
+  initializeLocalDebugLink();
   initializeCoverEntrances();
   loadHomepagePublicItems();
 });

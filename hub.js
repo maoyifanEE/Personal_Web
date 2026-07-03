@@ -3,6 +3,10 @@
   const gridEl = document.querySelector("[data-hub-grid]");
   const loginLink = document.querySelector("[data-hub-login-link]");
   const logoutButton = document.querySelector("[data-hub-logout]");
+  const localDebugCard = document.querySelector("[data-local-debug-card]");
+  const localDebugExportButton = document.querySelector("[data-hub-debug-export]");
+  const localDebugPageLink = document.querySelector("[data-hub-debug-page]");
+  const localDebugStatus = document.querySelector("[data-hub-debug-status]");
   const adminOnlyItems = Array.from(document.querySelectorAll("[data-admin-only]"));
   const homepageEditorItems = Array.from(document.querySelectorAll("[data-homepage-editor]"));
 
@@ -26,6 +30,35 @@
     if (statusEl) {
       statusEl.textContent = message;
     }
+  };
+
+  const setDebugStatus = (message = "", isError = false) => {
+    if (!localDebugStatus) {
+      return;
+    }
+    localDebugStatus.textContent = message;
+    localDebugStatus.classList.toggle("is-error", isError);
+  };
+
+  const isLocalDevelopmentHost = () => {
+    if (window.PersonalWebDebug?.isLocalDevelopmentHost) {
+      return window.PersonalWebDebug.isLocalDevelopmentHost();
+    }
+    return ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  };
+
+  const initializeLocalDebugCard = () => {
+    if (!localDebugCard) {
+      return;
+    }
+    if (!isLocalDevelopmentHost()) {
+      setElementHidden(localDebugCard, true);
+      debugLog("hub.debug_export.hidden_non_local", { host: window.location.hostname });
+      return;
+    }
+    setElementHidden(localDebugCard, false);
+    setDebugStatus("本地调试包仅在 localhost / 127.0.0.1 可用。");
+    debugLog("hub.debug_export.visible", { host: window.location.hostname });
   };
 
   const renderGuest = (reason) => {
@@ -94,5 +127,29 @@
     }
   });
 
+  localDebugExportButton?.addEventListener("click", async () => {
+    debugLog("hub.debug_export.click");
+    try {
+      if (!window.PersonalWebDebug?.exportFullDebugBundle) {
+        throw new Error("Debug export helper is unavailable.");
+      }
+      await window.PersonalWebDebug.exportFullDebugBundle({
+        source: "hub",
+        setStatus: setDebugStatus
+      });
+      debugLog("hub.debug_export.success");
+    } catch (error) {
+      debugLog("hub.debug_export.failure", {
+        category: error.category || "unknown",
+        error: error.message
+      }, "warn");
+    }
+  });
+
+  localDebugPageLink?.addEventListener("click", () => {
+    debugLog("hub.debug_log_page.open");
+  });
+
+  initializeLocalDebugCard();
   initializeHub();
 })();
