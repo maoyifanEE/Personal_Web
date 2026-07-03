@@ -32,6 +32,7 @@ from app.services.homepage_media_service import (
     build_item_payload,
     create_homepage_item,
     create_homepage_media,
+    get_admin_media_file,
     get_media,
     get_public_media_file,
     list_admin_homepage_items,
@@ -53,10 +54,20 @@ def media_file_url(request: Request, media_id: int) -> str:
     return str(request.url_for("read_homepage_media_file", media_id=media_id))
 
 
+def media_admin_file_url(request: Request, media_id: int) -> str:
+    """Return the admin-only preview URL for a registered media file."""
+
+    return str(request.url_for("read_homepage_media_admin_file", media_id=media_id))
+
+
 def media_response(request: Request, media: HomepageMedia) -> dict:
     """Return admin media metadata without exposing filesystem absolute paths."""
 
-    return media_admin_payload(media, media_file_url(request, media.id))
+    return media_admin_payload(
+        media,
+        media_file_url(request, media.id),
+        media_admin_file_url(request, media.id),
+    )
 
 
 def item_response(request: Request, db: Session, item: HomepageItem) -> dict:
@@ -124,11 +135,30 @@ def read_public_homepage_items(
 def read_homepage_media_file(
     media_id: int,
     db: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
 ) -> FileResponse:
-    """Serve an enabled registered media file by id only."""
+    """Serve enabled media only after it is referenced by a visible item."""
 
-    media, path = get_public_media_file(db, media_id)
+    media, path = get_public_media_file(db, media_id, settings)
     write_jsonl_event("backend", "homepage.media.file_served", {"mediaId": media.id, "mediaType": media.media_type})
+    return FileResponse(path=path, media_type=media.mime_type, filename=media.original_filename)
+
+
+@router.get("/media/{media_id}/admin-file", name="read_homepage_media_admin_file")
+def read_homepage_media_admin_file(
+    media_id: int,
+    db: Session = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+    actor: AppUser = Depends(require_permission("homepage:edit")),
+) -> FileResponse:
+    """Admin-only preview for uploaded homepage media before publication."""
+
+    media, path = get_admin_media_file(db, media_id, settings)
+    write_jsonl_event(
+        "backend",
+        "homepage.media.admin_file_served",
+        {"mediaId": media.id, "mediaType": media.media_type, "userId": actor.id},
+    )
     return FileResponse(path=path, media_type=media.mime_type, filename=media.original_filename)
 
 

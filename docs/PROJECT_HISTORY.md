@@ -1,5 +1,36 @@
 # Project History
 
+## 2026-07-03 - Harden homepage media publishing rules
+
+### Goal
+
+* Continue on `Feature/homepage-media-db-foundation-v1`.
+* Keep the homepage media foundation local-development only.
+* Ensure uploading a media file does not make it publicly fetchable by id.
+* Harden public media path validation and upload content validation.
+
+### Actual changes
+
+* Public media serving now requires an enabled media row referenced by at least one visible homepage item.
+* Added an admin-only `/api/homepage/media/{media_id}/admin-file` preview route for uploaded media.
+* Public and admin media file serving now validates stored paths under `HOMEPAGE_MEDIA_ROOT`.
+* Upload validation now checks browser-supplied MIME compatibility and file signatures/magic bytes.
+* Public homepage payloads still avoid original filenames, stored filenames, checksums, relative paths, admin URLs, and filesystem paths.
+* No admin UI, deployment, CDN, transcoding, or object storage was added.
+
+### Safety boundaries
+
+* No database schema migration was added.
+* Existing Auth/RBAC permissions were reused.
+* Homepage canvas, Journey, visitor messages, login, and hub behavior were not intentionally changed.
+* Runtime uploads remain under `data/uploads/homepage/` and must not be committed.
+
+### Verification
+
+* Required validation and smoke tests were run before commit.
+* API smoke covered upload-not-public-before-item, visible item publication, hide-to-private behavior, disabled media behavior, fake PNG/JPEG rejection, root escape rejection, and debug bundle upload exclusion.
+* Browser smoke covered homepage rendering, Journey loading, console errors, ICP footer visibility, visitor entrance, and 390px mobile layout.
+
 ## 2026-07-02 - Homepage media database foundation v1
 
 ### Goal

@@ -80,7 +80,10 @@ Current homepage media behavior:
 * The database stores media metadata and project-relative paths only.
 * Original local absolute paths such as `C:\Users\...` or `D:\Pictures\...` are never stored.
 * Public homepage display items can be read from `GET /api/homepage/public`.
-* Public media files are served only by registered media id through `/api/homepage/media/{id}/file`.
+* Uploading media does not by itself publish the file publicly.
+* Public media files are served only when the media is enabled and referenced by at least one visible homepage item.
+* Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT`.
+* Admin preview of uploaded files uses the protected `/api/homepage/media/{id}/admin-file` route.
 * `data/uploads/` is runtime data and must not be committed to GitHub.
 * This is local-development only and was not deployed to the public server.
 
@@ -347,6 +350,8 @@ Invoke-RestMethod http://127.0.0.1:8000/api/homepage/public
 
 Admin upload requires a local authenticated admin session, CSRF token, and the
 `homepage:edit` permission. Uploads are copied to `data/uploads/homepage/`.
+Upload alone does not make the file publicly fetchable.
+A media file becomes public only after it is enabled and referenced by at least one visible homepage item.
 
 Supported first-slice media types:
 
@@ -354,6 +359,8 @@ Supported first-slice media types:
 * Videos: `.mp4`, `.webm`
 
 SVG, scripts, archives, HTML, executables, and PowerShell/batch files are rejected.
+Allowed extensions are also checked against file signatures/magic bytes.
+Clearly incompatible browser-supplied MIME types are rejected.
 
 Future deployment will need both database migration and runtime upload directory
 migration/backup planning. No deployment was done in this slice.

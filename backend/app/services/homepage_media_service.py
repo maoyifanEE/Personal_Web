@@ -50,6 +50,14 @@ MIME_BY_EXTENSION = {
     ".mp4": "video/mp4",
     ".webm": "video/webm",
 }
+OCTET_STREAM = "application/octet-stream"
+SIGNATURE_READ_BYTES = 64
+
+
+def normalized_content_type(content_type: str | None) -> str:
+    """Return a lowercase MIME type without optional parameters."""
+
+    return (content_type or "").split(";", 1)[0].strip().lower()
 
 
 def normalized_extension(filename: str) -> str:
@@ -66,11 +74,36 @@ def classify_upload(filename: str, content_type: str | None, settings: Settings)
         raise HTTPException(status_code=400, detail="Uploaded file must have an allowed extension")
     if extension in REJECTED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File type {extension} is not allowed")
+    expected_mime_type = MIME_BY_EXTENSION.get(extension)
+    supplied_mime_type = normalized_content_type(content_type)
+    if supplied_mime_type and supplied_mime_type not in {expected_mime_type, OCTET_STREAM}:
+        write_jsonl_event(
+            "backend",
+            "homepage.media.upload.rejected_mime_mismatch",
+            {"extension": extension, "contentType": supplied_mime_type},
+        )
+        raise HTTPException(status_code=400, detail="Uploaded file MIME type does not match its extension")
     if extension in IMAGE_EXTENSIONS:
-        return "image", MIME_BY_EXTENSION[extension], settings.homepage_image_max_bytes
+        return "image", expected_mime_type, settings.homepage_image_max_bytes
     if extension in VIDEO_EXTENSIONS:
-        return "video", MIME_BY_EXTENSION[extension], settings.homepage_video_max_bytes
+        return "video", expected_mime_type, settings.homepage_video_max_bytes
     raise HTTPException(status_code=400, detail=f"File type {extension} is not allowed")
+
+
+def signature_matches_extension(extension: str, header: bytes) -> bool:
+    """Validate file magic bytes for the allowed homepage media extensions."""
+
+    if extension == ".png":
+        return header.startswith(b"\x89PNG\r\n\x1a\n")
+    if extension in {".jpg", ".jpeg"}:
+        return header.startswith(b"\xff\xd8\xff")
+    if extension == ".webp":
+        return len(header) >= 12 and header[0:4] == b"RIFF" and header[8:12] == b"WEBP"
+    if extension == ".mp4":
+        return len(header) >= 12 and b"ftyp" in header[4:12]
+    if extension == ".webm":
+        return header.startswith(b"\x1a\x45\xdf\xa3")
+    return False
 
 
 def safe_relative_path(settings: Settings, media_type: str, stored_filename: str) -> str:
@@ -84,14 +117,20 @@ def safe_relative_path(settings: Settings, media_type: str, stored_filename: str
     return relative_path.replace("\\", "/")
 
 
-def resolve_storage_path(relative_path: str) -> Path:
-    """Resolve and validate a stored relative path under the project root."""
+def resolve_homepage_media_path(settings: Settings, relative_path: str) -> Path:
+    """Resolve a stored homepage media path under the configured upload root."""
 
-    if "\\" in relative_path or ":" in relative_path:
+    if not relative_path or "\\" in relative_path or ":" in relative_path:
+        write_jsonl_event("backend", "homepage.media.path.rejected_invalid_syntax", {})
+        raise HTTPException(status_code=404, detail="Media file not found")
+    path = Path(relative_path)
+    if path.is_absolute() or ".." in path.parts:
+        write_jsonl_event("backend", "homepage.media.path.rejected_escape_attempt", {})
         raise HTTPException(status_code=404, detail="Media file not found")
     candidate = (PROJECT_ROOT / relative_path).resolve()
-    project_root = PROJECT_ROOT.resolve()
-    if not candidate.is_relative_to(project_root):
+    upload_root = settings.homepage_media_root_path.resolve()
+    if not candidate.is_relative_to(upload_root):
+        write_jsonl_event("backend", "homepage.media.path.rejected_outside_upload_root", {})
         raise HTTPException(status_code=404, detail="Media file not found")
     return candidate
 
@@ -109,10 +148,11 @@ async def save_upload_to_runtime(
     upload: UploadFile,
     settings: Settings,
     media_type: str,
+    extension: str,
     stored_filename: str,
     max_size_bytes: int,
 ) -> tuple[Path, int, str]:
-    """Save an uploaded file to runtime storage while enforcing the size limit."""
+    """Save an uploaded file while enforcing size and content signature rules."""
 
     storage_dir = ensure_storage_root(settings, media_type)
     destination = storage_dir / stored_filename
@@ -121,12 +161,16 @@ async def save_upload_to_runtime(
 
     digest = hashlib.sha256()
     total_size = 0
+    signature_header = bytearray()
     try:
         with destination.open("wb") as output:
             while True:
                 chunk = await upload.read(1024 * 1024)
                 if not chunk:
                     break
+                if len(signature_header) < SIGNATURE_READ_BYTES:
+                    remaining = SIGNATURE_READ_BYTES - len(signature_header)
+                    signature_header.extend(chunk[:remaining])
                 total_size += len(chunk)
                 if total_size > max_size_bytes:
                     raise HTTPException(status_code=413, detail="Uploaded file is too large")
@@ -142,6 +186,15 @@ async def save_upload_to_runtime(
     if total_size <= 0:
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    if not signature_matches_extension(extension, bytes(signature_header)):
+        destination.unlink(missing_ok=True)
+        write_jsonl_event(
+            "backend",
+            "homepage.media.upload.rejected_signature_mismatch",
+            {"extension": extension, "mediaType": media_type},
+        )
+        raise HTTPException(status_code=400, detail="Uploaded file content does not match its extension")
 
     return destination, total_size, digest.hexdigest()
 
@@ -167,6 +220,7 @@ async def create_homepage_media(
         upload,
         settings,
         media_type,
+        extension,
         stored_filename,
         max_size_bytes,
     )
@@ -202,7 +256,7 @@ async def create_homepage_media(
     except Exception:
         db.rollback()
         destination.unlink(missing_ok=True)
-        logger.exception("Homepage media database write failed after saving file: %s", destination)
+        logger.exception("Homepage media database write failed after saving file for relative path: %s", relative_path)
         write_jsonl_event("backend", "homepage.media.upload.db_failed_file_removed", {"path": relative_path})
         raise
 
@@ -260,14 +314,45 @@ def update_homepage_media(
     return media
 
 
-def get_public_media_file(db: Session, media_id: int) -> tuple[HomepageMedia, Path]:
-    """Return enabled media and its safe file path for public serving."""
+def is_media_published(db: Session, media_id: int) -> bool:
+    """Return whether at least one visible homepage item references media."""
+
+    return bool(
+        db.execute(
+            select(HomepageItem.id)
+            .where(
+                HomepageItem.media_id == media_id,
+                HomepageItem.is_visible.is_(True),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+    )
+
+
+def get_public_media_file(db: Session, media_id: int, settings: Settings) -> tuple[HomepageMedia, Path]:
+    """Return enabled and published media with a safe file path for public serving."""
 
     media = get_media(db, media_id)
     if not media.is_enabled:
+        write_jsonl_event("backend", "homepage.media.public_file.denied_disabled", {"mediaId": media_id})
         raise HTTPException(status_code=404, detail="Media not found")
-    path = resolve_storage_path(media.relative_path)
+    if not is_media_published(db, media_id):
+        write_jsonl_event("backend", "homepage.media.public_file.denied_unpublished", {"mediaId": media_id})
+        raise HTTPException(status_code=404, detail="Media not found")
+    path = resolve_homepage_media_path(settings, media.relative_path)
     if not path.exists() or not path.is_file():
+        write_jsonl_event("backend", "homepage.media.public_file.missing_file", {"mediaId": media_id})
+        raise HTTPException(status_code=404, detail="Media file not found")
+    return media, path
+
+
+def get_admin_media_file(db: Session, media_id: int, settings: Settings) -> tuple[HomepageMedia, Path]:
+    """Return media and safe file path for admin preview."""
+
+    media = get_media(db, media_id)
+    path = resolve_homepage_media_path(settings, media.relative_path)
+    if not path.exists() or not path.is_file():
+        write_jsonl_event("backend", "homepage.media.admin_file.missing_file", {"mediaId": media_id})
         raise HTTPException(status_code=404, detail="Media file not found")
     return media, path
 
@@ -285,10 +370,10 @@ def media_public_payload(media: HomepageMedia, url: str) -> dict[str, Any]:
     }
 
 
-def media_admin_payload(media: HomepageMedia, url: str) -> dict[str, Any]:
+def media_admin_payload(media: HomepageMedia, url: str, admin_url: str | None = None) -> dict[str, Any]:
     """Return admin media metadata without absolute filesystem paths."""
 
-    return {
+    payload = {
         **media_public_payload(media, url),
         "description": media.description,
         "originalFilename": media.original_filename,
@@ -300,6 +385,9 @@ def media_admin_payload(media: HomepageMedia, url: str) -> dict[str, Any]:
         "createdAt": media.created_at,
         "updatedAt": media.updated_at,
     }
+    if admin_url:
+        payload["adminUrl"] = admin_url
+    return payload
 
 
 def build_item_payload(item: HomepageItem, media: HomepageMedia | None, media_url: str | None) -> dict[str, Any]:

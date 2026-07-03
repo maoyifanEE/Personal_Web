@@ -155,7 +155,8 @@ The `homepage_canvas_states` table stores shared Journey canvas JSON for local d
 
 The `homepage_media` and `homepage_items` tables store the first local-development homepage media
 foundation. Uploaded files are copied to `data/uploads/homepage/`; the database stores metadata and
-project-relative paths only.
+project-relative paths only. Uploading a file registers it for admin management but does not publish
+it publicly until enabled media is referenced by at least one visible homepage item.
 
 The migration seeds system role and permission definitions.
 
@@ -361,6 +362,14 @@ Uploaded runtime files live under `data/uploads/homepage/`.
 They are ignored by Git and must not be committed.
 
 The database stores project-relative paths only. It must not store original local absolute paths.
+Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT` and returns 404 for unpublished,
+hidden-item-only, disabled, missing, or root-escaped media paths.
+Allowed extensions are validated against file signatures/magic bytes.
+The admin-only preview route is:
+
+```text
+GET /api/homepage/media/{id}/admin-file
+```
 
 Save the shared Journey canvas as an authenticated admin:
 

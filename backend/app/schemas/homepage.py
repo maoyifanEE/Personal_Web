@@ -62,6 +62,7 @@ class HomepageMediaResponse(BaseModel):
     sort_order: int = Field(alias="sortOrder")
     is_enabled: bool = Field(alias="isEnabled")
     url: str
+    admin_url: str | None = Field(default=None, alias="adminUrl")
     created_at: datetime = Field(alias="createdAt")
     updated_at: datetime = Field(alias="updatedAt")
 
