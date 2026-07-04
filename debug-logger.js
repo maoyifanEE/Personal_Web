@@ -240,6 +240,165 @@
     return response.json();
   };
 
+  const isLocalDevelopmentHost = () => ["127.0.0.1", "localhost"].includes(window.location.hostname);
+
+  const localStorageItemSummary = (key) => {
+    try {
+      const value = window.localStorage.getItem(key);
+      return {
+        exists: value !== null,
+        size: value ? value.length : 0
+      };
+    } catch (storageError) {
+      return {
+        exists: false,
+        size: 0,
+        error: storageError.message
+      };
+    }
+  };
+
+  const collectBrowserBundlePayload = (source = page) => {
+    const logs = readEntries();
+    return sanitize({
+      sessionId,
+      page: source,
+      location: window.location.href,
+      entries: logs,
+      snapshot: snapshot(),
+      clientSummary: {
+        currentUrl: window.location.href,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+          devicePixelRatio: window.devicePixelRatio
+        },
+        userAgent: navigator.userAgent,
+        localDebugLogCount: logs.length,
+        journeyDrafts: {
+          journeySketchCanvasStateV1: localStorageItemSummary("journeySketchCanvasStateV1"),
+          journeyData: localStorageItemSummary("journeyData")
+        }
+      }
+    });
+  };
+
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const makeExportError = (message, category, cause) => {
+    const exportError = new Error(message);
+    exportError.category = category;
+    if (cause) {
+      exportError.cause = cause;
+    }
+    return exportError;
+  };
+
+  const exportFullDebugBundle = async ({ source = page, setStatus } = {}) => {
+    const updateStatus = (message, isError = false) => {
+      if (typeof setStatus === "function") {
+        setStatus(message, isError);
+      }
+    };
+
+    if (!isLocalDevelopmentHost()) {
+      warn("debug.bundle_export.rejected_non_local", { source, host: window.location.hostname });
+      updateStatus("当前不是本地开发模式，完整调试包导出不可用。", true);
+      throw makeExportError("Debug bundle export is available only on localhost.", "non_local_host");
+    }
+
+    info("debug.bundle_export.click", { source });
+    info("debug.bundle_export.start", { source });
+    updateStatus("正在生成完整调试包...");
+
+    const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
+    const payload = collectBrowserBundlePayload(source);
+
+    const requestPath = "/debug/export-bundle";
+    let response;
+    try {
+      if (window.PersonalWebAuth?.authFetch) {
+        response = await window.PersonalWebAuth.authFetch(requestPath, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+      } else {
+        response = await fetch(`${apiBaseUrl}${requestPath}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      }
+    } catch (fetchError) {
+      warn("debug.bundle_export.backend_unavailable", {
+        source,
+        error: fetchError.message
+      });
+      updateStatus(
+        "后端不可用，无法导出完整调试包。请打开调试日志页面导出前端日志，或使用 CLI 备用脚本。",
+        true
+      );
+      throw makeExportError("Debug backend is unavailable.", "backend_unavailable", fetchError);
+    }
+
+    if (response.status === 401) {
+      warn("debug.bundle_export.unauthenticated", { source, status: response.status });
+      updateStatus("需要管理员登录后才能导出完整调试包。", true);
+      throw makeExportError("Admin login is required to export the full debug bundle.", "unauthenticated");
+    }
+
+    if (response.status === 403) {
+      warn("debug.bundle_export.forbidden", { source, status: response.status });
+      updateStatus("当前账号没有导出完整调试包的权限。", true);
+      throw makeExportError("Current account cannot export the full debug bundle.", "forbidden");
+    }
+
+    if (response.status === 404) {
+      warn("debug.bundle_export.not_available", { source, status: response.status });
+      updateStatus("完整调试包导出仅在本地开发模式可用。", true);
+      throw makeExportError("Debug bundle export is available only in local development.", "not_available");
+    }
+
+    if (!response.ok) {
+      warn("debug.bundle_export.failure", {
+        source,
+        status: response.status
+      });
+      updateStatus(
+        "完整调试包导出失败。请使用调试日志页面或 CLI 收集脚本作为备用。",
+        true
+      );
+      throw makeExportError(`Debug bundle export failed: ${response.status}`, "backend_rejected");
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    const filename = match?.[1] || `personal-web-debug-${timestampForFile()}.local-debug.zip`;
+    downloadBlob(blob, filename);
+    info("debug.bundle_export.success", {
+      source,
+      filename,
+      bytes: blob.size
+    });
+    updateStatus("调试包已下载。");
+    return {
+      ok: true,
+      filename,
+      bytes: blob.size
+    };
+  };
+
   window.PersonalWebDebug = {
     log,
     info,
@@ -249,9 +408,11 @@
     clearLogs,
     exportLogs,
     exportTextSummary,
+    exportFullDebugBundle,
     snapshot,
     sanitize,
     sendToBackend,
+    isLocalDevelopmentHost,
     sessionId,
     entries: getLogs,
     clear: clearLogs

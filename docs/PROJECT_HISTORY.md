@@ -1,5 +1,161 @@
 # Project History
 
+## 2026-07-04 - Restrict debug bundle export to admin
+
+### Goal
+
+* Continue on `Feature/homepage-media-db-foundation-v1`.
+* Keep full debug ZIP export local-development only.
+* Require admin authentication and authorization for complete debug bundle export.
+
+### Actual changes
+
+* Protected `POST /api/debug/export-bundle` with the existing `admin:access` permission.
+* Kept `POST /api/debug/client-log` available for local sanitized client log intake.
+* Hid Hub and homepage complete debug ZIP entry points from guests and normal users.
+* Kept `debug-log.html` locally accessible while hiding full ZIP export unless the user is admin.
+* Added explicit frontend handling for unauthenticated, forbidden, unavailable, and backend-down export failures.
+
+### Safety boundaries
+
+* No database schema migration was added.
+* No media schema, media publishing rule, Journey logic, launcher behavior, deployment, or server config was changed.
+* Complete debug ZIP export remains a local development feature, but still requires admin login.
+
+## 2026-07-03 - Make local debug export discoverable
+
+### Goal
+
+* Continue on `Feature/homepage-media-db-foundation-v1`.
+* Make the existing full debug ZIP export discoverable without manually typing `debug-log.html`.
+* Keep debug export local-development only.
+
+### Actual changes
+
+* Added shared `window.PersonalWebDebug.exportFullDebugBundle()` frontend helper.
+* Refactored `debug-log.js` to use the shared helper for complete ZIP export.
+* Added a local-only Hub debug card with direct `导出完整调试包 ZIP` action.
+* Added a local-only homepage debug link to `debug-log.html` for guest or pre-login debugging.
+* Added UI status messages and frontend debug events for visibility, clicks, success, and failure.
+* Updated local diagnostics documentation with Hub, homepage, direct URL, and CLI fallback workflows.
+
+### Safety boundaries
+
+* Debug UI is hidden outside `localhost` and `127.0.0.1`.
+* No backend schema, Auth/RBAC, media publishing, upload validation, Journey algorithm, or deployment behavior was changed.
+* Existing debug backend export semantics were reused.
+
+## 2026-07-03 - Harden homepage media publishing rules
+
+### Goal
+
+* Continue on `Feature/homepage-media-db-foundation-v1`.
+* Keep the homepage media foundation local-development only.
+* Ensure uploading a media file does not make it publicly fetchable by id.
+* Harden public media path validation and upload content validation.
+
+### Actual changes
+
+* Public media serving now requires an enabled media row referenced by at least one visible homepage item.
+* Added an admin-only `/api/homepage/media/{media_id}/admin-file` preview route for uploaded media.
+* Public and admin media file serving now validates stored paths under `HOMEPAGE_MEDIA_ROOT`.
+* Upload validation now checks browser-supplied MIME compatibility and file signatures/magic bytes.
+* Public homepage payloads still avoid original filenames, stored filenames, checksums, relative paths, admin URLs, and filesystem paths.
+* No admin UI, deployment, CDN, transcoding, or object storage was added.
+
+### Safety boundaries
+
+* No database schema migration was added.
+* Existing Auth/RBAC permissions were reused.
+* Homepage canvas, Journey, visitor messages, login, and hub behavior were not intentionally changed.
+* Runtime uploads remain under `data/uploads/homepage/` and must not be committed.
+
+### Verification
+
+* Required validation and smoke tests were run before commit.
+* API smoke covered upload-not-public-before-item, visible item publication, hide-to-private behavior, disabled media behavior, fake PNG/JPEG rejection, root escape rejection, and debug bundle upload exclusion.
+* Browser smoke covered homepage rendering, Journey loading, console errors, ICP footer visibility, visitor entrance, and 390px mobile layout.
+
+## 2026-07-02 - Homepage media database foundation v1
+
+### Goal
+
+* Work on `Feature/homepage-media-db-foundation-v1`.
+* Add the first controlled local-development slice for database-backed homepage media and display items.
+* Ensure selected local files are copied into project-controlled runtime upload storage.
+* Ensure the database stores metadata and project-relative paths, not original local absolute paths.
+
+### Actual changes
+
+* Added `homepage_media` and `homepage_items` database models and migration.
+* Added configurable homepage media storage settings with default root `data/uploads/homepage`.
+* Added admin-protected media upload/list/update APIs under `/api/homepage`.
+* Added admin-protected homepage item create/list/update/soft-hide APIs.
+* Added public `GET /api/homepage/public` and safe media serving by media id.
+* Added minimal public homepage rendering for database-backed items when available.
+* Kept public pages free of upload/edit controls.
+* Confirmed debug bundle rules explicitly exclude runtime upload media.
+
+### Files changed
+
+* `backend/app/models/homepage_media.py`
+* `backend/app/models/homepage_item.py`
+* `backend/alembic/versions/20260702_0005_add_homepage_media_items.py`
+* `backend/app/services/homepage_media_service.py`
+* `backend/app/api/routes/homepage.py`
+* `backend/app/schemas/homepage.py`
+* `backend/app/core/config.py`
+* `backend/.env.example`
+* `backend/requirements.txt`
+* `index.html`
+* `script.js`
+* `styles.css`
+* `scripts/check-source-readability.ps1`
+* `README.md`
+* `backend/README.md`
+
+### Database impact
+
+* Adds two new tables: `homepage_media` and `homepage_items`.
+* Adds indexes for sort order, enabled/visible flags, media type/display type, checksum, and media FK.
+* Does not alter existing tables.
+* Requires local `alembic upgrade head`.
+
+### Permission impact
+
+* Public read endpoints remain unauthenticated.
+* Admin media and item write APIs require `homepage:edit`.
+* Admin write APIs also require CSRF validation.
+* Auth/RBAC semantics were not changed.
+
+### Deployment impact
+
+* Local development only.
+* No public server deployment was performed.
+* No Nginx, HTTPS, 1Panel, or production database configuration was changed.
+* Future deployment must migrate both database schema and runtime upload storage/backups.
+
+### Tests
+
+* `node --check` passed for the frontend JavaScript entry points.
+* `python -m compileall app` and backend import checks passed.
+* `alembic upgrade head` applied the homepage media migration locally.
+* Local development auth seed completed after migration.
+* API smoke tests confirmed public reads, unauthenticated upload rejection, admin upload, unsafe SVG rejection, item visibility, soft-hide, media serving, and disabled media 404 behavior.
+* Browser smoke tests confirmed the public homepage renders database-backed items and the Journey page still renders an SVG path.
+* 390px mobile browser smoke confirmed no horizontal overflow and no footer overlap.
+* Debug bundle export smoke confirmed runtime uploads are excluded.
+
+### Remaining issues
+
+* No full CMS or drag-and-drop editor exists yet.
+* No video transcoding, cloud storage, CDN, or production upload backup automation exists yet.
+* Public homepage rendering is intentionally minimal.
+
+### Next suggested step
+
+* Add a small protected local admin UI for managing homepage media and display items after the API slice is accepted.
+
 ## 2026-07-02 - Improve local startup reset and debug export
 
 ### Goal

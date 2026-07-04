@@ -41,6 +41,7 @@ Implemented in this phase:
 * Local-development login/logout/me/CSRF APIs.
 * Local-development admin user management APIs.
 * Local-development homepage/Journey canvas read and admin save APIs.
+* Local-development homepage media upload and display item APIs.
 * Development-only seed, reset, export, and admin summary endpoints.
 * Development-only diagnostics endpoints and JSONL logs under `.local_logs/`.
 
@@ -56,6 +57,7 @@ Not implemented yet:
 * Production deployment.
 * Front-end visitor message API integration.
 * Task, health, subscription, or image upload database migration.
+* Production homepage media deployment or upload backup automation.
 
 ## Prerequisites
 
@@ -144,10 +146,17 @@ This creates the local PostgreSQL tables:
 * `role_permissions`
 * `auth_sessions`
 * `homepage_canvas_states`
+* `homepage_media`
+* `homepage_items`
 
 The RBAC tables are local-development foundation.
 
 The `homepage_canvas_states` table stores shared Journey canvas JSON for local development.
+
+The `homepage_media` and `homepage_items` tables store the first local-development homepage media
+foundation. Uploaded files are copied to `data/uploads/homepage/`; the database stores metadata and
+project-relative paths only. Uploading a file registers it for admin management but does not publish
+it publicly until enabled media is referenced by at least one visible homepage item.
 
 The migration seeds system role and permission definitions.
 
@@ -325,6 +334,43 @@ Read the shared Journey canvas:
 curl http://127.0.0.1:8000/api/homepage/canvas
 ```
 
+Read public homepage display items:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/homepage/public
+```
+
+Admin media upload requires a local admin session, CSRF token, and `homepage:edit`.
+
+Endpoint:
+
+```text
+POST /api/homepage/media
+```
+
+Only these file types are accepted in this slice:
+
+* `.png`
+* `.jpg`
+* `.jpeg`
+* `.webp`
+* `.mp4`
+* `.webm`
+
+Uploaded runtime files live under `data/uploads/homepage/`.
+
+They are ignored by Git and must not be committed.
+
+The database stores project-relative paths only. It must not store original local absolute paths.
+Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT` and returns 404 for unpublished,
+hidden-item-only, disabled, missing, or root-escaped media paths.
+Allowed extensions are validated against file signatures/magic bytes.
+The admin-only preview route is:
+
+```text
+GET /api/homepage/media/{id}/admin-file
+```
+
 Save the shared Journey canvas as an authenticated admin:
 
 ```bash
@@ -419,9 +465,15 @@ The client-log debug endpoint is local-development only. It sanitizes incoming
 payloads before writing JSONL logs and rejects oversized entry counts, oversized
 total JSON payloads, and oversized individual entries.
 
-The debug bundle export endpoint is also local-development only. It returns a
-zip assembled from sanitized browser logs, safe local JSONL logs, git summary,
-and environment summary without `.env` contents.
+The debug bundle export endpoint is also local-development only and admin-only.
+It returns a zip assembled from sanitized browser logs, safe local JSONL logs,
+git summary, and environment summary without `.env` contents.
+
+The normal no-terminal admin path is Hub -> `本地调试日志` -> `导出完整调试包 ZIP`.
+Guests and normal users may use `debug-log.html` for browser-side logs, but they
+cannot export the complete debug ZIP.
+The local debug UI is hidden outside `localhost` and `127.0.0.1`, and complete
+ZIP controls are hidden from non-admin accounts.
 
 The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
 

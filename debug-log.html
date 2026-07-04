@@ -21,13 +21,33 @@
 
         <div class="debug-log-actions">
           <button class="primary-action" type="button" data-debug-action="refresh">刷新</button>
-          <button class="secondary-action" type="button" data-debug-action="export">导出 JSON</button>
-          <button class="secondary-action" type="button" data-debug-action="export-text">导出 TXT 摘要</button>
-          <button class="primary-action" type="button" data-debug-action="export-bundle">导出完整调试包 ZIP</button>
-          <button class="secondary-action" type="button" data-debug-action="send">发送到本地后端</button>
-          <button class="secondary-action danger-button" type="button" data-debug-action="clear">清空本地日志</button>
+          <button class="secondary-action" type="button" data-debug-action="export">
+            导出浏览器日志 JSON
+          </button>
+          <button class="secondary-action" type="button" data-debug-action="export-text">
+            导出浏览器日志摘要 TXT
+          </button>
+          <button
+            class="primary-action"
+            type="button"
+            data-debug-action="export-bundle"
+            hidden
+          >导出完整调试包 ZIP</button>
+          <a
+            class="secondary-action"
+            href="./login.html"
+            data-debug-login-link
+            hidden
+          >前往登录</a>
+          <button class="secondary-action" type="button" data-debug-action="send">
+            发送到本地后端
+          </button>
+          <button class="secondary-action danger-button" type="button" data-debug-action="clear">
+            清空本地日志
+          </button>
         </div>
 
+        <p class="debug-log-admin-note" data-debug-admin-note aria-live="polite"></p>
         <p class="debug-log-status" data-debug-status aria-live="polite">正在读取日志...</p>
         <pre class="debug-log-output" data-debug-output></pre>
 

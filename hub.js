@@ -3,6 +3,10 @@
   const gridEl = document.querySelector("[data-hub-grid]");
   const loginLink = document.querySelector("[data-hub-login-link]");
   const logoutButton = document.querySelector("[data-hub-logout]");
+  const localDebugCard = document.querySelector("[data-local-debug-card]");
+  const localDebugExportButton = document.querySelector("[data-hub-debug-export]");
+  const localDebugPageLink = document.querySelector("[data-hub-debug-page]");
+  const localDebugStatus = document.querySelector("[data-hub-debug-status]");
   const adminOnlyItems = Array.from(document.querySelectorAll("[data-admin-only]"));
   const homepageEditorItems = Array.from(document.querySelectorAll("[data-homepage-editor]"));
 
@@ -28,6 +32,56 @@
     }
   };
 
+  const setDebugStatus = (message = "", isError = false) => {
+    if (!localDebugStatus) {
+      return;
+    }
+    localDebugStatus.textContent = message;
+    localDebugStatus.classList.toggle("is-error", isError);
+  };
+
+  const isLocalDevelopmentHost = () => {
+    if (window.PersonalWebDebug?.isLocalDevelopmentHost) {
+      return window.PersonalWebDebug.isLocalDevelopmentHost();
+    }
+    return ["127.0.0.1", "localhost"].includes(window.location.hostname);
+  };
+
+  const canExportDebugBundle = (state) =>
+    Boolean(
+      state?.authenticated &&
+      (
+        window.PersonalWebAuth?.hasRole?.(state, "admin") ||
+        window.PersonalWebAuth?.hasPermission?.(state, "admin:access")
+      )
+    );
+
+  const initializeLocalDebugCard = (state) => {
+    if (!localDebugCard) {
+      return;
+    }
+    if (!isLocalDevelopmentHost()) {
+      setElementHidden(localDebugCard, true);
+      debugLog("hub.debug_export.hidden_non_local", { host: window.location.hostname });
+      return;
+    }
+    if (!canExportDebugBundle(state)) {
+      setElementHidden(localDebugCard, true);
+      debugLog("hub.debug_export.hidden_not_admin", {
+        authenticated: Boolean(state?.authenticated),
+        roles: state?.roles || [],
+        permissions: state?.permissions || []
+      });
+      return;
+    }
+    setElementHidden(localDebugCard, false);
+    setDebugStatus("完整调试包仅限本地开发环境的管理员导出。");
+    debugLog("hub.debug_export.visible_admin", {
+      host: window.location.hostname,
+      userId: state.user?.id
+    });
+  };
+
   const renderGuest = (reason) => {
     debugLog("hub.render_guest", { reason }, "warn");
     setStatus("请先登录后再进入个人工具。");
@@ -38,6 +92,7 @@
     setElementHidden(logoutButton, true);
     adminOnlyItems.forEach((item) => setElementHidden(item, true));
     homepageEditorItems.forEach((item) => setElementHidden(item, true));
+    initializeLocalDebugCard(null);
   };
 
   const renderUser = (state) => {
@@ -64,6 +119,7 @@
     setElementHidden(logoutButton, false);
     adminOnlyItems.forEach((item) => setElementHidden(item, !canManageUsers));
     homepageEditorItems.forEach((item) => setElementHidden(item, !canEditHomepage));
+    initializeLocalDebugCard(state);
   };
 
   const initializeHub = async () => {
@@ -92,6 +148,29 @@
       debugLog("hub.logout_failed", { error: error.message }, "warn");
       renderGuest("logout failed");
     }
+  });
+
+  localDebugExportButton?.addEventListener("click", async () => {
+    debugLog("hub.debug_export.click");
+    try {
+      if (!window.PersonalWebDebug?.exportFullDebugBundle) {
+        throw new Error("Debug export helper is unavailable.");
+      }
+      await window.PersonalWebDebug.exportFullDebugBundle({
+        source: "hub",
+        setStatus: setDebugStatus
+      });
+      debugLog("hub.debug_export.success");
+    } catch (error) {
+      debugLog("hub.debug_export.failure", {
+        category: error.category || "unknown",
+        error: error.message
+      }, "warn");
+    }
+  });
+
+  localDebugPageLink?.addEventListener("click", () => {
+    debugLog("hub.debug_log_page.open");
   });
 
   initializeHub();

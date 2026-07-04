@@ -72,6 +72,21 @@ Data URL image persistence is intentionally rejected by the backend.
 
 Do not store real private data or real private images in the current Journey prototype.
 
+Homepage media database foundation v1 is available for local development.
+
+Current homepage media behavior:
+
+* Admin upload APIs copy selected local image/video files into `data/uploads/homepage/`.
+* The database stores media metadata and project-relative paths only.
+* Original local absolute paths such as `C:\Users\...` or `D:\Pictures\...` are never stored.
+* Public homepage display items can be read from `GET /api/homepage/public`.
+* Uploading media does not by itself publish the file publicly.
+* Public media files are served only when the media is enabled and referenced by at least one visible homepage item.
+* Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT`.
+* Admin preview of uploaded files uses the protected `/api/homepage/media/{id}/admin-file` route.
+* `data/uploads/` is runtime data and must not be committed to GitHub.
+* This is local-development only and was not deployed to the public server.
+
 ## Navigation Behavior
 
 * Visible visitor entrance on `index.html` opens the Journey public preview at `journey.html?view=public`.
@@ -182,14 +197,32 @@ Journey canvas flow. Browser logs are bounded and redacted through
 `debug-logger.js`, while backend diagnostics are written as JSONL files under
 `.local_logs/`.
 
-Recommended browser workflow:
+Recommended local browser workflow for admins:
 
-1. Open `debug-log.html`.
-2. Click `导出完整调试包 ZIP`.
-3. Send the downloaded zip to ChatGPT.
+1. Log in as local admin `1 / 1`.
+2. Open `hub.html`.
+3. Click `本地调试日志`.
+4. Click `导出完整调试包 ZIP`.
+5. Send the downloaded zip to ChatGPT.
+
+Guest and normal user behavior:
+
+* Guests cannot export the complete debug ZIP.
+* Normal authenticated users cannot export the complete debug ZIP.
+* `debug-log.html` may still be opened locally for browser-side logs.
+* Browser-only JSON/TXT export may remain available for local frontend logs.
 
 The browser export asks the local backend to create one zip containing browser
 debug logs plus safe backend/frontend/launcher local logs.
+Complete debug ZIP export is a local development feature, but it still requires
+an admin login. The local debug entry points are hidden outside `localhost` and
+`127.0.0.1`, and the full ZIP controls are hidden from non-admin accounts.
+
+Direct URL fallback:
+
+```text
+http://127.0.0.1:4173/debug-log.html
+```
 
 CLI fallback:
 
@@ -200,6 +233,9 @@ CLI fallback:
 The collector creates a zip and a text summary under `.local_logs/`. It is for
 local troubleshooting only and does not collect `.env`, database files, uploads,
 backups, or previous bundles.
+
+The debug bundle also excludes `data/uploads/homepage/` runtime media.
+Review the zip before sharing it if privacy is a concern.
 
 To guard against accidentally committed one-line source files:
 
@@ -315,6 +351,39 @@ They are created by `python -m app.scripts.seed_dev_auth_users`.
 
 They are not created by migrations and must not be used in production.
 
+## Homepage Media API Local Test Notes
+
+Run migrations before testing homepage media APIs:
+
+```powershell
+cd backend
+alembic upgrade head
+python -m app.scripts.seed_dev_auth_users
+```
+
+Public read:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/homepage/public
+```
+
+Admin upload requires a local authenticated admin session, CSRF token, and the
+`homepage:edit` permission. Uploads are copied to `data/uploads/homepage/`.
+Upload alone does not make the file publicly fetchable.
+A media file becomes public only after it is enabled and referenced by at least one visible homepage item.
+
+Supported first-slice media types:
+
+* Images: `.png`, `.jpg`, `.jpeg`, `.webp`
+* Videos: `.mp4`, `.webm`
+
+SVG, scripts, archives, HTML, executables, and PowerShell/batch files are rejected.
+Allowed extensions are also checked against file signatures/magic bytes.
+Clearly incompatible browser-supplied MIME types are rejected.
+
+Future deployment will need both database migration and runtime upload directory
+migration/backup planning. No deployment was done in this slice.
+
 Manual equivalent:
 
 ```powershell
@@ -385,7 +454,7 @@ Application behavior should be verified separately when application files are ch
 
 ## Visitor Message Prototype
 
-The public cover page includes a bottom-right floating `留言` tool.
+The public cover page includes a bottom-right floating `鐣欒█` tool.
 
 This tool opens a front-end modal prototype for visitor messages.
 

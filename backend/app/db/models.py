@@ -3,6 +3,8 @@
 from app.models.audit_log import AuditLog
 from app.models.auth import AppUser, AuthSession, Permission, Role, RolePermission, UserRole
 from app.models.homepage_canvas import HomepageCanvasState
+from app.models.homepage_item import HomepageItem
+from app.models.homepage_media import HomepageMedia
 from app.models.visitor_message import VisitorMessage
 
 __all__ = [
@@ -10,6 +12,8 @@ __all__ = [
     "AuthSession",
     "AuditLog",
     "HomepageCanvasState",
+    "HomepageItem",
+    "HomepageMedia",
     "Permission",
     "Role",
     "RolePermission",

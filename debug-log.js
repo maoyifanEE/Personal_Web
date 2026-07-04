@@ -1,6 +1,10 @@
 (function () {
   const output = document.querySelector("[data-debug-output]");
   const status = document.querySelector("[data-debug-status]");
+  const adminNote = document.querySelector("[data-debug-admin-note]");
+  const bundleButton = document.querySelector("[data-debug-action='export-bundle']");
+  const loginLink = document.querySelector("[data-debug-login-link]");
+  let canExportFullBundle = false;
 
   const setStatus = (message, isError = false) => {
     if (status) {
@@ -9,102 +13,79 @@
     }
   };
 
-  const timestampForFile = () => new Date().toISOString().replace(/[:.]/g, "-");
+  const setAdminNote = (message = "", isError = false) => {
+    if (!adminNote) {
+      return;
+    }
+    adminNote.textContent = message;
+    adminNote.classList.toggle("is-error", isError);
+  };
 
-  const localStorageItemSummary = (key) => {
-    try {
-      const value = window.localStorage.getItem(key);
-      return {
-        exists: value !== null,
-        size: value ? value.length : 0
-      };
-    } catch (error) {
-      return {
-        exists: false,
-        size: 0,
-        error: error.message
-      };
+  const setBundleExportVisible = (visible) => {
+    canExportFullBundle = visible;
+    if (bundleButton) {
+      bundleButton.hidden = !visible;
+      bundleButton.disabled = !visible;
+    }
+    if (loginLink) {
+      loginLink.hidden = visible;
     }
   };
 
-  const collectBrowserBundlePayload = () => {
-    const logs = window.PersonalWebDebug.getLogs();
-    return window.PersonalWebDebug.sanitize({
-      sessionId: window.PersonalWebDebug.sessionId,
-      page: "debug-log",
-      location: window.location.href,
-      entries: logs,
-      snapshot: window.PersonalWebDebug.snapshot(),
-      clientSummary: {
-        currentUrl: window.location.href,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-          devicePixelRatio: window.devicePixelRatio
-        },
-        userAgent: navigator.userAgent,
-        localDebugLogCount: logs.length,
-        journeyDrafts: {
-          journeySketchCanvasStateV1: localStorageItemSummary("journeySketchCanvasStateV1"),
-          journeyData: localStorageItemSummary("journeyData")
-        }
-      }
-    });
-  };
+  const isAdminState = (state) =>
+    Boolean(
+      state?.authenticated &&
+      (
+        window.PersonalWebAuth?.hasRole?.(state, "admin") ||
+        window.PersonalWebAuth?.hasPermission?.(state, "admin:access")
+      )
+    );
 
-  const downloadBlob = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+  const initializeFullBundleAccess = async () => {
+    setBundleExportVisible(false);
+    if (!window.PersonalWebDebug?.isLocalDevelopmentHost?.()) {
+      setAdminNote("完整调试包 ZIP 仅在本地开发模式可用。", true);
+      window.PersonalWebDebug?.warn?.("debug_page.bundle_export.hidden_non_local", {
+        host: window.location.hostname
+      });
+      return;
+    }
+    try {
+      const state = await window.PersonalWebAuth?.getCurrentAuthState?.({ force: true });
+      if (!isAdminState(state)) {
+        setAdminNote("完整调试包 ZIP 需要管理员登录后才能导出。", true);
+        setBundleExportVisible(false);
+        window.PersonalWebDebug?.warn?.("debug_page.bundle_export.hidden_not_admin", {
+          authenticated: Boolean(state?.authenticated),
+          roles: state?.roles || [],
+          permissions: state?.permissions || []
+        });
+        return;
+      }
+      setAdminNote("完整调试包 ZIP 仅限本地开发环境的管理员导出。");
+      setBundleExportVisible(true);
+      window.PersonalWebDebug?.info?.("debug_page.bundle_export.visible_admin", {
+        userId: state.user?.id
+      });
+    } catch (error) {
+      setAdminNote("完整调试包 ZIP 需要管理员登录后才能导出。", true);
+      setBundleExportVisible(false);
+      window.PersonalWebDebug?.warn?.("debug_page.bundle_export.auth_check_failed", {
+        error: error.message
+      });
+    }
   };
 
   const exportFullDebugBundle = async () => {
-    window.PersonalWebDebug.info("debug.bundle_export.click");
-    window.PersonalWebDebug.info("debug.bundle_export.start");
-    setStatus("正在生成完整调试包...");
-
-    const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
-    const payload = collectBrowserBundlePayload();
-
-    let response;
-    try {
-      response = await fetch(`${apiBaseUrl}/debug/export-bundle`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-    } catch (error) {
-      window.PersonalWebDebug.warn("debug.bundle_export.backend_unavailable", {
-        error: error.message
-      });
-      setStatus("后端不可用，无法导出完整调试包。请使用浏览器日志导出作为备用。", true);
+    if (!canExportFullBundle) {
+      setStatus("需要管理员登录后才能导出完整调试包。", true);
+      window.PersonalWebDebug?.warn?.("debug_page.bundle_export.blocked_not_admin");
       return;
     }
-
-    if (!response.ok) {
-      window.PersonalWebDebug.warn("debug.bundle_export.failure", {
-        status: response.status
-      });
-      setStatus("完整调试包导出失败。请使用浏览器日志导出或 CLI 收集脚本作为备用。", true);
-      throw new Error(`Debug bundle export failed: ${response.status}`);
-    }
-
-    const blob = await response.blob();
-    const disposition = response.headers.get("Content-Disposition") || "";
-    const match = disposition.match(/filename="?([^"]+)"?/i);
-    const filename = match?.[1] || `personal-web-debug-${timestampForFile()}.local-debug.zip`;
-    downloadBlob(blob, filename);
-    window.PersonalWebDebug.info("debug.bundle_export.success", {
-      filename,
-      bytes: blob.size
+    await window.PersonalWebDebug.exportFullDebugBundle({
+      source: "debug-log",
+      setStatus
     });
-    setStatus("调试包已下载。");
   };
 
   const render = () => {
@@ -146,10 +127,12 @@
       setStatus(`操作失败：${error.message}`, true);
       window.PersonalWebDebug.log("warn", "debug_page.action_failed", {
         action,
+        category: error.category || "unknown",
         error: error.message
       });
     }
   });
 
   render();
+  initializeFullBundleAccess();
 })();
