@@ -24,6 +24,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Child app prototype | `apps/health/index.html` | Health Management prototype | Direct URL access possible |
 | Child app placeholder | `apps/special-subscription/index.html` | Special Subscription placeholder | Direct URL access possible |
 | Admin UI prototype | `apps/messages/index.html` | Message Management prototype | Direct URL access possible |
+| Admin UI | `apps/homepage-admin/index.html` | Local homepage media and display item management | Requires local admin or `homepage:edit` in frontend and backend APIs |
 | Backend health | `/api/health` | Local backend health endpoint | Public status only |
 | Backend message create | `/api/messages` | Local visitor message create endpoint | No auth yet |
 | Backend dev tools | `/api/dev/*` | Local development data tools | Disabled outside development |
@@ -67,6 +68,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Public media file paths must resolve under `HOMEPAGE_MEDIA_ROOT`.
 * Homepage media upload validates allowed extensions against file signatures/magic bytes.
 * Homepage media upload and homepage item write APIs require `homepage:edit` and CSRF.
+* The homepage content admin page is a local-development UI for those APIs.
+* The homepage content admin page must not be treated as production route protection by itself.
+* Uploading media from the admin UI does not publish it until a visible homepage item references enabled media.
+* Hiding a homepage item in the admin UI is a soft hide, not physical deletion.
 * Local diagnostics write only to `.local_logs/`, which must not be committed to GitHub.
 * Read `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md` before changing homepage/Journey flow behavior.
 * There is no active hidden private entrance link in current HTML.

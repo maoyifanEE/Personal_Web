@@ -1,0 +1,260 @@
+.homepage-admin-panel {
+  width: min(100%, 1180px);
+}
+
+.homepage-admin-panel *,
+.homepage-admin-panel *::before,
+.homepage-admin-panel *::after {
+  min-width: 0;
+}
+
+.homepage-admin-status-bar,
+.homepage-admin-card,
+.homepage-admin-denied,
+.homepage-admin-cleanup {
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(31, 51, 68, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(24, 42, 58, 0.06);
+}
+
+.homepage-admin-status-bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+}
+
+.homepage-admin-status,
+.homepage-admin-substatus {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.homepage-admin-substatus {
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.homepage-admin-nav,
+.homepage-admin-actions,
+.homepage-admin-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.homepage-admin-content {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.homepage-admin-card h2,
+.homepage-admin-card h3 {
+  margin: 0;
+}
+
+.homepage-admin-card p {
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.homepage-admin-section-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.homepage-admin-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.homepage-admin-form--wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.homepage-admin-form label,
+.homepage-admin-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.homepage-admin-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  align-self: end;
+}
+
+.homepage-admin-form input,
+.homepage-admin-form select,
+.homepage-admin-form textarea,
+.homepage-admin-field input,
+.homepage-admin-field select,
+.homepage-admin-field textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid rgba(31, 51, 68, 0.14);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.homepage-admin-form textarea,
+.homepage-admin-field textarea {
+  resize: vertical;
+}
+
+.homepage-admin-form input:focus,
+.homepage-admin-form select:focus,
+.homepage-admin-form textarea:focus,
+.homepage-admin-field input:focus,
+.homepage-admin-field select:focus,
+.homepage-admin-field textarea:focus {
+  border-color: rgba(21, 156, 165, 0.48);
+  outline: 3px solid rgba(21, 156, 165, 0.14);
+}
+
+.homepage-admin-list {
+  display: grid;
+  gap: 14px;
+}
+
+.homepage-admin-row {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(246, 251, 252, 0.72);
+  border: 1px solid rgba(24, 42, 58, 0.1);
+  border-radius: 14px;
+}
+
+.homepage-admin-row-preview {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  overflow: hidden;
+  color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(31, 51, 68, 0.08);
+  border-radius: 12px;
+}
+
+.homepage-admin-row-preview img,
+.homepage-admin-row-preview video {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+}
+
+.homepage-admin-row-body {
+  display: grid;
+  gap: 12px;
+}
+
+.homepage-admin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.homepage-admin-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(31, 51, 68, 0.1);
+  border-radius: 999px;
+}
+
+.homepage-admin-badge.is-enabled,
+.homepage-admin-badge.is-visible {
+  color: #09685f;
+  border-color: rgba(21, 156, 165, 0.28);
+}
+
+.homepage-admin-badge.is-hidden {
+  color: #8b3b24;
+}
+
+.homepage-admin-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.homepage-admin-row-actions button,
+.homepage-admin-cleanup button {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 8px 10px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(31, 51, 68, 0.12);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.homepage-admin-row-actions button:hover,
+.homepage-admin-row-actions button:focus-visible,
+.homepage-admin-cleanup button:hover,
+.homepage-admin-cleanup button:focus-visible {
+  border-color: rgba(21, 156, 165, 0.34);
+  outline: 2px solid rgba(21, 156, 165, 0.16);
+}
+
+.homepage-admin-public {
+  display: grid;
+  gap: 10px;
+}
+
+.homepage-admin-public-item {
+  padding: 12px;
+  background: rgba(246, 251, 252, 0.72);
+  border: 1px solid rgba(24, 42, 58, 0.1);
+  border-radius: 12px;
+}
+
+.homepage-admin-empty {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 760px) {
+  .homepage-admin-status-bar,
+  .homepage-admin-section-head,
+  .homepage-admin-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .homepage-admin-form,
+  .homepage-admin-form--wide,
+  .homepage-admin-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .homepage-admin-nav,
+  .homepage-admin-actions,
+  .homepage-admin-row-actions {
+    justify-content: flex-start;
+  }
+}

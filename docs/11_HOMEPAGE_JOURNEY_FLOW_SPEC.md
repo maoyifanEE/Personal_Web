@@ -23,6 +23,9 @@ Production authentication and production authorization are not implemented.
 
 Static frontend pages are not fully wired to backend APIs yet.
 
+The Journey canvas and homepage media admin slices are local-development
+exceptions that already talk to local backend APIs.
+
 Homepage entrance buttons are navigation only.
 
 They are not security controls.
@@ -123,6 +126,43 @@ For admins or users with `homepage:edit`, the Hub shows:
 ```
 
 Normal users must not see the Journey editor entry.
+
+For admins or users with `homepage:edit`, the Hub also shows:
+
+```text
+首页内容管理 -> ./apps/homepage-admin/index.html
+```
+
+Normal users must not see the homepage content management entry.
+
+## Homepage Content Admin Flow
+
+`apps/homepage-admin/index.html` is a local-development admin UI for the
+existing homepage media and display item APIs.
+
+It requires a valid local session and either the admin role or `homepage:edit`.
+
+It can:
+
+* upload image or video media into `data/uploads/homepage/`
+* list and preview uploaded media through the admin-only file route
+* edit media title, description, sort order, and enabled state
+* create homepage display items
+* edit visibility, metadata, sort order, display type, and media reference
+* soft-hide display items
+* preview the public `GET /api/homepage/public` payload
+* find smoke-test display items for cleanup
+
+Uploading media does not publish the file by itself.
+
+A media file becomes publicly fetchable only when:
+
+* the media row is enabled
+* at least one visible homepage display item references it
+
+The admin UI is not the Journey sticker media picker yet.
+
+Runtime uploads under `data/uploads/homepage/` must not be committed to Git.
 
 ## Journey Mode Model
 

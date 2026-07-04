@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Personal_Web local homepage media and display item admin UI."
+    >
+    <title>首页内容管理 - Personal_Web</title>
+    <link rel="icon" href="../../assets/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="../../styles.css">
+    <link rel="stylesheet" href="./homepage-admin.css">
+    <script src="../../debug-logger.js" defer></script>
+    <script src="../../auth.js" defer></script>
+    <script src="./homepage-admin.js" defer></script>
+  </head>
+  <body data-page="homepage-admin">
+    <main class="private-page homepage-admin-page" aria-labelledby="homepage-admin-title">
+      <section class="private-panel homepage-admin-panel">
+        <p class="status-badge">管理员工具</p>
+        <h1 id="homepage-admin-title">首页内容管理</h1>
+        <p class="private-copy">
+          管理数据库中的首页媒体库和公开展示内容。上传媒体不会自动发布；
+          只有启用的媒体被可见展示项引用后，才会通过公开媒体路由显示。
+        </p>
+
+        <section class="homepage-admin-status-bar" aria-label="权限状态">
+          <div>
+            <p class="homepage-admin-status" data-homepage-admin-status role="status">
+              正在检查 homepage:edit 权限...
+            </p>
+            <p class="homepage-admin-substatus" data-homepage-admin-substatus></p>
+          </div>
+          <div class="homepage-admin-nav">
+            <a class="secondary-action" href="../../hub.html">返回 Hub</a>
+            <a class="secondary-action" href="../../index.html" target="_blank" rel="noopener">
+              打开公开首页
+            </a>
+            <a class="secondary-action" href="../../journey.html?edit=1">打开 Journey 编辑器</a>
+          </div>
+        </section>
+
+        <section class="homepage-admin-denied" data-homepage-admin-denied hidden>
+          <h2>无法访问</h2>
+          <p data-homepage-admin-denied-text>需要登录后使用。</p>
+          <div class="private-actions">
+            <a class="primary-action" href="../../login.html">前往登录</a>
+            <a class="secondary-action" href="../../hub.html">返回 Hub</a>
+          </div>
+        </section>
+
+        <section class="homepage-admin-content" data-homepage-admin-content hidden>
+          <section class="homepage-admin-card">
+            <div class="homepage-admin-section-head">
+              <div>
+                <h2>媒体上传</h2>
+                <p>
+                  支持 PNG / JPG / WebP / MP4 / WebM。文件保存到本地运行目录
+                  <code>data/uploads/homepage/</code>，不会提交到 Git。
+                </p>
+              </div>
+            </div>
+            <form class="homepage-admin-form" data-media-upload-form>
+              <label>
+                文件
+                <input name="file" type="file" accept=".png,.jpg,.jpeg,.webp,.mp4,.webm" required>
+              </label>
+              <label>
+                标题
+                <input name="title" type="text" maxlength="160" autocomplete="off">
+              </label>
+              <label>
+                描述
+                <textarea name="description" rows="3"></textarea>
+              </label>
+              <label>
+                排序
+                <input name="sortOrder" type="number" value="0">
+              </label>
+              <button class="primary-action" type="submit">上传媒体</button>
+            </form>
+          </section>
+
+          <section class="homepage-admin-card">
+            <div class="homepage-admin-section-head">
+              <div>
+                <h2>媒体库</h2>
+                <p>启用状态、标题、描述和排序可编辑；这里不会物理删除运行时文件。</p>
+              </div>
+              <button class="secondary-action" type="button" data-refresh-media>刷新媒体</button>
+            </div>
+            <div class="homepage-admin-list" data-media-list></div>
+          </section>
+
+          <section class="homepage-admin-card">
+            <div class="homepage-admin-section-head">
+              <div>
+                <h2>创建展示项</h2>
+                <p>
+                  展示项决定公开首页显示什么；可见展示项引用启用媒体后，媒体才会公开可访问。
+                </p>
+              </div>
+            </div>
+            <form class="homepage-admin-form homepage-admin-form--wide" data-item-create-form>
+              <label>
+                标题
+                <input name="title" type="text" maxlength="160" required autocomplete="off">
+              </label>
+              <label>
+                副标题
+                <input name="subtitle" type="text" maxlength="220" autocomplete="off">
+              </label>
+              <label>
+                描述
+                <textarea name="description" rows="3"></textarea>
+              </label>
+              <label>
+                地点
+                <input name="locationLabel" type="text" maxlength="160" autocomplete="off">
+              </label>
+              <label>
+                时间
+                <input name="timeLabel" type="text" maxlength="160" autocomplete="off">
+              </label>
+              <label>
+                展示类型
+                <select name="displayType">
+                  <option value="card">card</option>
+                  <option value="image">image</option>
+                  <option value="video">video</option>
+                  <option value="sticker">sticker</option>
+                </select>
+              </label>
+              <label>
+                媒体
+                <select name="mediaId" data-media-select>
+                  <option value="">无</option>
+                </select>
+              </label>
+              <label>
+                排序
+                <input name="sortOrder" type="number" value="0">
+              </label>
+              <label class="homepage-admin-check">
+                <input name="isVisible" type="checkbox" checked>
+                可见
+              </label>
+              <button class="primary-action" type="submit">创建展示项</button>
+            </form>
+          </section>
+
+          <section class="homepage-admin-card">
+            <div class="homepage-admin-section-head">
+              <div>
+                <h2>展示项列表</h2>
+                <p>“隐藏”是软隐藏，不会物理删除数据或文件。</p>
+              </div>
+              <div class="homepage-admin-actions">
+                <button class="secondary-action" type="button" data-preview-smoke-cleanup>
+                  查找测试展示项
+                </button>
+                <button class="secondary-action" type="button" data-refresh-items>刷新展示项</button>
+              </div>
+            </div>
+            <div class="homepage-admin-cleanup" data-smoke-cleanup-panel hidden></div>
+            <div class="homepage-admin-list" data-item-list></div>
+          </section>
+
+          <section class="homepage-admin-card">
+            <div class="homepage-admin-section-head">
+              <div>
+                <h2>公开首页预览数据</h2>
+                <p>读取 <code>/api/homepage/public</code> 的公开展示摘要，不包含 admin-only 字段。</p>
+              </div>
+              <button class="secondary-action" type="button" data-refresh-public>刷新预览</button>
+            </div>
+            <div class="homepage-admin-public" data-public-preview></div>
+          </section>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

@@ -9,6 +9,7 @@ $SourceFiles = @(
   "debug-logger.js",
   "debug-log.js",
   "apps/admin-users/admin-users.js",
+  "apps/homepage-admin/homepage-admin.js",
   "backend/app/core/diagnostics.py",
   "backend/app/api/routes/debug.py",
   "backend/app/api/routes/homepage.py",

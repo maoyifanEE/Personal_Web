@@ -42,6 +42,7 @@ Implemented in this phase:
 * Local-development admin user management APIs.
 * Local-development homepage/Journey canvas read and admin save APIs.
 * Local-development homepage media upload and display item APIs.
+* Local-development homepage content admin UI at `apps/homepage-admin/index.html`.
 * Development-only seed, reset, export, and admin summary endpoints.
 * Development-only diagnostics endpoints and JSONL logs under `.local_logs/`.
 
@@ -370,6 +371,17 @@ The admin-only preview route is:
 ```text
 GET /api/homepage/media/{id}/admin-file
 ```
+
+The local browser admin UI is:
+
+```text
+http://127.0.0.1:4173/apps/homepage-admin/index.html
+```
+
+It reuses the existing homepage media and item APIs. It does not add a new
+database schema. Uploading media alone does not publish it; a visible homepage
+item must reference an enabled media row before the public file route becomes
+available. Hiding an item from the UI is a soft hide.
 
 Save the shared Journey canvas as an authenticated admin:
 
