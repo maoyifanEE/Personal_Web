@@ -40,6 +40,8 @@
     }
   };
 
+  const publicHomepageSyncHint = "已打开的首页会在重新聚焦或返回页面时自动同步。";
+
   const showDenied = (message, showLogin = false) => {
     if (deniedTextEl) {
       deniedTextEl.textContent = message;
@@ -213,8 +215,8 @@
       body: JSON.stringify(payload)
     });
     debugLog("homepage_admin.item.update.success", { itemId, payload });
-    setStatus(`展示项 #${updated.id} 已更新。`);
     await loadAll();
+    setStatus(`展示项 #${updated.id} 已更新。`, publicHomepageSyncHint);
   };
 
   const hideItem = async (itemId, shouldReload = true) => {
@@ -222,10 +224,10 @@
       method: "DELETE"
     });
     debugLog("homepage_admin.item.hide.success", { itemId });
-    setStatus(`展示项 #${updated.id} 已隐藏。`);
     if (shouldReload) {
       await loadAll();
     }
+    setStatus(`展示项 #${updated.id} 已隐藏。`, publicHomepageSyncHint);
   };
 
   const fieldInput = (labelText, name, value = "", type = "text") => {
@@ -594,8 +596,8 @@
       debugLog("homepage_admin.item.create.success", { itemId: created.id, mediaId: created.mediaId });
       itemCreateForm.reset();
       itemCreateForm.querySelector('[name="isVisible"]').checked = true;
-      setStatus(`展示项 #${created.id} 已创建。`);
       await loadAll();
+      setStatus(`展示项 #${created.id} 已创建。`, publicHomepageSyncHint);
     } catch (error) {
       debugLog("homepage_admin.item.create.failure", { error: error.message }, "warn");
       setStatus(`创建展示项失败：${errorMessage(error)}`);
@@ -657,8 +659,8 @@
       }
       debugLog("homepage_admin.smoke_cleanup.success", { count: matches.length });
       smokeCleanupPanel.hidden = true;
-      setStatus(`已隐藏 ${matches.length} 个测试展示项。`);
       await loadAll();
+      setStatus(`已隐藏 ${matches.length} 个测试展示项。`, publicHomepageSyncHint);
     });
     smokeCleanupPanel.append(list, button);
   };
