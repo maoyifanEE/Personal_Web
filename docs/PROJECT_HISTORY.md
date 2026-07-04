@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-04 - Add local desktop shortcut installer
+
+### Goal
+
+* Work on `BugFix/local-launcher-shortcut-v1`.
+* Make local startup usable from a normal Windows desktop icon.
+* Keep the change local-development only.
+* Do not change backend APIs, database schema, Auth/RBAC, public rendering, deployment, or production configuration.
+
+### Actual changes
+
+* Added root-level `install-local-shortcut.bat`.
+* The installer creates or updates `Personal Web Local.lnk` on the user's Desktop.
+* The shortcut targets `start-local-dev.bat` and uses the repository root as its working directory.
+* The default shortcut has no arguments, so startup uses the normal `?devLogout=1` guest-reset flow.
+* Improved `scripts/create-local-launch-shortcut.ps1` output and added optional `-KeepSession` support.
+* Added `install-local-shortcut.bat` to the source readability check.
+
+### Safety boundaries
+
+* No generated `.lnk` file was committed.
+* No backend code, database migration, Auth/RBAC logic, homepage rendering, Journey behavior, deployment script, server file, `.env`, upload, log, backup, or secret was changed.
+
 ## 2026-07-04 - Add homepage media admin UI
 
 ### Goal

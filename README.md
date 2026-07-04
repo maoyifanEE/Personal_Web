@@ -289,7 +289,25 @@ Then open these URLs as needed:
 
 ## Local Auth Development Quickstart
 
-The easiest local start path on Windows is:
+The recommended beginner workflow on Windows is:
+
+```text
+1. Double-click install-local-shortcut.bat from the project folder.
+2. A desktop shortcut named Personal Web Local is created.
+3. Double-click the desktop icon later to start the local website.
+```
+
+The shortcut starts the same default flow as `start-local-dev.bat`.
+
+It opens the local homepage with `?devLogout=1`, so old local admin sessions are
+cleared by default.
+
+The shortcut itself can be moved anywhere.
+
+If the project folder moves, run `install-local-shortcut.bat` again so the
+shortcut points to the new project path.
+
+Advanced command fallback:
 
 ```powershell
 .\start-local-dev.bat
@@ -332,11 +350,26 @@ The launcher:
 Create a movable Windows shortcut:
 
 ```powershell
+.\install-local-shortcut.bat
+```
+
+Advanced PowerShell equivalent:
+
+```powershell
 .\scripts\create-local-launch-shortcut.ps1
 ```
 
 This creates `Personal Web Local.lnk` on the Desktop. The shortcut stores the
 absolute target path and working directory, so the shortcut itself can be moved.
+
+Optional keep-session shortcut:
+
+```powershell
+.\scripts\create-local-launch-shortcut.ps1 -KeepSession
+```
+
+This creates `Personal Web Local Keep Session.lnk` and passes `keep-session` to
+`start-local-dev.bat`. It is not the default.
 
 Optional portable `.cmd` launcher:
 

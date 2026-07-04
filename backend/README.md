@@ -203,7 +203,19 @@ FastAPI does not serve the existing static pages in this phase.
 
 ## One-Click Local Development Start
 
-From the repository root on Windows:
+Recommended beginner workflow on Windows:
+
+```text
+1. Double-click install-local-shortcut.bat from the project folder.
+2. A desktop shortcut named Personal Web Local is created.
+3. Double-click the desktop icon later to start the local backend and frontend.
+```
+
+The shortcut can be moved.
+
+If the project folder moves, run `install-local-shortcut.bat` again.
+
+Advanced command fallback from the repository root:
 
 ```powershell
 .\start-local-dev.bat
@@ -213,7 +225,14 @@ The launcher checks `backend/.env`, runs migrations, runs the development auth s
 starts the backend, starts the static frontend, and opens the homepage:
 
 ```text
-http://127.0.0.1:4173/
+http://127.0.0.1:4173/?devLogout=1
+```
+
+The default startup clears the current local browser session so the homepage
+starts as a guest. To intentionally preserve the current browser session, use:
+
+```powershell
+.\start-local-dev.bat keep-session
 ```
 
 The login page remains available at:

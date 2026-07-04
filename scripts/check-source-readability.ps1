@@ -8,6 +8,8 @@ $SourceFiles = @(
   "journey.js",
   "debug-logger.js",
   "debug-log.js",
+  "install-local-shortcut.bat",
+  "scripts/install-local-shortcut.ps1",
   "apps/admin-users/admin-users.js",
   "apps/homepage-admin/homepage-admin.js",
   "backend/app/core/diagnostics.py",
