@@ -9,6 +9,7 @@
   const localDebugStatus = document.querySelector("[data-hub-debug-status]");
   const adminOnlyItems = Array.from(document.querySelectorAll("[data-admin-only]"));
   const homepageEditorItems = Array.from(document.querySelectorAll("[data-homepage-editor]"));
+  const homepageContentAdminItems = Array.from(document.querySelectorAll("[data-homepage-content-admin]"));
 
   const debugLog = (event, details = {}, level = "info") => {
     if (window.PersonalWebDebug?.log) {
@@ -92,6 +93,8 @@
     setElementHidden(logoutButton, true);
     adminOnlyItems.forEach((item) => setElementHidden(item, true));
     homepageEditorItems.forEach((item) => setElementHidden(item, true));
+    homepageContentAdminItems.forEach((item) => setElementHidden(item, true));
+    debugLog("hub.homepage_content_admin.hidden", { reason: "guest" });
     initializeLocalDebugCard(null);
   };
 
@@ -119,6 +122,11 @@
     setElementHidden(logoutButton, false);
     adminOnlyItems.forEach((item) => setElementHidden(item, !canManageUsers));
     homepageEditorItems.forEach((item) => setElementHidden(item, !canEditHomepage));
+    homepageContentAdminItems.forEach((item) => setElementHidden(item, !canEditHomepage));
+    debugLog(canEditHomepage ? "hub.homepage_content_admin.visible" : "hub.homepage_content_admin.hidden", {
+      userId: state.user?.id,
+      canEditHomepage
+    });
     initializeLocalDebugCard(state);
   };
 
@@ -171,6 +179,14 @@
 
   localDebugPageLink?.addEventListener("click", () => {
     debugLog("hub.debug_log_page.open");
+  });
+
+  homepageContentAdminItems.forEach((item) => {
+    item.addEventListener("click", () => {
+      debugLog("hub.homepage_content_admin.click", {
+        target: item.getAttribute("href")
+      });
+    });
   });
 
   initializeHub();

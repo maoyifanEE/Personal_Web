@@ -225,7 +225,7 @@
     const csrfRequired = !["GET", "HEAD", "OPTIONS"].includes(method);
     let csrfHeaderAttached = false;
     headers.set("X-Request-ID", requestId);
-    if (!headers.has("Content-Type") && options.body) {
+    if (!headers.has("Content-Type") && options.body && !(options.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
     if (csrfRequired) {

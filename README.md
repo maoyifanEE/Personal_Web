@@ -39,6 +39,7 @@ The repository must not contain real private data, secrets, production database 
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
 | `apps/messages/index.html` | Visitor Message Management prototype | Static/front-end prototype |
 | `apps/admin-users/index.html` | Admin user management | Local Auth/RBAC v1 admin-only backend API preview |
+| `apps/homepage-admin/index.html` | Homepage content management | Local `homepage:edit` media and display item admin UI |
 
 The journey prototype now uses a draft-paper style sketch canvas.
 
@@ -76,6 +77,7 @@ Homepage media database foundation v1 is available for local development.
 
 Current homepage media behavior:
 
+* Admin users with `homepage:edit` can manage media and homepage display items from `apps/homepage-admin/index.html`.
 * Admin upload APIs copy selected local image/video files into `data/uploads/homepage/`.
 * The database stores media metadata and project-relative paths only.
 * Original local absolute paths such as `C:\Users\...` or `D:\Pictures\...` are never stored.
@@ -84,8 +86,10 @@ Current homepage media behavior:
 * Public media files are served only when the media is enabled and referenced by at least one visible homepage item.
 * Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT`.
 * Admin preview of uploaded files uses the protected `/api/homepage/media/{id}/admin-file` route.
+* Hiding a homepage item from the admin UI is a soft hide; it does not physically delete files.
 * `data/uploads/` is runtime data and must not be committed to GitHub.
 * This is local-development only and was not deployed to the public server.
+* This is not the Journey sticker media picker yet.
 
 ## Navigation Behavior
 
@@ -159,6 +163,7 @@ Personal_Web/
 |   `-- app/
 |-- apps/
 |   |-- admin-users/
+|   |-- homepage-admin/
 |   |-- tasks/
 |   |   `-- index.html
 |   |-- health/
@@ -276,6 +281,7 @@ Then open these URLs as needed:
 * `http://127.0.0.1:4173/login.html`
 * `http://127.0.0.1:4173/hub.html`
 * `http://127.0.0.1:4173/apps/admin-users/index.html`
+* `http://127.0.0.1:4173/apps/homepage-admin/index.html`
 * `http://127.0.0.1:4173/apps/tasks/index.html`
 * `http://127.0.0.1:4173/apps/health/index.html`
 * `http://127.0.0.1:4173/apps/special-subscription/index.html`
@@ -371,6 +377,17 @@ Admin upload requires a local authenticated admin session, CSRF token, and the
 `homepage:edit` permission. Uploads are copied to `data/uploads/homepage/`.
 Upload alone does not make the file publicly fetchable.
 A media file becomes public only after it is enabled and referenced by at least one visible homepage item.
+
+The browser admin UI is available at:
+
+```text
+http://127.0.0.1:4173/apps/homepage-admin/index.html
+```
+
+It can upload media, edit media metadata, create and hide homepage display
+items, preview public homepage data, and find smoke-test display items for
+cleanup. It uses the existing homepage media APIs and does not add a new
+database schema.
 
 Supported first-slice media types:
 

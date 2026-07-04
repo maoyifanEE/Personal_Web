@@ -1,5 +1,36 @@
 # Project History
 
+## 2026-07-04 - Add homepage media admin UI
+
+### Goal
+
+* Work on `Feature/homepage-media-admin-ui-v1`.
+* Add a local admin UI for existing homepage media and display item APIs.
+* Keep the work local-development only.
+* Do not add backend schema changes, migrations, deployment, or Journey logic changes.
+
+### Actual changes
+
+* Added `apps/homepage-admin/index.html` as the homepage content management page.
+* Added `apps/homepage-admin/homepage-admin.js` for auth checks, media upload, media metadata editing, display item editing, public preview, and smoke-test cleanup.
+* Added `apps/homepage-admin/homepage-admin.css` for the local admin layout.
+* Added a role-aware Hub entry for admins or users with `homepage:edit`.
+* Updated `authFetch` so multipart `FormData` uploads keep browser-generated boundaries while preserving CSRF behavior.
+* Added the new admin JavaScript file to the source readability gate.
+
+### Safety boundaries
+
+* No backend schema migration was added.
+* No backend route, model, service, or configuration behavior was intentionally changed.
+* No Journey drawing, smoothing, eraser, node, sticker, or canvas algorithm behavior was intentionally changed.
+* Uploads still live under `data/uploads/homepage/` and must not be committed.
+* The admin UI reuses existing homepage media APIs; it is not production deployment.
+
+### Verification
+
+* Automated checks and smoke tests are expected before merge.
+* Browser smoke should verify guest denial, normal-user denial, admin access, upload, public-item publish/hide behavior, and mobile layout.
+
 ## 2026-07-04 - Restrict debug bundle export to admin
 
 ### Goal

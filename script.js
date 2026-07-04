@@ -192,6 +192,12 @@ const createHomepageMediaElement = (media) => {
   return null;
 };
 
+const HOMEPAGE_PUBLIC_ITEMS_REFRESH_MIN_INTERVAL_MS = 5000;
+let homepagePublicItemsRefreshInFlight = false;
+let homepagePublicItemsLastRefreshAt = 0;
+let homepagePublicItemsRefreshTimer = null;
+let homepagePublicItemsPendingReason = "";
+
 const renderHomepagePublicItems = (items = []) => {
   const root = document.querySelector("[data-homepage-public-items]");
   if (!root) {
@@ -255,8 +261,18 @@ const renderHomepagePublicItems = (items = []) => {
   root.hidden = false;
 };
 
-const loadHomepagePublicItems = async () => {
+const refreshHomepagePublicItems = async (reason = "manual") => {
+  if (homepagePublicItemsRefreshInFlight) {
+    homepagePublicItemsPendingReason = reason;
+    debugLog("homepage.public_items.refresh.skipped_in_flight", { reason });
+    return;
+  }
+
   const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
+  const startedAt = Date.now();
+  homepagePublicItemsRefreshInFlight = true;
+  debugLog("homepage.public_items.refresh.start", { reason });
+
   try {
     const response = await fetch(`${apiBaseUrl}/homepage/public`, {
       method: "GET",
@@ -269,14 +285,71 @@ const loadHomepagePublicItems = async () => {
       throw new Error(`Homepage public request failed: ${response.status}`);
     }
     const payload = await response.json();
-    renderHomepagePublicItems(Array.isArray(payload.items) ? payload.items : []);
-    debugLog("homepage.public_items.loaded", {
-      count: Array.isArray(payload.items) ? payload.items.length : 0
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    renderHomepagePublicItems(items);
+    homepagePublicItemsLastRefreshAt = Date.now();
+    debugLog("homepage.public_items.refresh.success", {
+      reason,
+      count: items.length,
+      durationMs: Date.now() - startedAt
     });
   } catch (error) {
-    renderHomepagePublicItems([]);
-    debugLog("homepage.public_items.unavailable", { error: error.message }, "warn");
+    debugLog("homepage.public_items.refresh.failure", {
+      reason,
+      error: error.message,
+      durationMs: Date.now() - startedAt
+    }, "warn");
+  } finally {
+    homepagePublicItemsRefreshInFlight = false;
+    if (homepagePublicItemsPendingReason) {
+      const pendingReason = homepagePublicItemsPendingReason;
+      homepagePublicItemsPendingReason = "";
+      scheduleHomepagePublicItemsRefresh(pendingReason);
+    }
   }
+};
+
+const scheduleHomepagePublicItemsRefresh = (reason = "manual", options = {}) => {
+  const force = Boolean(options.force);
+  const elapsed = Date.now() - homepagePublicItemsLastRefreshAt;
+
+  if (!force && elapsed < HOMEPAGE_PUBLIC_ITEMS_REFRESH_MIN_INTERVAL_MS) {
+    debugLog("homepage.public_items.refresh.skipped_throttled", {
+      reason,
+      elapsedMs: elapsed,
+      minIntervalMs: HOMEPAGE_PUBLIC_ITEMS_REFRESH_MIN_INTERVAL_MS
+    });
+
+    if (!homepagePublicItemsRefreshTimer) {
+      homepagePublicItemsRefreshTimer = window.setTimeout(() => {
+        homepagePublicItemsRefreshTimer = null;
+        refreshHomepagePublicItems(reason);
+      }, HOMEPAGE_PUBLIC_ITEMS_REFRESH_MIN_INTERVAL_MS - elapsed);
+    }
+    return;
+  }
+
+  if (homepagePublicItemsRefreshTimer) {
+    window.clearTimeout(homepagePublicItemsRefreshTimer);
+    homepagePublicItemsRefreshTimer = null;
+  }
+  refreshHomepagePublicItems(reason);
+};
+
+const initializeHomepagePublicItemRefresh = () => {
+  window.addEventListener("pageshow", (event) => {
+    scheduleHomepagePublicItemsRefresh(event.persisted ? "pageshow-bfcache" : "pageshow");
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      scheduleHomepagePublicItemsRefresh("visibilitychange");
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    scheduleHomepagePublicItemsRefresh("focus");
+  });
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -287,7 +360,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   await initializeCoverEntrances();
   await initializeLocalDebugLink();
-  loadHomepagePublicItems();
+  initializeHomepagePublicItemRefresh();
+  scheduleHomepagePublicItemsRefresh("initial", { force: true });
 });
 
 const initializeVisitorMessagePrototype = () => {
