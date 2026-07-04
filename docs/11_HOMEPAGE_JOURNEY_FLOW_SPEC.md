@@ -158,9 +158,10 @@ Uploading media does not publish the file by itself.
 A media file becomes publicly fetchable only when:
 
 * the media row is enabled
-* at least one visible homepage display item references it
+* at least one visible homepage display item references it, or
+* the published default Journey canvas references it by `mediaId`
 
-The admin UI is not the Journey sticker media picker yet.
+Journey sticker upload also uses the homepage media upload API.
 
 Runtime uploads under `data/uploads/homepage/` must not be committed to Git.
 
@@ -221,7 +222,13 @@ The UI must clearly distinguish:
 
 Data URL images must not be published to the database.
 
-The backend rejects them until real upload persistence exists.
+Journey sticker images should be uploaded through the homepage media API and saved
+as `mediaId` references before publishing.
+
+Background images and old local sticker drafts may still use Data URLs as local
+browser-only drafts.
+
+The backend rejects any Data URL that remains in the canvas payload.
 
 ## Backend Canvas API
 

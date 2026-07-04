@@ -1,5 +1,29 @@
 # Project History
 
+## 2026-07-04 - Persist Journey sticker media through homepage uploads
+
+### Goal
+
+* Work on `Feature/homepage-journey-sticker-media-v1`.
+* Let Journey editor stickers use persistent homepage media uploads instead of new Data URL payloads.
+* Keep the existing homepage media schema, Auth/RBAC policy, Journey drawing algorithms, and deployment state unchanged.
+
+### Actual changes
+
+* Added Journey sticker upload through the existing admin-only `POST /api/homepage/media` endpoint.
+* Saved uploaded stickers as `mediaId` references in the Journey canvas JSON.
+* Rendered public Journey stickers from `/api/homepage/media/{id}/file`.
+* Kept background uploads and old Data URL sticker drafts local-only.
+* Extended public media file authorization so enabled media can be served when referenced by a visible homepage item or by the published default Journey canvas.
+* Kept public media serving denied for enabled-but-unreferenced media.
+
+### Safety boundaries
+
+* No database schema migration was added.
+* No backend configuration, deployment script, Auth/RBAC policy, or production server file was changed.
+* No Journey drawing, smoothing, eraser, node, sticker transform, or pointer-mapping algorithm was intentionally changed.
+* No `.env`, upload file, log, backup, database file, or secret was committed.
+
 ## 2026-07-04 - Add local desktop shortcut installer
 
 ### Goal

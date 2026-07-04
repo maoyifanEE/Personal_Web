@@ -58,7 +58,8 @@ Current Journey sketch canvas v1 behavior:
 * Eraser split logic.
 * Right-click node creation.
 * Node dragging along a stroke component.
-* Sticker upload, drag, resize, rotate, and delete for local prototype preview.
+* Sticker upload, drag, resize, rotate, and delete.
+* Sticker media upload uses the local homepage media API and stores `mediaId` references in the canvas JSON.
 * Background upload and clear for local prototype preview.
 
 Journey canvas JSON can now be persisted to PostgreSQL in local development.
@@ -67,9 +68,11 @@ Guests and normal users can read the saved Journey canvas.
 
 Only admins with `homepage:edit` can save it.
 
-Sticker and background uploads are local prototype Data URL previews only.
+Journey sticker uploads are persisted as homepage media in local development.
 
-Data URL image persistence is intentionally rejected by the backend.
+Background uploads and old local sticker drafts may still contain Data URL previews.
+
+Data URL image persistence is intentionally rejected by the backend before publishing.
 
 Do not store real private data or real private images in the current Journey prototype.
 
@@ -83,13 +86,13 @@ Current homepage media behavior:
 * Original local absolute paths such as `C:\Users\...` or `D:\Pictures\...` are never stored.
 * Public homepage display items can be read from `GET /api/homepage/public`.
 * Uploading media does not by itself publish the file publicly.
-* Public media files are served only when the media is enabled and referenced by at least one visible homepage item.
+* Public media files are served only when the media is enabled and referenced by at least one visible homepage item or the published Journey canvas.
 * Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT`.
 * Admin preview of uploaded files uses the protected `/api/homepage/media/{id}/admin-file` route.
 * Hiding a homepage item from the admin UI is a soft hide; it does not physically delete files.
 * `data/uploads/` is runtime data and must not be committed to GitHub.
 * This is local-development only and was not deployed to the public server.
-* This is not the Journey sticker media picker yet.
+* Journey sticker upload reuses the same media upload and public file route.
 
 ## Navigation Behavior
 

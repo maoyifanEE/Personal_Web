@@ -2,6 +2,7 @@ const STORAGE_KEY = "journeySketchCanvasStateV1";
 const SCHEMA_VERSION = "sketch-canvas-v1";
 const REMOTE_CANVAS_PATH = "/homepage/canvas";
 const REMOTE_CANVAS_RESET_PATH = "/homepage/canvas/reset";
+const HOMEPAGE_MEDIA_PATH = "/homepage/media";
 const CANVAS_WIDTH = 1000;
 const DEFAULT_CANVAS_HEIGHT = 2400;
 const MIN_CANVAS_HEIGHT = 800;
@@ -31,6 +32,23 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const normalizeNumber = (value, fallback) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+};
+
+const apiBaseUrl = () => window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
+
+const normalizeOptionalMediaId = (value) => {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+};
+
+const homepageMediaFileUrl = (mediaId) => {
+  const normalizedId = normalizeOptionalMediaId(mediaId);
+  return normalizedId ? `${apiBaseUrl()}${HOMEPAGE_MEDIA_PATH}/${normalizedId}/file` : "";
+};
+
+const stickerImageSrc = (sticker) => {
+  const mediaUrl = homepageMediaFileUrl(sticker?.mediaId);
+  return mediaUrl || (typeof sticker?.imageSrc === "string" ? sticker.imageSrc : "");
 };
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -191,6 +209,12 @@ const sanitizeNode = (node = {}) => ({
 const sanitizeSticker = (sticker = {}) => ({
   id: typeof sticker.id === "string" && sticker.id ? sticker.id : makeId("sticker"),
   imageSrc: typeof sticker.imageSrc === "string" ? sticker.imageSrc : "",
+  mediaId: normalizeOptionalMediaId(sticker.mediaId),
+  mediaType: sticker.mediaType === "image" ? "image" : null,
+  mediaTitle: typeof sticker.mediaTitle === "string" ? sticker.mediaTitle : "",
+  mediaFilename: typeof sticker.mediaFilename === "string" ? sticker.mediaFilename : "",
+  source: sticker.source === "homepage-media" ? "homepage-media" : "local-draft",
+  uploadStatus: sticker.uploadStatus === "uploaded" ? "uploaded" : "",
   xPercent: clamp(normalizeNumber(sticker.xPercent, 50), -20, 120),
   yPercent: clamp(normalizeNumber(sticker.yPercent, 30), -20, 120),
   widthPercent: clamp(normalizeNumber(sticker.widthPercent, 18), STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT),
@@ -230,7 +254,7 @@ const sanitizeState = (raw) => {
     ? merged.canvas.strokes.map(sanitizeStroke).filter(Boolean)
     : [];
   merged.canvas.stickers = Array.isArray(merged.canvas.stickers)
-    ? merged.canvas.stickers.map(sanitizeSticker).filter((sticker) => sticker.imageSrc)
+    ? merged.canvas.stickers.map(sanitizeSticker).filter((sticker) => sticker.mediaId || sticker.imageSrc)
     : [];
   merged.canvas.nextNodeNumber = Math.max(1, Math.round(normalizeNumber(merged.canvas.nextNodeNumber, 1)));
   merged.canvas.nodes = Array.isArray(merged.canvas.nodes)
@@ -300,11 +324,14 @@ const containsDataUrl = (value) => {
   return false;
 };
 
+const canvasContainsDataUrl = (canvasPayload) => containsDataUrl(canvasPayload);
+
 const validateCanvasForRemoteSave = (payload) => {
-  if (containsDataUrl(payload)) {
+  if (canvasContainsDataUrl(payload)) {
+    logJourney("Blocked remote canvas publish because local Data URL media is still present.");
     return {
       valid: false,
-      message: "画布包含本地上传图片，数据库发布暂不支持 Data URL。请先保存本地草稿，之后再处理图片上传方案。"
+      message: "画布包含本地草稿图片，不能发布到数据库。请先通过贴纸上传保存为媒体文件；背景图片仍只能作为本地草稿使用。"
     };
   }
   return { valid: true, message: "" };
@@ -357,9 +384,8 @@ const applyRemoteCanvasState = (remote) => {
 };
 
 const fetchRemoteCanvasState = async () => {
-  const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
   try {
-    const response = await fetch(`${apiBaseUrl}${REMOTE_CANVAS_PATH}`, {
+    const response = await fetch(`${apiBaseUrl()}${REMOTE_CANVAS_PATH}`, {
       method: "GET",
       credentials: "include",
       headers: {
@@ -1256,7 +1282,7 @@ function renderStickerLayer() {
       wrap.style.transform = `translate(-50%, -50%) rotate(${sticker.rotation}deg)`;
       wrap.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "move"));
       const image = document.createElement("img");
-      image.src = sticker.imageSrc;
+      image.src = stickerImageSrc(sticker);
       image.alt = "";
       image.draggable = false;
       wrap.append(image);
@@ -1469,7 +1495,7 @@ function clearBackground() {
   render();
 }
 
-function handleFileInput(input) {
+async function handleFileInput(input) {
   if (!guardJourneyMutation(`fileInput:${input.dataset.fileInput || "unknown"}`)) {
     input.value = "";
     return;
@@ -1478,24 +1504,30 @@ function handleFileInput(input) {
   if (!file) {
     return;
   }
-  readImageFile(file).then((dataUrl) => {
+
+  try {
     if (input.dataset.fileInput === "background") {
+      const dataUrl = await readImageFile(file);
       state.canvas.background.imageSrc = dataUrl;
       markDirty("background uploaded");
-      showMessage("背景已载入。");
+      showMessage("背景已作为本地草稿载入。背景 Data URL 不会发布到数据库。");
     } else {
-      addSticker(dataUrl);
-      showMessage("贴纸已添加。");
+      await addPersistentStickerFromFile(file);
+      showMessage("贴纸已上传为媒体文件并添加到画布。");
     }
-    input.value = "";
     render();
-  }).catch((error) => {
-    showMessage("图片读取失败，请重试。", true);
-    logJourney("Image file read failed.", { error: error.message });
-  });
+  } catch (error) {
+    showMessage(error.message || "图片处理失败，请重试。", true);
+    logJourney("Image file handling failed.", {
+      inputType: input.dataset.fileInput,
+      error: error.message
+    });
+  } finally {
+    input.value = "";
+  }
 }
 
-function handleCanvasDrop(event) {
+async function handleCanvasDrop(event) {
   event.preventDefault();
   event.currentTarget.classList.remove("is-drag-over");
   if (state.mode !== "edit" || !guardJourneyMutation("handleCanvasDrop")) {
@@ -1505,21 +1537,24 @@ function handleCanvasDrop(event) {
   if (!file) {
     return;
   }
-  readImageFile(file).then((dataUrl) => {
-    if (event.shiftKey) {
+  const useAsBackground = event.shiftKey;
+  const point = canvasPointToCssPercent(clientPointToCanvasPoint(event));
+
+  try {
+    if (useAsBackground) {
+      const dataUrl = await readImageFile(file);
       state.canvas.background.imageSrc = dataUrl;
       markDirty("background dropped");
-      showMessage("背景已载入。");
+      showMessage("背景已作为本地草稿载入。背景 Data URL 不会发布到数据库。");
     } else {
-      const point = canvasPointToCssPercent(clientPointToCanvasPoint(event));
-      addSticker(dataUrl, point);
-      showMessage("贴纸已添加。按住 Shift 拖入图片可设为背景。");
+      await addPersistentStickerFromFile(file, point);
+      showMessage("贴纸已上传为媒体文件并添加到画布。按住 Shift 拖入图片可设为本地背景草稿。");
     }
     render();
-  }).catch((error) => {
-    showMessage("图片读取失败，请重试。", true);
-    logJourney("Dropped image read failed.", { error: error.message });
-  });
+  } catch (error) {
+    showMessage(error.message || "拖入图片处理失败，请重试。", true);
+    logJourney("Dropped image handling failed.", { error: error.message });
+  }
 }
 
 function readImageFile(file) {
@@ -1535,12 +1570,61 @@ function readImageFile(file) {
   });
 }
 
-function addSticker(imageSrc, position = { xPercent: 50, yPercent: 30 }) {
+async function uploadJourneyStickerMedia(file) {
+  if (!file?.type?.startsWith("image/")) {
+    throw new Error("只支持上传图片贴纸。");
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    throw new Error("认证服务不可用，无法上传贴纸媒体。");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("title", file.name || "Journey sticker");
+  formData.append("description", "Journey sticker media upload");
+  formData.append("sort_order", "0");
+
+  logJourney("Uploading Journey sticker media.", {
+    filename: file.name,
+    mimeType: file.type,
+    size: file.size
+  });
+  const response = await window.PersonalWebAuth.authFetch(HOMEPAGE_MEDIA_PATH, {
+    method: "POST",
+    body: formData
+  });
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(body.detail || `贴纸媒体上传失败：${response.status}`);
+  }
+  if (body.mediaType !== "image" || !normalizeOptionalMediaId(body.id)) {
+    throw new Error("贴纸媒体上传返回的数据无效。");
+  }
+  logJourney("Uploaded Journey sticker media.", {
+    mediaId: body.id,
+    filename: body.originalFilename || body.title || file.name
+  });
+  return body;
+}
+
+async function addPersistentStickerFromFile(file, position = { xPercent: 50, yPercent: 30 }) {
+  const media = await uploadJourneyStickerMedia(file);
+  addSticker({
+    mediaId: media.id,
+    mediaType: "image",
+    mediaTitle: media.title || file.name || "",
+    mediaFilename: media.originalFilename || file.name || "",
+    source: "homepage-media",
+    uploadStatus: "uploaded"
+  }, position);
+}
+
+function addSticker(imageSource, position = { xPercent: 50, yPercent: 30 }) {
   if (!guardJourneyMutation("addSticker")) {
     return;
   }
   const sticker = sanitizeSticker({
-    imageSrc,
+    ...(typeof imageSource === "string" ? { imageSrc: imageSource } : imageSource),
     ...position,
     widthPercent: 18,
     zIndex: 30 + state.canvas.stickers.length
