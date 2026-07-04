@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-07-04 - Restrict debug bundle export to admin
+
+### Goal
+
+* Continue on `Feature/homepage-media-db-foundation-v1`.
+* Keep full debug ZIP export local-development only.
+* Require admin authentication and authorization for complete debug bundle export.
+
+### Actual changes
+
+* Protected `POST /api/debug/export-bundle` with the existing `admin:access` permission.
+* Kept `POST /api/debug/client-log` available for local sanitized client log intake.
+* Hid Hub and homepage complete debug ZIP entry points from guests and normal users.
+* Kept `debug-log.html` locally accessible while hiding full ZIP export unless the user is admin.
+* Added explicit frontend handling for unauthenticated, forbidden, unavailable, and backend-down export failures.
+
+### Safety boundaries
+
+* No database schema migration was added.
+* No media schema, media publishing rule, Journey logic, launcher behavior, deployment, or server config was changed.
+* Complete debug ZIP export remains a local development feature, but still requires admin login.
+
 ## 2026-07-03 - Make local debug export discoverable
 
 ### Goal

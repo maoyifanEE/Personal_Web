@@ -534,6 +534,17 @@ h1 span {
   color: #9f2d2d;
 }
 
+.debug-log-admin-note {
+  min-height: 22px;
+  margin: 8px 0 12px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+.debug-log-admin-note.is-error {
+  color: #9f2d2d;
+}
+
 .app-card {
   min-height: 164px;
   display: block;

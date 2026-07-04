@@ -47,7 +47,16 @@
     return ["127.0.0.1", "localhost"].includes(window.location.hostname);
   };
 
-  const initializeLocalDebugCard = () => {
+  const canExportDebugBundle = (state) =>
+    Boolean(
+      state?.authenticated &&
+      (
+        window.PersonalWebAuth?.hasRole?.(state, "admin") ||
+        window.PersonalWebAuth?.hasPermission?.(state, "admin:access")
+      )
+    );
+
+  const initializeLocalDebugCard = (state) => {
     if (!localDebugCard) {
       return;
     }
@@ -56,9 +65,21 @@
       debugLog("hub.debug_export.hidden_non_local", { host: window.location.hostname });
       return;
     }
+    if (!canExportDebugBundle(state)) {
+      setElementHidden(localDebugCard, true);
+      debugLog("hub.debug_export.hidden_not_admin", {
+        authenticated: Boolean(state?.authenticated),
+        roles: state?.roles || [],
+        permissions: state?.permissions || []
+      });
+      return;
+    }
     setElementHidden(localDebugCard, false);
-    setDebugStatus("本地调试包仅在 localhost / 127.0.0.1 可用。");
-    debugLog("hub.debug_export.visible", { host: window.location.hostname });
+    setDebugStatus("完整调试包仅限本地开发环境的管理员导出。");
+    debugLog("hub.debug_export.visible_admin", {
+      host: window.location.hostname,
+      userId: state.user?.id
+    });
   };
 
   const renderGuest = (reason) => {
@@ -71,6 +92,7 @@
     setElementHidden(logoutButton, true);
     adminOnlyItems.forEach((item) => setElementHidden(item, true));
     homepageEditorItems.forEach((item) => setElementHidden(item, true));
+    initializeLocalDebugCard(null);
   };
 
   const renderUser = (state) => {
@@ -97,6 +119,7 @@
     setElementHidden(logoutButton, false);
     adminOnlyItems.forEach((item) => setElementHidden(item, !canManageUsers));
     homepageEditorItems.forEach((item) => setElementHidden(item, !canEditHomepage));
+    initializeLocalDebugCard(state);
   };
 
   const initializeHub = async () => {
@@ -150,6 +173,5 @@
     debugLog("hub.debug_log_page.open");
   });
 
-  initializeLocalDebugCard();
   initializeHub();
 })();

@@ -6,8 +6,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
+from app.api.dependencies import require_csrf_token, require_permission
 from app.core.config import Settings, get_settings
 from app.core.diagnostics import sanitize_for_diagnostics, write_jsonl_event
+from app.models.auth import AppUser
 from app.services.debug_bundle_service import create_debug_bundle
 
 router = APIRouter(prefix="/debug")
@@ -93,14 +95,19 @@ async def receive_client_log(
     return {"ok": True, "entryCount": entry_count}
 
 
-@router.post("/export-bundle")
+@router.post("/export-bundle", dependencies=[Depends(require_csrf_token)])
 async def export_debug_bundle(
     payload: dict[str, Any],
     settings: Settings = Depends(require_dev_debug),
+    actor: AppUser = Depends(require_permission("admin:access")),
 ) -> FileResponse:
-    """Create and return a local-development debug bundle zip."""
+    """Create and return an admin-only local-development debug bundle zip."""
 
-    write_jsonl_event("backend", "debug.bundle_export.start", {"appEnv": settings.app_env})
+    write_jsonl_event(
+        "backend",
+        "debug.bundle_export.start",
+        {"appEnv": settings.app_env, "actorUserId": actor.id},
+    )
     try:
         entry_count = validate_debug_payload(payload, max_json_chars=MAX_EXPORT_BUNDLE_JSON_CHARS)
         write_jsonl_event(
@@ -112,9 +119,13 @@ async def export_debug_bundle(
         write_jsonl_event(
             "backend",
             "debug.bundle_export.zip_created",
-            {"filename": filename, "bytes": zip_path.stat().st_size},
+            {"filename": filename, "bytes": zip_path.stat().st_size, "actorUserId": actor.id},
         )
-        write_jsonl_event("backend", "debug.bundle_export.success", {"filename": filename})
+        write_jsonl_event(
+            "backend",
+            "debug.bundle_export.success",
+            {"filename": filename, "actorUserId": actor.id},
+        )
         return FileResponse(
             path=zip_path,
             media_type="application/zip",

@@ -1,6 +1,10 @@
 (function () {
   const output = document.querySelector("[data-debug-output]");
   const status = document.querySelector("[data-debug-status]");
+  const adminNote = document.querySelector("[data-debug-admin-note]");
+  const bundleButton = document.querySelector("[data-debug-action='export-bundle']");
+  const loginLink = document.querySelector("[data-debug-login-link]");
+  let canExportFullBundle = false;
 
   const setStatus = (message, isError = false) => {
     if (status) {
@@ -9,7 +13,75 @@
     }
   };
 
+  const setAdminNote = (message = "", isError = false) => {
+    if (!adminNote) {
+      return;
+    }
+    adminNote.textContent = message;
+    adminNote.classList.toggle("is-error", isError);
+  };
+
+  const setBundleExportVisible = (visible) => {
+    canExportFullBundle = visible;
+    if (bundleButton) {
+      bundleButton.hidden = !visible;
+      bundleButton.disabled = !visible;
+    }
+    if (loginLink) {
+      loginLink.hidden = visible;
+    }
+  };
+
+  const isAdminState = (state) =>
+    Boolean(
+      state?.authenticated &&
+      (
+        window.PersonalWebAuth?.hasRole?.(state, "admin") ||
+        window.PersonalWebAuth?.hasPermission?.(state, "admin:access")
+      )
+    );
+
+  const initializeFullBundleAccess = async () => {
+    setBundleExportVisible(false);
+    if (!window.PersonalWebDebug?.isLocalDevelopmentHost?.()) {
+      setAdminNote("完整调试包 ZIP 仅在本地开发模式可用。", true);
+      window.PersonalWebDebug?.warn?.("debug_page.bundle_export.hidden_non_local", {
+        host: window.location.hostname
+      });
+      return;
+    }
+    try {
+      const state = await window.PersonalWebAuth?.getCurrentAuthState?.({ force: true });
+      if (!isAdminState(state)) {
+        setAdminNote("完整调试包 ZIP 需要管理员登录后才能导出。", true);
+        setBundleExportVisible(false);
+        window.PersonalWebDebug?.warn?.("debug_page.bundle_export.hidden_not_admin", {
+          authenticated: Boolean(state?.authenticated),
+          roles: state?.roles || [],
+          permissions: state?.permissions || []
+        });
+        return;
+      }
+      setAdminNote("完整调试包 ZIP 仅限本地开发环境的管理员导出。");
+      setBundleExportVisible(true);
+      window.PersonalWebDebug?.info?.("debug_page.bundle_export.visible_admin", {
+        userId: state.user?.id
+      });
+    } catch (error) {
+      setAdminNote("完整调试包 ZIP 需要管理员登录后才能导出。", true);
+      setBundleExportVisible(false);
+      window.PersonalWebDebug?.warn?.("debug_page.bundle_export.auth_check_failed", {
+        error: error.message
+      });
+    }
+  };
+
   const exportFullDebugBundle = async () => {
+    if (!canExportFullBundle) {
+      setStatus("需要管理员登录后才能导出完整调试包。", true);
+      window.PersonalWebDebug?.warn?.("debug_page.bundle_export.blocked_not_admin");
+      return;
+    }
     await window.PersonalWebDebug.exportFullDebugBundle({
       source: "debug-log",
       setStatus
@@ -62,4 +134,5 @@
   });
 
   render();
+  initializeFullBundleAccess();
 })();

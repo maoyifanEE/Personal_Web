@@ -465,13 +465,15 @@ The client-log debug endpoint is local-development only. It sanitizes incoming
 payloads before writing JSONL logs and rejects oversized entry counts, oversized
 total JSON payloads, and oversized individual entries.
 
-The debug bundle export endpoint is also local-development only. It returns a
-zip assembled from sanitized browser logs, safe local JSONL logs, git summary,
-and environment summary without `.env` contents.
-The normal no-terminal path is Hub -> `本地调试日志` -> `导出完整调试包 ZIP`.
-Before login, use the homepage local debug link or open
-`http://127.0.0.1:4173/debug-log.html` directly.
-The local debug UI is hidden outside `localhost` and `127.0.0.1`.
+The debug bundle export endpoint is also local-development only and admin-only.
+It returns a zip assembled from sanitized browser logs, safe local JSONL logs,
+git summary, and environment summary without `.env` contents.
+
+The normal no-terminal admin path is Hub -> `本地调试日志` -> `导出完整调试包 ZIP`.
+Guests and normal users may use `debug-log.html` for browser-side logs, but they
+cannot export the complete debug ZIP.
+The local debug UI is hidden outside `localhost` and `127.0.0.1`, and complete
+ZIP controls are hidden from non-admin accounts.
 
 The Auth/RBAC v1 endpoints are local-development endpoints in this phase.
 

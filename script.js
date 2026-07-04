@@ -34,7 +34,16 @@ const setLocalStartStatus = (message = "") => {
   });
 };
 
-const initializeLocalDebugLink = () => {
+const canExportDebugBundle = (state) =>
+  Boolean(
+    state?.authenticated &&
+    (
+      window.PersonalWebAuth?.hasRole?.(state, "admin") ||
+      window.PersonalWebAuth?.hasPermission?.(state, "admin:access")
+    )
+  );
+
+const initializeLocalDebugLink = async () => {
   const link = document.querySelector("[data-local-debug-link]");
   if (!link) {
     return;
@@ -44,8 +53,24 @@ const initializeLocalDebugLink = () => {
     debugLog("index.debug_link.hidden_non_local", { host: window.location.hostname });
     return;
   }
+  try {
+    const state = await window.PersonalWebAuth?.getCurrentAuthState?.({ force: true });
+    if (!canExportDebugBundle(state)) {
+      link.hidden = true;
+      debugLog("index.debug_link.hidden_not_admin", {
+        authenticated: Boolean(state?.authenticated),
+        roles: state?.roles || [],
+        permissions: state?.permissions || []
+      });
+      return;
+    }
+  } catch (error) {
+    link.hidden = true;
+    debugLog("index.debug_link.hidden_not_admin", { error: error.message }, "warn");
+    return;
+  }
   link.hidden = false;
-  debugLog("index.debug_link.visible", { host: window.location.hostname });
+  debugLog("index.debug_link.visible_admin", { host: window.location.hostname });
   link.addEventListener("click", () => {
     debugLog("index.debug_link.click", { target: link.getAttribute("href") });
   });
@@ -254,14 +279,14 @@ const loadHomepagePublicItems = async () => {
   }
 };
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   debugLog("homepage.ready", {
     visitorEntry: document.querySelector("[data-visitor-entrance]")?.getAttribute("href") || null,
     userEntry: document.querySelector("[data-user-entrance]")?.getAttribute("href") || null,
     clickAnywhereNavigation: false
   });
-  initializeLocalDebugLink();
-  initializeCoverEntrances();
+  await initializeCoverEntrances();
+  await initializeLocalDebugLink();
   loadHomepagePublicItems();
 });
 

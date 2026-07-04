@@ -344,19 +344,21 @@ The script must not collect:
 
 The bundle and summary are ignored by Git.
 
-Recommended no-terminal workflow from Hub:
+Recommended no-terminal workflow for admins:
 
-1. Open `hub.html`.
-2. Click the visible `本地调试日志` card.
-3. Click `导出完整调试包 ZIP`.
-4. Send the downloaded zip to ChatGPT.
+1. Log in as a local development admin.
+2. Open `hub.html`.
+3. Click the visible `本地调试日志` card.
+4. Click `导出完整调试包 ZIP`.
+5. Send the downloaded zip to ChatGPT.
 
-Guest or pre-login fallback:
+Guest and normal user behavior:
 
-1. Open the homepage on `http://127.0.0.1:4173/`.
-2. Click `本地调试日志`.
-3. Click `导出完整调试包 ZIP` on `debug-log.html`.
-4. Send the downloaded zip to ChatGPT.
+* Guests cannot export the complete debug ZIP.
+* Normal authenticated users cannot export the complete debug ZIP.
+* The direct `debug-log.html` page may still show local browser logs.
+* Browser-only JSON/TXT export may remain available for local frontend logs.
+* Complete debug ZIP export still requires an admin login.
 
 Direct URL fallback:
 
@@ -370,8 +372,12 @@ CLI fallback:
 .\scripts\collect-debug-logs.ps1
 ```
 
-The Hub debug card and homepage debug link must be visible only on
-`localhost` and `127.0.0.1`.
+The Hub debug card and homepage debug link must be visible only when both are true:
+
+* the host is `localhost` or `127.0.0.1`
+* the current authenticated account is an admin or has `admin:access`
+
+完整调试包 ZIP 导出是本地开发功能，但仍然要求 admin 登录。
 
 Review the zip before sharing it if privacy is a concern.
 

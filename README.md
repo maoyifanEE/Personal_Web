@@ -197,23 +197,26 @@ Journey canvas flow. Browser logs are bounded and redacted through
 `debug-logger.js`, while backend diagnostics are written as JSONL files under
 `.local_logs/`.
 
-Recommended local browser workflow from Hub:
+Recommended local browser workflow for admins:
 
-1. Open `hub.html`.
-2. Click `本地调试日志`.
-3. Click `导出完整调试包 ZIP`.
-4. Send the downloaded zip to ChatGPT.
+1. Log in as local admin `1 / 1`.
+2. Open `hub.html`.
+3. Click `本地调试日志`.
+4. Click `导出完整调试包 ZIP`.
+5. Send the downloaded zip to ChatGPT.
 
-Guest or pre-login fallback:
+Guest and normal user behavior:
 
-1. Open the homepage on `http://127.0.0.1:4173/`.
-2. Click `本地调试日志`.
-3. Click `导出完整调试包 ZIP` on `debug-log.html`.
-4. Send the downloaded zip to ChatGPT.
+* Guests cannot export the complete debug ZIP.
+* Normal authenticated users cannot export the complete debug ZIP.
+* `debug-log.html` may still be opened locally for browser-side logs.
+* Browser-only JSON/TXT export may remain available for local frontend logs.
 
 The browser export asks the local backend to create one zip containing browser
 debug logs plus safe backend/frontend/launcher local logs.
-The local debug entry points are hidden outside `localhost` and `127.0.0.1`.
+Complete debug ZIP export is a local development feature, but it still requires
+an admin login. The local debug entry points are hidden outside `localhost` and
+`127.0.0.1`, and the full ZIP controls are hidden from non-admin accounts.
 
 Direct URL fallback:
 
@@ -451,7 +454,7 @@ Application behavior should be verified separately when application files are ch
 
 ## Visitor Message Prototype
 
-The public cover page includes a bottom-right floating `留言` tool.
+The public cover page includes a bottom-right floating `鐣欒█` tool.
 
 This tool opens a front-end modal prototype for visitor messages.
 

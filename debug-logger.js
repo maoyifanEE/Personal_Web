@@ -323,14 +323,22 @@
     const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
     const payload = collectBrowserBundlePayload(source);
 
+    const requestPath = "/debug/export-bundle";
     let response;
     try {
-      response = await fetch(`${apiBaseUrl}/debug/export-bundle`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
+      if (window.PersonalWebAuth?.authFetch) {
+        response = await window.PersonalWebAuth.authFetch(requestPath, {
+          method: "POST",
+          body: JSON.stringify(payload)
+        });
+      } else {
+        response = await fetch(`${apiBaseUrl}${requestPath}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      }
     } catch (fetchError) {
       warn("debug.bundle_export.backend_unavailable", {
         source,
@@ -341,6 +349,24 @@
         true
       );
       throw makeExportError("Debug backend is unavailable.", "backend_unavailable", fetchError);
+    }
+
+    if (response.status === 401) {
+      warn("debug.bundle_export.unauthenticated", { source, status: response.status });
+      updateStatus("需要管理员登录后才能导出完整调试包。", true);
+      throw makeExportError("Admin login is required to export the full debug bundle.", "unauthenticated");
+    }
+
+    if (response.status === 403) {
+      warn("debug.bundle_export.forbidden", { source, status: response.status });
+      updateStatus("当前账号没有导出完整调试包的权限。", true);
+      throw makeExportError("Current account cannot export the full debug bundle.", "forbidden");
+    }
+
+    if (response.status === 404) {
+      warn("debug.bundle_export.not_available", { source, status: response.status });
+      updateStatus("完整调试包导出仅在本地开发模式可用。", true);
+      throw makeExportError("Debug bundle export is available only in local development.", "not_available");
     }
 
     if (!response.ok) {
