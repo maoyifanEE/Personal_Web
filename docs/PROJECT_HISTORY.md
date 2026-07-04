@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-07-05 - Fix Journey select-mode sticker editing
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Make sticker editing explicit and safe in Journey select mode only.
+* Preserve draw and eraser behavior without accidental sticker movement.
+
+### Actual changes
+
+* Made the Journey toolbar label the select tool as `选择/编辑`.
+* Added mode-specific helper text for draw, erase, and select.
+* Fixed sticker selected-state CSS by adding the expected `is-selected` class.
+* Fixed resize handle class names so selected stickers show usable resize handles.
+* Limited sticker pointer events to edit + select mode.
+* Prevented draw and erase modes from starting sticker move, resize, or rotate interactions.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, deployment script, or production server file was changed.
+* No Journey drawing, smoothing, eraser, node, media upload, public rendering, or Data URL publish-blocking behavior was intentionally changed.
+
 ## 2026-07-04 - Persist Journey sticker media through homepage uploads
 
 ### Goal

@@ -1931,6 +1931,10 @@ select {
   height: 100%;
 }
 
+.timeline-home .journey-sketch-interaction {
+  pointer-events: none;
+}
+
 .journey-sketch-background {
   object-fit: cover;
   pointer-events: none;
@@ -1993,6 +1997,7 @@ select {
 
 .journey-sketch-stickers {
   z-index: 1;
+  pointer-events: none;
 }
 
 .journey-sketch-sticker {
@@ -2002,6 +2007,12 @@ select {
   width: calc(var(--sticker-width) * 1%);
   transform: translate(-50%, -50%) rotate(calc(var(--sticker-rotation) * 1deg));
   transform-origin: center;
+  pointer-events: none;
+}
+
+.timeline-home[data-editor-mode="edit"][data-active-tool="select"] .journey-sketch-sticker {
+  pointer-events: auto;
+  cursor: grab;
 }
 
 .journey-sketch-sticker img {
@@ -2014,7 +2025,7 @@ select {
   user-select: none;
 }
 
-.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected img {
+.timeline-home[data-editor-mode="edit"][data-active-tool="select"] .journey-sketch-sticker.is-selected img {
   outline: 2px solid var(--teal);
   outline-offset: 4px;
 }
@@ -2026,15 +2037,14 @@ select {
   display: none;
 }
 
-.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected .journey-sticker-resize,
-.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected .journey-sticker-rotate,
-.timeline-home[data-editor-mode="edit"] .journey-sketch-sticker.is-selected .journey-sticker-delete {
+.timeline-home[data-editor-mode="edit"][data-active-tool="select"] .journey-sketch-sticker.is-selected .journey-sticker-resize,
+.timeline-home[data-editor-mode="edit"][data-active-tool="select"] .journey-sketch-sticker.is-selected .journey-sticker-rotate,
+.timeline-home[data-editor-mode="edit"][data-active-tool="select"] .journey-sketch-sticker.is-selected .journey-sticker-delete {
   display: block;
+  pointer-events: auto;
 }
 
 .journey-sticker-resize {
-  right: -12px;
-  bottom: -12px;
   width: 18px;
   height: 18px;
   cursor: nwse-resize;
@@ -2042,6 +2052,30 @@ select {
   border-radius: 50%;
   background: var(--teal);
   box-shadow: 0 5px 12px rgba(23, 37, 52, 0.2);
+}
+
+.journey-sticker-resize--nw {
+  left: -12px;
+  top: -12px;
+  cursor: nwse-resize;
+}
+
+.journey-sticker-resize--ne {
+  right: -12px;
+  top: -12px;
+  cursor: nesw-resize;
+}
+
+.journey-sticker-resize--sw {
+  left: -12px;
+  bottom: -12px;
+  cursor: nesw-resize;
+}
+
+.journey-sticker-resize--se {
+  right: -12px;
+  bottom: -12px;
+  cursor: nwse-resize;
 }
 
 .journey-sticker-rotate {
@@ -2058,7 +2092,7 @@ select {
 
 .journey-sticker-delete {
   right: -10px;
-  top: -12px;
+  top: -42px;
   min-height: 24px;
   padding: 2px 7px;
   cursor: pointer;
@@ -2106,6 +2140,7 @@ select {
 
 .journey-sketch-interaction {
   z-index: 4;
+  pointer-events: none;
 }
 
 .journey-sketch-interaction.is-drag-over {
@@ -2126,6 +2161,15 @@ select {
   background: rgba(255, 253, 248, 0.96);
   box-shadow: 0 18px 54px rgba(23, 37, 52, 0.16);
   backdrop-filter: blur(16px);
+  pointer-events: none;
+}
+
+.journey-sketch-toolbar button,
+.journey-sketch-toolbar input,
+.journey-sketch-toolbar summary,
+.journey-sketch-toolbar label,
+.journey-sketch-toolbar details {
+  pointer-events: auto;
 }
 
 .journey-sketch-toolbar__row,

@@ -1251,6 +1251,7 @@ function renderNodeLayer() {
     nodeElement.className = "journey-sketch-node";
     nodeElement.dataset.nodeId = node.id;
     nodeElement.dataset.selected = String(state.editor.selectedNodeId === node.id);
+    nodeElement.classList.toggle("is-selected", state.editor.selectedNodeId === node.id);
     nodeElement.style.left = `${(node.x / CANVAS_WIDTH) * 100}%`;
     nodeElement.style.top = `${(node.y / state.canvas.height) * 100}%`;
     nodeElement.innerHTML = `<span>${escapeHtml(node.label || node.id)}</span>`;
@@ -1275,6 +1276,7 @@ function renderStickerLayer() {
       wrap.className = "journey-sketch-sticker";
       wrap.dataset.stickerId = sticker.id;
       wrap.dataset.selected = String(state.editor.selectedStickerId === sticker.id);
+      wrap.classList.toggle("is-selected", state.editor.selectedStickerId === sticker.id);
       wrap.style.left = `${sticker.xPercent}%`;
       wrap.style.top = `${sticker.yPercent}%`;
       wrap.style.width = `${sticker.widthPercent}%`;
@@ -1289,7 +1291,7 @@ function renderStickerLayer() {
       if (state.mode === "edit" && state.editor.selectedStickerId === sticker.id) {
         ["nw", "ne", "sw", "se"].forEach((corner) => {
           const handle = document.createElement("span");
-          handle.className = `journey-sticker-handle journey-sticker-handle--${corner}`;
+          handle.className = `journey-sticker-resize journey-sticker-resize--${corner}`;
           handle.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "resize"));
           wrap.append(handle);
         });
@@ -1332,7 +1334,7 @@ function renderEditorPanel() {
     <div class="journey-sketch-toolbar__row">
       <button type="button" data-tool="draw" aria-pressed="${state.editor.activeTool === "draw"}">手绘</button>
       <button type="button" data-tool="erase" aria-pressed="${state.editor.activeTool === "erase"}">橡皮擦</button>
-      <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">节点/选择</button>
+      <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">选择/编辑</button>
       <button type="button" data-action="upload-background">上传背景</button>
       <button type="button" data-action="clear-background">清除背景</button>
       <button type="button" data-action="upload-sticker">上传贴纸</button>
@@ -1345,6 +1347,9 @@ function renderEditorPanel() {
     </div>
     <p class="journey-sketch-save-hint">
       本地草稿只保存在当前浏览器；发布到数据库后，访客公开预览才会读取到新版本。
+    </p>
+    <p class="journey-sketch-tool-hint" data-tool-hint>
+      ${escapeHtml(activeToolHint())}
     </p>
     <label class="journey-sketch-height">
       画布高度
@@ -1407,6 +1412,16 @@ function renderSettingSlider(key, label, min, max, step) {
   `;
 }
 
+function activeToolHint() {
+  if (state.editor.activeTool === "select") {
+    return "选择/编辑模式：点击贴纸后可拖动、缩放、旋转或删除；点击空白画布可取消选择。";
+  }
+  if (state.editor.activeTool === "erase") {
+    return "橡皮擦模式：拖动画布会擦除线条，贴纸不会被移动、缩放或旋转。";
+  }
+  return "手绘模式：拖动画布会绘制线条，贴纸不会被移动、缩放或旋转。";
+}
+
 function renderSelectedNodePanel() {
   const node = selectedNode();
   if (!node) {
@@ -1436,6 +1451,11 @@ function setTool(tool) {
     return;
   }
   state.editor.activeTool = tool;
+  if (tool !== "select") {
+    state.editor.selectedNodeId = null;
+    state.editor.selectedStickerId = null;
+    state.editor.selectedStrokeId = null;
+  }
   currentPointer = null;
   rawDrawPoints = [];
   startSnap = null;
@@ -1632,6 +1652,8 @@ function addSticker(imageSource, position = { xPercent: 50, yPercent: 30 }) {
   state.canvas.stickers.push(sticker);
   state.editor.selectedStickerId = sticker.id;
   state.editor.selectedNodeId = null;
+  state.editor.selectedStrokeId = null;
+  state.editor.activeTool = "select";
   markDirty("sticker added");
   logJourney("Added sticker.", { stickerId: sticker.id });
 }
@@ -1767,6 +1789,14 @@ function startStickerDrag(event, stickerId, mode) {
   if (state.mode !== "edit" || !guardJourneyMutation("startStickerDrag")) {
     return;
   }
+  if (state.editor.activeTool !== "select") {
+    logJourney("Ignored sticker edit outside select mode.", {
+      stickerId,
+      mode,
+      activeTool: state.editor.activeTool
+    });
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   const sticker = state.canvas.stickers.find((item) => item.id === stickerId);
@@ -1775,6 +1805,8 @@ function startStickerDrag(event, stickerId, mode) {
   }
   state.editor.selectedStickerId = sticker.id;
   state.editor.selectedNodeId = null;
+  state.editor.selectedStrokeId = null;
+  logJourney("Selected sticker in select mode.", { stickerId: sticker.id, mode });
   const center = cssPercentToCanvasPoint(sticker.xPercent, sticker.yPercent);
   dragState = {
     kind: "sticker",
@@ -1785,6 +1817,7 @@ function startStickerDrag(event, stickerId, mode) {
     center
   };
   event.currentTarget.setPointerCapture?.(event.pointerId);
+  logJourney("Started sticker edit drag.", { stickerId: sticker.id, mode });
   render();
 }
 
@@ -1830,6 +1863,9 @@ window.addEventListener("pointerup", () => {
 
 window.addEventListener("keydown", (event) => {
   if (state.mode !== "edit" || !["Delete", "Backspace"].includes(event.key) || !guardJourneyMutation("deleteKey")) {
+    return;
+  }
+  if (state.editor.activeTool !== "select") {
     return;
   }
   if (state.editor.selectedNodeId) {
@@ -1923,6 +1959,7 @@ function deleteSelectedSticker() {
   if (!state.editor.selectedStickerId) {
     return;
   }
+  logJourney("Deleting selected sticker.", { stickerId: state.editor.selectedStickerId });
   state.canvas.stickers = state.canvas.stickers.filter((sticker) => sticker.id !== state.editor.selectedStickerId);
   state.editor.selectedStickerId = null;
   markDirty("sticker deleted");
