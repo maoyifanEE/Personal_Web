@@ -10,6 +10,8 @@ const MAX_CANVAS_HEIGHT = 6000;
 const MIN_STROKE_POINTS = 2;
 const STICKER_MIN_WIDTH_PERCENT = 4;
 const STICKER_MAX_WIDTH_PERCENT = 90;
+const STICKER_MIN_ASPECT_RATIO = 0.05;
+const STICKER_MAX_ASPECT_RATIO = 20;
 
 const root = document.querySelector(".timeline-home");
 const canvasHost = document.querySelector("#journey-areas");
@@ -41,15 +43,36 @@ const normalizeOptionalMediaId = (value) => {
   return Number.isInteger(number) && number > 0 ? number : null;
 };
 
-const homepageMediaFileUrl = (mediaId) => {
+const homepageMediaPublicFileUrl = (mediaId) => {
   const normalizedId = normalizeOptionalMediaId(mediaId);
   return normalizedId ? `${apiBaseUrl()}${HOMEPAGE_MEDIA_PATH}/${normalizedId}/file` : "";
 };
 
-const stickerImageSrc = (sticker) => {
-  const mediaUrl = homepageMediaFileUrl(sticker?.mediaId);
+const homepageMediaAdminFileUrl = (mediaId) => {
+  const normalizedId = normalizeOptionalMediaId(mediaId);
+  return normalizedId ? `${apiBaseUrl()}${HOMEPAGE_MEDIA_PATH}/${normalizedId}/admin-file` : "";
+};
+
+const stickerImageSrc = (sticker, options = {}) => {
+  const useAdminPreview = Boolean(options.useAdminPreview);
+  const mediaUrl = useAdminPreview
+    ? homepageMediaAdminFileUrl(sticker?.mediaId)
+    : homepageMediaPublicFileUrl(sticker?.mediaId);
   return mediaUrl || (typeof sticker?.imageSrc === "string" ? sticker.imageSrc : "");
 };
+
+function clampAspectRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return 1;
+  }
+  return clamp(number, STICKER_MIN_ASPECT_RATIO, STICKER_MAX_ASPECT_RATIO);
+}
+
+function normalizeOptionalDimension(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const normalizePoint = (point) => ({
@@ -206,23 +229,33 @@ const sanitizeNode = (node = {}) => ({
   updatedAt: typeof node.updatedAt === "string" ? node.updatedAt : nowIso()
 });
 
-const sanitizeSticker = (sticker = {}) => ({
-  id: typeof sticker.id === "string" && sticker.id ? sticker.id : makeId("sticker"),
-  imageSrc: typeof sticker.imageSrc === "string" ? sticker.imageSrc : "",
-  mediaId: normalizeOptionalMediaId(sticker.mediaId),
-  mediaType: sticker.mediaType === "image" ? "image" : null,
-  mediaTitle: typeof sticker.mediaTitle === "string" ? sticker.mediaTitle : "",
-  mediaFilename: typeof sticker.mediaFilename === "string" ? sticker.mediaFilename : "",
-  source: sticker.source === "homepage-media" ? "homepage-media" : "local-draft",
-  uploadStatus: sticker.uploadStatus === "uploaded" ? "uploaded" : "",
-  xPercent: clamp(normalizeNumber(sticker.xPercent, 50), -20, 120),
-  yPercent: clamp(normalizeNumber(sticker.yPercent, 30), -20, 120),
-  widthPercent: clamp(normalizeNumber(sticker.widthPercent, 18), STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT),
-  rotation: clamp(normalizeNumber(sticker.rotation, 0), -720, 720),
-  zIndex: Math.round(clamp(normalizeNumber(sticker.zIndex, 30), 1, 200)),
-  createdAt: typeof sticker.createdAt === "string" ? sticker.createdAt : nowIso(),
-  updatedAt: typeof sticker.updatedAt === "string" ? sticker.updatedAt : nowIso()
-});
+const sanitizeSticker = (sticker = {}) => {
+  const naturalWidth = normalizeOptionalDimension(sticker.naturalWidth);
+  const naturalHeight = normalizeOptionalDimension(sticker.naturalHeight);
+  const derivedAspectRatio = naturalWidth && naturalHeight
+    ? naturalWidth / naturalHeight
+    : sticker.aspectRatio;
+  return {
+    id: typeof sticker.id === "string" && sticker.id ? sticker.id : makeId("sticker"),
+    imageSrc: typeof sticker.imageSrc === "string" ? sticker.imageSrc : "",
+    mediaId: normalizeOptionalMediaId(sticker.mediaId),
+    mediaType: sticker.mediaType === "image" ? "image" : null,
+    mediaTitle: typeof sticker.mediaTitle === "string" ? sticker.mediaTitle : "",
+    mediaFilename: typeof sticker.mediaFilename === "string" ? sticker.mediaFilename : "",
+    source: sticker.source === "homepage-media" ? "homepage-media" : "local-draft",
+    uploadStatus: sticker.uploadStatus === "uploaded" ? "uploaded" : "",
+    xPercent: clamp(normalizeNumber(sticker.xPercent, 50), -20, 120),
+    yPercent: clamp(normalizeNumber(sticker.yPercent, 30), -20, 120),
+    widthPercent: clamp(normalizeNumber(sticker.widthPercent, 18), STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT),
+    rotation: clamp(normalizeNumber(sticker.rotation, 0), -720, 720),
+    zIndex: Math.round(clamp(normalizeNumber(sticker.zIndex, 30), 1, 200)),
+    aspectRatio: clampAspectRatio(derivedAspectRatio),
+    naturalWidth,
+    naturalHeight,
+    createdAt: typeof sticker.createdAt === "string" ? sticker.createdAt : nowIso(),
+    updatedAt: typeof sticker.updatedAt === "string" ? sticker.updatedAt : nowIso()
+  };
+};
 
 const sanitizeState = (raw) => {
   const fallback = defaultSketchState();
@@ -1280,11 +1313,12 @@ function renderStickerLayer() {
       wrap.style.left = `${sticker.xPercent}%`;
       wrap.style.top = `${sticker.yPercent}%`;
       wrap.style.width = `${sticker.widthPercent}%`;
+      wrap.style.setProperty("--sticker-aspect-ratio", String(sticker.aspectRatio || 1));
       wrap.style.zIndex = String(sticker.zIndex);
       wrap.style.transform = `translate(-50%, -50%) rotate(${sticker.rotation}deg)`;
       wrap.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "move"));
       const image = document.createElement("img");
-      image.src = stickerImageSrc(sticker);
+      image.src = stickerImageSrc(sticker, { useAdminPreview: canEditJourney() && state.mode === "edit" });
       image.alt = "";
       image.draggable = false;
       wrap.append(image);
@@ -1590,6 +1624,38 @@ function readImageFile(file) {
   });
 }
 
+function loadImageDimensions(file) {
+  return new Promise((resolve) => {
+    if (!file || typeof URL === "undefined" || !file.type?.startsWith("image/")) {
+      resolve({ naturalWidth: null, naturalHeight: null, aspectRatio: 1 });
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    const finish = (result) => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(result);
+    };
+    image.onload = () => {
+      const naturalWidth = normalizeOptionalDimension(image.naturalWidth);
+      const naturalHeight = normalizeOptionalDimension(image.naturalHeight);
+      finish({
+        naturalWidth,
+        naturalHeight,
+        aspectRatio: naturalWidth && naturalHeight ? clampAspectRatio(naturalWidth / naturalHeight) : 1
+      });
+    };
+    image.onerror = () => {
+      logJourney("Failed to measure sticker image dimensions; using square fallback.", {
+        filename: file.name,
+        mimeType: file.type
+      });
+      finish({ naturalWidth: null, naturalHeight: null, aspectRatio: 1 });
+    };
+    image.src = objectUrl;
+  });
+}
+
 async function uploadJourneyStickerMedia(file) {
   if (!file?.type?.startsWith("image/")) {
     throw new Error("只支持上传图片贴纸。");
@@ -1628,14 +1694,20 @@ async function uploadJourneyStickerMedia(file) {
 }
 
 async function addPersistentStickerFromFile(file, position = { xPercent: 50, yPercent: 30 }) {
-  const media = await uploadJourneyStickerMedia(file);
+  const [dimensions, media] = await Promise.all([
+    loadImageDimensions(file),
+    uploadJourneyStickerMedia(file)
+  ]);
   addSticker({
     mediaId: media.id,
     mediaType: "image",
     mediaTitle: media.title || file.name || "",
     mediaFilename: media.originalFilename || file.name || "",
     source: "homepage-media",
-    uploadStatus: "uploaded"
+    uploadStatus: "uploaded",
+    naturalWidth: dimensions.naturalWidth,
+    naturalHeight: dimensions.naturalHeight,
+    aspectRatio: dimensions.aspectRatio
   }, position);
 }
 

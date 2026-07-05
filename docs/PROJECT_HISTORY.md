@@ -1,5 +1,27 @@
 # Project History
 
+## 2026-07-05 - Fix Journey sticker admin preview sizing
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Fix newly uploaded Journey stickers that appeared as a flat line and could not be moved by the sticker body.
+
+### Actual changes
+
+* Split Journey sticker media URLs into public `/file` and admin-only `/admin-file` helpers.
+* Use the admin preview URL only while the authorized editor is in edit mode.
+* Keep public and preview rendering on the public media URL.
+* Added persistent sticker `aspectRatio`, `naturalWidth`, and `naturalHeight` fields with backward-compatible sanitization.
+* Measured uploaded image dimensions with a temporary object URL and stored only numeric dimensions.
+* Added a CSS aspect-ratio hit box so stickers do not collapse while images load or fail.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, deployment script, or production server file was changed.
+* Public media authorization was not weakened, and uploaded media was not made globally public.
+* No Journey drawing, smoothing, eraser, or node algorithm was intentionally changed.
+
 ## 2026-07-05 - Fix Journey select-mode sticker editing
 
 ### Goal
