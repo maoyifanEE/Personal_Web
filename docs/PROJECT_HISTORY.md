@@ -1,5 +1,113 @@
 # Project History
 
+## 2026-07-05 - Default homepage publish export to Journey canvas scope
+
+### Goal
+
+* Continue on `Feature/homepage-remote-publish-v1`.
+* Prevent old smoke-test homepage items and their metadata from entering the
+  default remote publish bundle.
+
+### Actual changes
+
+* Changed the default CLI and Journey editor export scope to Journey-only.
+* Added `-IncludeHomepageItems` as an explicit CLI option for exporting visible
+  safe homepage items when intentionally needed.
+* Added `homepageItemsScope` to the manifest.
+* Import now treats `homepageItemsScope=excluded` as Journey-only and hides all
+  currently visible remote homepage items during real import.
+* Existing `replace_with_bundle_rows` behavior remains available for bundles
+  that intentionally include homepage items.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend migration, Auth/RBAC policy, public media authorization, Journey
+  sticker editing, save behavior, or server config was changed.
+* No users, sessions, roles, permissions, runtime uploads, exported bundles,
+  database files, logs, debug bundles, backups, or secrets were committed.
+
+## 2026-07-05 - Add Journey editor publish bundle export UI
+
+### Goal
+
+* Continue on `Feature/homepage-remote-publish-v1`.
+* Add a local-admin-only Journey editor button for exporting the saved
+  Homepage/Journey public display bundle as a ZIP.
+
+### Actual changes
+
+* Added `导出发布包` to the Journey editor toolbar after `保存画布`.
+* Added a protected `POST /api/homepage/publish-bundle/export` backend endpoint
+  guarded by `homepage:edit` and CSRF.
+* Refactored the publish bundle helper so CLI export and backend export share
+  the same bundle generation rules.
+* The UI blocks export while the canvas has unsaved browser changes and asks
+  the admin to save first.
+* The endpoint refuses export when `APP_ENV=production`.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend migration, Auth/RBAC policy, public media authorization, remote
+  import semantics, Journey drawing, sticker editing, or server config was changed.
+* No users, sessions, roles, permissions, runtime uploads, exported bundles,
+  database files, logs, debug bundles, backups, or secrets were committed.
+
+## 2026-07-05 - Replace stale homepage items during bundle import
+
+### Goal
+
+* Continue on `Feature/homepage-remote-publish-v1`.
+* Make Homepage/Journey bundle import replace the visible public homepage item
+  set instead of only appending or upserting bundled rows.
+
+### Actual changes
+
+* Import dry-run now reports existing visible homepage items, bundled homepage
+  items, and stale visible item IDs that would be hidden.
+* Real import now backs up stale visible homepage items before setting their
+  `is_visible` flag to false.
+* Bundled homepage items are still upserted by id after stale visible items are
+  hidden.
+* Documentation now states that old media rows may remain but are not public
+  unless referenced by the current published canvas or visible homepage item.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend API route, database migration, Auth/RBAC policy, public media
+  authorization, Journey editor behavior, or server config was changed.
+* No users, sessions, roles, permissions, runtime uploads, database files,
+  logs, backup folders, exported bundles, or secrets were committed.
+
+## 2026-07-05 - Prepare Homepage/Journey remote publish tooling
+
+### Goal
+
+* Work on `Feature/homepage-remote-publish-v1`.
+* Prepare safe export/import tooling for Homepage/Journey public display data.
+* Document the public display-only remote deployment path and route allowlist.
+
+### Actual changes
+
+* Added a publish-bundle helper for exporting the default Journey canvas,
+  referenced homepage media rows, visible homepage items, and referenced media files.
+* Added PowerShell wrappers for local export, import dry-run or import, remote
+  public health checks, and a placeholder-only future publish flow.
+* Added `.local_exports/` and `.local_backups/` to Git ignore rules.
+* Added `docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md` and linked it from the README.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No production users, credentials, uploaded runtime files, database files,
+  logs, debug bundles, backups, or secrets were committed.
+* No backend API route, database migration, Auth/RBAC policy, Journey editor
+  behavior, public media authorization, or production server config was changed.
+* Admin/write/debug/reset/dev endpoints are still not part of the initial
+  public deployment plan.
+
 ## 2026-07-05 - Refine Journey layout and sticker layer controls
 
 ### Goal

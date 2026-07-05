@@ -4,6 +4,7 @@ const JOURNEY_CANVAS_SYNC_CHANNEL = "personal-web-journey-canvas-sync";
 const SCHEMA_VERSION = "sketch-canvas-v1";
 const REMOTE_CANVAS_PATH = "/homepage/canvas";
 const REMOTE_CANVAS_RESET_PATH = "/homepage/canvas/reset";
+const PUBLISH_BUNDLE_EXPORT_PATH = "/homepage/publish-bundle/export";
 const HOMEPAGE_MEDIA_PATH = "/homepage/media";
 const CANVAS_WIDTH = 1000;
 const DEFAULT_CANVAS_HEIGHT = 2400;
@@ -142,6 +143,9 @@ let remoteCanvasMeta = {
   status: "正在读取已保存画布...",
   saving: false,
   warning: false
+};
+let publishBundleExportMeta = {
+  exporting: false
 };
 
 function canEditJourney() {
@@ -572,6 +576,99 @@ const saveRemoteCanvasState = async () => {
     logJourney("Remote canvas save failed.", { error: error.message });
   } finally {
     remoteCanvasMeta.saving = false;
+    renderEditorPanel();
+  }
+};
+
+const contentDispositionFilename = (headerValue) => {
+  const value = headerValue || "";
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    } catch (error) {
+      logJourney("Failed to decode UTF-8 content disposition filename.", { error: error.message });
+    }
+  }
+  const asciiMatch = value.match(/filename="?([^";]+)"?/i);
+  return asciiMatch ? asciiMatch[1] : "";
+};
+
+const downloadBlob = (blob, filename) => {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename || "homepage-publish-bundle.zip";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+};
+
+const exportPublishBundle = async () => {
+  if (!guardJourneyMutation("exportPublishBundle")) {
+    updateRemoteStatus("当前路由或账号没有导出发布包的权限。", true);
+    return;
+  }
+  if (state.dirty) {
+    const message = "画布有未保存修改，请先点击 保存画布，再导出发布包。";
+    updateRemoteStatus(message, true);
+    showMessage(message, true);
+    return;
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    updateRemoteStatus("认证服务不可用，无法导出发布包。", true);
+    return;
+  }
+  if (publishBundleExportMeta.exporting) {
+    logJourney("Ignored duplicate publish bundle export request.");
+    return;
+  }
+
+  publishBundleExportMeta.exporting = true;
+  updateRemoteStatus("正在导出发布包...", false);
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(PUBLISH_BUNDLE_EXPORT_PATH, {
+      method: "POST"
+    });
+    if (!response.ok) {
+      const body = await parseJsonResponse(response);
+      const detail = body.detail || `请求失败：${response.status}`;
+      if (response.status === 403 && /production/i.test(detail)) {
+        throw new Error("生产环境已禁用本地发布包导出。");
+      }
+      throw new Error(detail);
+    }
+
+    const blob = await response.blob();
+    const filename =
+      response.headers.get("X-Homepage-Bundle-Filename") ||
+      contentDispositionFilename(response.headers.get("Content-Disposition")) ||
+      "homepage-publish-bundle.zip";
+    const homepageItemsScope = response.headers.get("X-Homepage-Bundle-Items-Scope") || "excluded";
+    const mediaCount = response.headers.get("X-Homepage-Bundle-Media-Count") || "0";
+    const fileCount = response.headers.get("X-Homepage-Bundle-File-Count") || "0";
+    const warningCount = response.headers.get("X-Homepage-Bundle-Warning-Count") || "0";
+
+    downloadBlob(blob, filename);
+    const message = `导出成功：已下载发布包。媒体 ${mediaCount}，文件 ${fileCount}，警告 ${warningCount}。`;
+    updateRemoteStatus(message, false);
+    showMessage("导出成功：已下载发布包。");
+    logJourney("Exported homepage publish bundle.", {
+      filename,
+      homepageItemsScope,
+      mediaCount,
+      fileCount,
+      warningCount
+    });
+  } catch (error) {
+    const message = `导出失败：${error.message}`;
+    updateRemoteStatus(message, true);
+    showMessage(message, true);
+    logJourney("Homepage publish bundle export failed.", { error: error.message });
+  } finally {
+    publishBundleExportMeta.exporting = false;
     renderEditorPanel();
   }
 };
@@ -1487,6 +1584,9 @@ function renderEditorPanel() {
       <button type="button" data-action="save-canvas" ${remoteCanvasMeta.saving ? "disabled" : ""}>
         ${remoteCanvasMeta.saving ? "保存中..." : "保存画布"}
       </button>
+      <button type="button" data-action="export-publish-bundle" ${publishBundleExportMeta.exporting ? "disabled" : ""}>
+        ${publishBundleExportMeta.exporting ? "导出中..." : "导出发布包"}
+      </button>
       <button type="button" data-action="clear">清空画布</button>
       <button type="button" data-action="exit">退出编辑</button>
     </div>
@@ -1658,6 +1758,7 @@ function handleToolbarAction(action) {
   const actions = {
     "upload-sticker": () => stickerFileInput?.click(),
     "save-canvas": saveRemoteCanvasState,
+    "export-publish-bundle": exportPublishBundle,
     clear: clearCanvasState,
     exit: () => {
       state.mode = "preview";

@@ -1,14 +1,16 @@
 """Homepage and Journey canvas API routes."""
 
+import importlib.util
 import logging
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.api.dependencies import require_csrf_token, require_permission
-from app.core.diagnostics import write_jsonl_event
+from app.core.diagnostics import PROJECT_ROOT, write_jsonl_event
 from app.db.session import get_db_session
 from app.models.auth import AppUser
 from app.models.homepage_item import HomepageItem
@@ -46,6 +48,18 @@ from app.services.homepage_media_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/homepage")
+
+
+def load_publish_bundle_helper():
+    """Load the local publish bundle helper without making it a public API."""
+
+    helper_path = PROJECT_ROOT / "scripts" / "homepage_publish_bundle.py"
+    spec = importlib.util.spec_from_file_location("homepage_publish_bundle_helper", helper_path)
+    if not spec or not spec.loader:
+        raise HTTPException(status_code=500, detail="Homepage publish bundle helper is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def media_file_url(request: Request, media_id: int) -> str:
@@ -203,6 +217,77 @@ def read_homepage_media_admin(
     media_rows = list_homepage_media(db)
     write_jsonl_event("backend", "homepage.media.admin_list", {"userId": actor.id, "count": len(media_rows)})
     return {"media": [media_response(request, media) for media in media_rows]}
+
+
+@router.post(
+    "/publish-bundle/export",
+    dependencies=[Depends(require_csrf_token)],
+)
+def export_homepage_publish_bundle(
+    settings: Settings = Depends(get_settings),
+    actor: AppUser = Depends(require_permission("homepage:edit")),
+) -> FileResponse:
+    """Local-admin-only export of the Homepage/Journey publish bundle ZIP."""
+
+    if settings.app_env == "production":
+        write_jsonl_event(
+            "backend",
+            "homepage.publish_bundle.export.rejected_production",
+            {"userId": actor.id},
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Homepage publish bundle export is disabled in production.",
+        )
+
+    helper = load_publish_bundle_helper()
+    try:
+        result = helper.export_homepage_bundle(
+            create_zip=True,
+            require_repo_root=False,
+            include_homepage_items=False,
+        )
+    except Exception as exc:
+        logger.exception("Homepage publish bundle export failed for user_id=%s", actor.id)
+        write_jsonl_event(
+            "backend",
+            "homepage.publish_bundle.export.failed",
+            {"userId": actor.id, "error": str(exc)},
+        )
+        raise HTTPException(status_code=500, detail=f"Homepage publish bundle export failed: {exc}") from exc
+
+    zip_path = Path(result.get("zipPath") or "")
+    if not zip_path.exists() or not zip_path.is_file():
+        raise HTTPException(status_code=500, detail="Homepage publish bundle ZIP was not created")
+
+    filename = zip_path.name
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "X-Homepage-Bundle-Filename": filename,
+        "X-Homepage-Bundle-Items-Scope": str(result.get("homepageItemsScope", "excluded")),
+        "X-Homepage-Bundle-Media-Count": str(result.get("mediaCount", 0)),
+        "X-Homepage-Bundle-File-Count": str(result.get("fileCount", 0)),
+        "X-Homepage-Bundle-Warning-Count": str(result.get("warningCount", 0)),
+    }
+    write_jsonl_event(
+        "backend",
+        "homepage.publish_bundle.export.created",
+        {
+            "userId": actor.id,
+            "filename": filename,
+            "homepageItemsScope": result.get("homepageItemsScope", "excluded"),
+            "mediaCount": result.get("mediaCount", 0),
+            "fileCount": result.get("fileCount", 0),
+            "warningCount": result.get("warningCount", 0),
+        },
+    )
+    logger.info("Homepage publish bundle ZIP exported for user_id=%s file=%s", actor.id, filename)
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename=filename,
+        headers=headers,
+    )
 
 
 @router.patch(
