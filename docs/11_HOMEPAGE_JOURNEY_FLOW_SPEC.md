@@ -194,6 +194,155 @@ They cannot mutate the canvas.
 
 Mutation handlers must guard editor actions before changing state.
 
+## Journey Vertical Canvas And Route Style
+
+Journey is a canvas-first vertical page.
+
+The canvas can be taller than the viewport and supports vertical scrolling.
+The saved canvas height is stored in the canvas JSON as `canvas.height`.
+
+This allows a serpentine journey layout:
+
+* route starts near the top
+* route curves left to right
+* route bends downward
+* route curves right to left
+* route repeats down the long page
+
+The route style is stored in:
+
+```text
+canvas.routeStyle
+```
+
+Supported fields:
+
+* `color`
+* `width`
+* `dashed`
+* `dashLength`
+* `dashGap`
+
+Existing canvases without `routeStyle` use the built-in soft blue-purple
+dashed travel-route default.
+
+The editor exposes route color, route width, dashed on/off, dash length, and
+dash gap controls.
+
+Public preview renders the saved route style.
+
+## Journey Node Style
+
+Journey nodes are visual map badges rather than plain points.
+
+Each node may include:
+
+```text
+node.style.color
+node.style.size
+node.style.ring
+node.style.glow
+```
+
+Existing nodes without style data use the built-in default style:
+
+* blue-purple color
+* circular badge
+* white outer ring
+* colored ring
+* inner dot
+* soft shadow
+* hover/selected halo
+
+Selected-node editor controls allow:
+
+* changing node color
+* changing node size
+* copying the selected node style
+* setting the selected node style as the canvas default
+
+Copied node style is kept in editor runtime state.
+
+Canvas default node style is stored in:
+
+```text
+canvas.defaultNodeStyle
+```
+
+New nodes inherit the copied editor template when present. Otherwise they use
+`canvas.defaultNodeStyle`, then the built-in default.
+
+## Journey Node Content And Gallery
+
+Journey nodes may include lightweight content:
+
+```text
+node.title
+node.subtitle
+node.meta
+node.description
+node.galleryImages
+```
+
+Gallery image entries are stored as media references:
+
+```json
+{
+  "mediaId": 42,
+  "alt": "Optional alt text",
+  "caption": "Optional caption"
+}
+```
+
+Saved and published canvas JSON must not store Data URLs.
+
+Saved and published canvas JSON must not store `/admin-file` URLs.
+
+Editor preview may derive admin preview URLs at runtime.
+
+Public preview derives public media file URLs at runtime.
+
+The v1 editor provides a minimal admin field for adding a node gallery image by
+existing `mediaId`. It does not implement a full media library picker.
+
+## Journey Node Hover Popup
+
+Hovering a node opens a floating popup card.
+
+The popup is non-modal and read-only in public preview.
+
+The popup includes:
+
+* title
+* optional meta/subtitle
+* optional description
+* large gallery image area
+* previous and next buttons
+* thumbnail preview strip
+* image counter
+
+The popup remains open while the pointer is over the node or popup.
+
+It closes only after a short delay when the pointer leaves both areas, reducing
+flicker while moving from a node to its popup.
+
+Popup placement uses viewport coordinates so it still works on a vertically
+scrolled canvas.
+
+## Journey Gallery Thumbnail Limit
+
+The maximum number of thumbnails shown in the popup is stored in:
+
+```text
+canvas.maxPreviewThumbnails
+```
+
+The editor exposes this as `预览图最多数`.
+
+Allowed values are clamped from 1 to 10.
+
+Public preview uses the saved value.
+
 ## Canvas State Sources
 
 Journey uses PostgreSQL as the normal source of truth for the shared canvas.

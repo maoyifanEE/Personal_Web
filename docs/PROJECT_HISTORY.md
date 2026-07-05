@@ -1,5 +1,39 @@
 # Project History
 
+## 2026-07-05 - Add Journey node hover gallery and style controls
+
+### Goal
+
+* Continue on `Feature/journey-node-hover-gallery-v1`.
+* Make the Journey route and node system more polished and interactive while
+  preserving the existing canvas editor, sticker workflow, save flow, public
+  preview, and publish bundle export.
+
+### Actual changes
+
+* Added a saved global route style model for color, width, dashed state,
+  dash length, and dash gap.
+* Added a saved global Journey setting for `maxPreviewThumbnails`.
+* Extended Journey nodes with backward-compatible title, subtitle/meta,
+  description, style, and `galleryImages` fields.
+* Added selected-node controls for color, size, style copy, default style, and
+  minimal gallery image references by `mediaId`.
+* Added a floating node hover popup with gallery next/previous controls,
+  circular image navigation, thumbnail previews, and close-delay hover
+  persistence.
+* Restyled nodes as colorful circular map badges and route strokes as a soft
+  blue-purple dashed travel path.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend migration, Auth/RBAC policy, server config, or production route
+  rule was changed.
+* Node gallery images use `mediaId` references only; no Data URLs or admin-file
+  URLs are stored in saved canvas JSON.
+* Publish bundle media scanning already recursively includes `mediaId` values
+  from the saved Journey canvas, including node gallery references.
+
 ## 2026-07-05 - Default homepage publish export to Journey canvas scope
 
 ### Goal
