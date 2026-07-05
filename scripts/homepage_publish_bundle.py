@@ -28,6 +28,8 @@ BUNDLE_SCHEMA_VERSION = "homepage-publish-bundle-v1"
 APP_NAME = "Personal_Web"
 CANVAS_KEY_DEFAULT = "default"
 HOMEPAGE_MEDIA_ROOT = "data/uploads/homepage"
+HOMEPAGE_ITEMS_SCOPE_EXCLUDED = "excluded"
+HOMEPAGE_ITEMS_SCOPE_REPLACE = "replace_with_bundle_rows"
 EXPORT_ROOT = ".local_exports"
 BACKUP_ROOT = ".local_backups"
 FILES_ROOT = "files/homepage"
@@ -436,6 +438,7 @@ def build_manifest(
     *,
     canvas_row: dict[str, Any],
     media_rows: list[dict[str, Any]],
+    homepage_items_scope: str,
     copied_files: list[dict[str, Any]],
     warnings: list[str],
     connection,
@@ -451,6 +454,7 @@ def build_manifest(
         "sourceCanvasKey": canvas_row["canvas_key"],
         "sourceCanvasRevision": canvas_row["revision"],
         "appName": APP_NAME,
+        "homepageItemsScope": homepage_items_scope,
         "mediaIds": sorted(row["id"] for row in media_rows),
         "fileCount": len(copied_files),
         "fileHashes": copied_files,
@@ -471,7 +475,11 @@ def maybe_create_zip(bundle_dir: Path) -> Path:
     return Path(archive_path)
 
 
-def export_homepage_bundle(create_zip: bool = False, require_repo_root: bool = True) -> dict[str, Any]:
+def export_homepage_bundle(
+    create_zip: bool = False,
+    require_repo_root: bool = True,
+    include_homepage_items: bool = False,
+) -> dict[str, Any]:
     """Export the public Homepage/Journey bundle."""
 
     if require_repo_root:
@@ -490,24 +498,30 @@ def export_homepage_bundle(create_zip: bool = False, require_repo_root: bool = T
 
         canvas_data = canvas_row["canvas_data"]
         canvas_media_ids = extract_media_ids(canvas_data)
-        item_rows = select_visible_homepage_items(connection, tables["items"])
-        item_media_ids = {
-            row["media_id"] for row in item_rows if isinstance(row.get("media_id"), int)
-        }
-        media_ids = canvas_media_ids | item_media_ids
+        item_rows: list[dict[str, Any]] = []
+        media_ids = set(canvas_media_ids)
+        homepage_items_scope = HOMEPAGE_ITEMS_SCOPE_EXCLUDED
+        if include_homepage_items:
+            homepage_items_scope = HOMEPAGE_ITEMS_SCOPE_REPLACE
+            item_rows = select_visible_homepage_items(connection, tables["items"])
+            item_media_ids = {
+                row["media_id"] for row in item_rows if isinstance(row.get("media_id"), int)
+            }
+            media_ids.update(item_media_ids)
         media_rows = select_rows_by_ids(connection, tables["media"], media_ids)
         found_media_ids = {row["id"] for row in media_rows}
 
         warnings = [
-            f"Canvas or visible homepage item references missing media id {media_id}"
+            f"Canvas references missing media id {media_id}"
             for media_id in sorted(media_ids - found_media_ids)
         ]
-        item_rows, media_rows, filter_warnings = filter_export_scope(
-            canvas_media_ids=canvas_media_ids,
-            item_rows=item_rows,
-            media_rows=media_rows,
-        )
-        warnings.extend(filter_warnings)
+        if include_homepage_items:
+            item_rows, media_rows, filter_warnings = filter_export_scope(
+                canvas_media_ids=canvas_media_ids,
+                item_rows=item_rows,
+                media_rows=media_rows,
+            )
+            warnings.extend(filter_warnings)
         copied_files, file_warnings = copy_media_files(bundle_dir, media_rows)
         warnings.extend(file_warnings)
 
@@ -517,6 +531,7 @@ def export_homepage_bundle(create_zip: bool = False, require_repo_root: bool = T
         manifest = build_manifest(
             canvas_row=canvas_row,
             media_rows=media_rows,
+            homepage_items_scope=homepage_items_scope,
             copied_files=copied_files,
             warnings=warnings,
             connection=connection,
@@ -528,6 +543,7 @@ def export_homepage_bundle(create_zip: bool = False, require_repo_root: bool = T
         "bundlePath": str(bundle_dir),
         "zipPath": str(zip_path) if zip_path else None,
         "manifest": manifest,
+        "homepageItemsScope": homepage_items_scope,
         "mediaCount": len(media_rows),
         "fileCount": len(copied_files),
         "missingFileCount": len(file_warnings),
@@ -539,7 +555,10 @@ def export_homepage_bundle(create_zip: bool = False, require_repo_root: bool = T
 def export_bundle(args: argparse.Namespace) -> None:
     """CLI wrapper for exporting the public Homepage/Journey bundle."""
 
-    result = export_homepage_bundle(create_zip=args.create_zip)
+    result = export_homepage_bundle(
+        create_zip=args.create_zip,
+        include_homepage_items=args.include_homepage_items,
+    )
     manifest = result["manifest"]
 
     log("EXPORT_REPORT_START")
@@ -550,6 +569,7 @@ def export_bundle(args: argparse.Namespace) -> None:
     log(f"sourceAlembicHead={manifest['sourceAlembicHead']}")
     log(f"sourceCanvasKey={manifest['sourceCanvasKey']}")
     log(f"sourceCanvasRevision={manifest['sourceCanvasRevision']}")
+    log(f"homepageItemsScope={result['homepageItemsScope']}")
     log(f"mediaCount={result['mediaCount']}")
     log(f"fileCount={result['fileCount']}")
     log(f"missingFileCount={result['missingFileCount']}")
@@ -585,6 +605,17 @@ def load_bundle(bundle_path: Path) -> tuple[Path, dict[str, Any], dict[str, Any]
         media_payload.get("rows", []),
         item_payload.get("rows", []),
     )
+
+
+def homepage_items_scope_from_bundle(manifest: dict[str, Any], item_rows: list[dict[str, Any]]) -> tuple[str, str | None]:
+    """Return explicit or backward-compatible homepage item import scope."""
+
+    scope = manifest.get("homepageItemsScope")
+    if scope in {HOMEPAGE_ITEMS_SCOPE_EXCLUDED, HOMEPAGE_ITEMS_SCOPE_REPLACE}:
+        return scope, None
+    if item_rows:
+        return HOMEPAGE_ITEMS_SCOPE_REPLACE, "Legacy bundle inferred homepageItemsScope=replace_with_bundle_rows"
+    return HOMEPAGE_ITEMS_SCOPE_EXCLUDED, "Legacy bundle inferred homepageItemsScope=excluded"
 
 
 def resolve_bundle_path(bundle_path: Path) -> Path:
@@ -781,7 +812,12 @@ def import_bundle(args: argparse.Namespace) -> None:
         tables = reflect_tables(engine)
         db_heads = get_db_alembic_current(connection)
         warnings = check_import_compatibility(manifest, db_heads, args.force)
-        bundled_item_ids = {row["id"] for row in item_rows}
+        homepage_items_scope, scope_warning = homepage_items_scope_from_bundle(manifest, item_rows)
+        if scope_warning:
+            warnings.append(scope_warning)
+            log(f"WARNING {scope_warning}")
+        effective_item_rows = item_rows if homepage_items_scope == HOMEPAGE_ITEMS_SCOPE_REPLACE else []
+        bundled_item_ids = {row["id"] for row in effective_item_rows}
         existing_visible_items = select_visible_homepage_items(connection, tables["items"])
         stale_visible_items = select_stale_visible_homepage_items(
             connection,
@@ -796,8 +832,9 @@ def import_bundle(args: argparse.Namespace) -> None:
             log(f"currentAlembicHead={db_heads}")
             log(f"importCanvasKey={canvas_row.get('canvas_key')}")
             log(f"importCanvasRevision={canvas_row.get('revision')}")
+            log(f"homepageItemsScope={homepage_items_scope}")
             log(f"existingVisibleHomepageItems={len(existing_visible_items)}")
-            log(f"bundledHomepageItems={len(item_rows)}")
+            log(f"bundledHomepageItems={len(effective_item_rows)}")
             log(f"staleVisibleHomepageItemsToHide={len(stale_visible_items)}")
             log(f"staleVisibleHomepageItemIds={[row['id'] for row in stale_visible_items]}")
             log(f"mediaRowsToImport={len(media_rows)}")
@@ -813,7 +850,7 @@ def import_bundle(args: argparse.Namespace) -> None:
             backup_dir,
             canvas_row,
             media_rows,
-            item_rows,
+            effective_item_rows,
             stale_visible_items,
         )
         files_imported = import_files(bundle_dir, manifest)
@@ -821,7 +858,7 @@ def import_bundle(args: argparse.Namespace) -> None:
 
         for row in media_rows:
             upsert_row(connection, tables["media"], row, ["id"])
-        for row in item_rows:
+        for row in effective_item_rows:
             upsert_row(connection, tables["items"], row, ["id"])
         upsert_row(connection, tables["canvas"], canvas_row, ["canvas_key"])
 
@@ -835,8 +872,9 @@ def import_bundle(args: argparse.Namespace) -> None:
     log(f"currentAlembicHead={db_heads}")
     log(f"importedCanvasKey={canvas_row.get('canvas_key')}")
     log(f"importedCanvasRevision={canvas_row.get('revision')}")
+    log(f"homepageItemsScope={homepage_items_scope}")
     log(f"existingVisibleHomepageItemsBeforeImport={len(existing_visible_items)}")
-    log(f"bundledHomepageItems={len(item_rows)}")
+    log(f"bundledHomepageItems={len(effective_item_rows)}")
     log(f"hiddenStaleVisibleHomepageItems={hidden_stale_items}")
     log(f"mediaRowsImported={len(media_rows)}")
     log(f"filesImported={files_imported}")
@@ -853,6 +891,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser = subparsers.add_parser("export", help="Export a homepage publish bundle")
     export_parser.add_argument("--create-zip", action="store_true", help="Create a ZIP beside the bundle folder")
+    export_parser.add_argument(
+        "--include-homepage-items",
+        action="store_true",
+        help="Include visible safe homepage_items; default export is Journey canvas scope only",
+    )
     export_parser.set_defaults(func=export_bundle)
 
     import_parser = subparsers.add_parser("import", help="Import or dry-run a homepage publish bundle")

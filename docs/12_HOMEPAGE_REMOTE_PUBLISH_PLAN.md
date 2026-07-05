@@ -36,9 +36,16 @@ and remote `data/uploads/homepage/` files must therefore match each other.
 The publish bundle exists to move only the public Homepage/Journey display data:
 
 * The default row from `homepage_canvas_states`.
-* `homepage_media` rows referenced by the canvas or visible homepage items.
-* Visible `homepage_items` rows used by the public homepage display.
+* `homepage_media` rows referenced by the saved Journey canvas.
 * Referenced files under `data/uploads/homepage/`.
+
+By default, homepage publish bundles are Journey-only. They do not include
+`homepage_items` rows or media referenced only by homepage items.
+
+Visible safe `homepage_items` rows can be included only with the explicit
+`-IncludeHomepageItems` CLI option. That option is not recommended for the
+phase-1 display-only rollout unless a real production homepage item workflow is
+intentionally needed.
 
 The bundle must not include:
 
@@ -90,6 +97,7 @@ homepage-publish-bundle/
 * `sourceCanvasKey`
 * `sourceCanvasRevision`
 * `appName`
+* `homepageItemsScope`
 * `mediaIds`
 * `fileCount`
 * `fileHashes`
@@ -116,13 +124,32 @@ Optional ZIP creation:
 .\scripts\export-homepage-public-bundle.ps1 -CreateZip
 ```
 
+The default export is Journey-only and sets:
+
+```text
+homepageItemsScope = excluded
+```
+
+Optional homepage item export:
+
+```powershell
+.\scripts\export-homepage-public-bundle.ps1 -CreateZip -IncludeHomepageItems
+```
+
+This sets:
+
+```text
+homepageItemsScope = replace_with_bundle_rows
+```
+
 The export script:
 
 * Reads `DATABASE_URL` from the process environment or `backend/.env`.
 * Does not print the database password.
 * Reads only the default published canvas.
 * Recursively finds `mediaId` references in the canvas JSON.
-* Includes visible homepage items and their media references.
+* Excludes `homepage_items` by default.
+* Includes visible safe homepage items only when `-IncludeHomepageItems` is provided.
 * Copies only referenced files under `data/uploads/homepage/`.
 * Rejects absolute paths.
 * Rejects paths containing `..`.
@@ -143,6 +170,9 @@ Workflow:
 4. Click `保存画布`.
 5. Click `导出发布包`.
 6. The browser downloads a `homepage-publish-bundle-YYYYMMDD-HHMMSS.zip` file.
+
+The Journey editor UI export is always Journey-only. It does not export
+`homepage_items` rows or media that is referenced only by homepage item rows.
 
 The UI export calls:
 
@@ -202,11 +232,18 @@ The import script:
 
 Import backups are written under `.local_backups/`, which is ignored by Git.
 
-The import semantics replace the public homepage display scope. The remote
-visible `homepage_items` set is made to match the bundle by setting stale
-visible rows to `is_visible = false` before bundled rows are upserted. If a
-bundle intentionally contains no `homepage_items`, real import hides all
-currently visible remote homepage items.
+The import behavior depends on `homepageItemsScope`:
+
+* `excluded`: Journey-only. No `homepage_items` rows are upserted. Existing
+  visible remote homepage items are set to `is_visible = false` so the remote
+  public display does not keep old smoke-test or test-card data.
+* `replace_with_bundle_rows`: visible remote `homepage_items` are made to match
+  the bundle by hiding stale visible rows and then upserting bundled rows.
+
+Old bundles without `homepageItemsScope` remain compatible. If
+`homepage_items.json` contains rows, import treats the bundle as
+`replace_with_bundle_rows`. If it does not contain rows, import treats it as
+`excluded` and reports a warning.
 
 Old `homepage_media` rows may remain in the database for history or rollback.
 They should not remain publicly reachable unless the current published Journey

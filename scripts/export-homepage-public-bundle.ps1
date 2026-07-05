@@ -1,5 +1,6 @@
 param(
-  [switch]$CreateZip
+  [switch]$CreateZip,
+  [switch]$IncludeHomepageItems
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +36,9 @@ Write-PublishInfo "Output will be written under .local_exports, which must remai
 $arguments = @("scripts/homepage_publish_bundle.py", "export")
 if ($CreateZip) {
   $arguments += "--create-zip"
+}
+if ($IncludeHomepageItems) {
+  $arguments += "--include-homepage-items"
 }
 
 & $python @arguments

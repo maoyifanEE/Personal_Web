@@ -242,7 +242,11 @@ def export_homepage_publish_bundle(
 
     helper = load_publish_bundle_helper()
     try:
-        result = helper.export_homepage_bundle(create_zip=True, require_repo_root=False)
+        result = helper.export_homepage_bundle(
+            create_zip=True,
+            require_repo_root=False,
+            include_homepage_items=False,
+        )
     except Exception as exc:
         logger.exception("Homepage publish bundle export failed for user_id=%s", actor.id)
         write_jsonl_event(
@@ -260,6 +264,7 @@ def export_homepage_publish_bundle(
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
         "X-Homepage-Bundle-Filename": filename,
+        "X-Homepage-Bundle-Items-Scope": str(result.get("homepageItemsScope", "excluded")),
         "X-Homepage-Bundle-Media-Count": str(result.get("mediaCount", 0)),
         "X-Homepage-Bundle-File-Count": str(result.get("fileCount", 0)),
         "X-Homepage-Bundle-Warning-Count": str(result.get("warningCount", 0)),
@@ -270,6 +275,7 @@ def export_homepage_publish_bundle(
         {
             "userId": actor.id,
             "filename": filename,
+            "homepageItemsScope": result.get("homepageItemsScope", "excluded"),
             "mediaCount": result.get("mediaCount", 0),
             "fileCount": result.get("fileCount", 0),
             "warningCount": result.get("warningCount", 0),

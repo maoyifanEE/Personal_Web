@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-07-05 - Default homepage publish export to Journey canvas scope
+
+### Goal
+
+* Continue on `Feature/homepage-remote-publish-v1`.
+* Prevent old smoke-test homepage items and their metadata from entering the
+  default remote publish bundle.
+
+### Actual changes
+
+* Changed the default CLI and Journey editor export scope to Journey-only.
+* Added `-IncludeHomepageItems` as an explicit CLI option for exporting visible
+  safe homepage items when intentionally needed.
+* Added `homepageItemsScope` to the manifest.
+* Import now treats `homepageItemsScope=excluded` as Journey-only and hides all
+  currently visible remote homepage items during real import.
+* Existing `replace_with_bundle_rows` behavior remains available for bundles
+  that intentionally include homepage items.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend migration, Auth/RBAC policy, public media authorization, Journey
+  sticker editing, save behavior, or server config was changed.
+* No users, sessions, roles, permissions, runtime uploads, exported bundles,
+  database files, logs, debug bundles, backups, or secrets were committed.
+
 ## 2026-07-05 - Add Journey editor publish bundle export UI
 
 ### Goal

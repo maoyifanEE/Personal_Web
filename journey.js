@@ -646,6 +646,7 @@ const exportPublishBundle = async () => {
       response.headers.get("X-Homepage-Bundle-Filename") ||
       contentDispositionFilename(response.headers.get("Content-Disposition")) ||
       "homepage-publish-bundle.zip";
+    const homepageItemsScope = response.headers.get("X-Homepage-Bundle-Items-Scope") || "excluded";
     const mediaCount = response.headers.get("X-Homepage-Bundle-Media-Count") || "0";
     const fileCount = response.headers.get("X-Homepage-Bundle-File-Count") || "0";
     const warningCount = response.headers.get("X-Homepage-Bundle-Warning-Count") || "0";
@@ -656,6 +657,7 @@ const exportPublishBundle = async () => {
     showMessage("导出成功：已下载发布包。");
     logJourney("Exported homepage publish bundle.", {
       filename,
+      homepageItemsScope,
       mediaCount,
       fileCount,
       warningCount
