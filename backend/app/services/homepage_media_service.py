@@ -16,9 +16,15 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.diagnostics import PROJECT_ROOT, write_jsonl_event
 from app.models.auth import AppUser
+from app.models.homepage_canvas import HomepageCanvasState
 from app.models.homepage_item import HomepageItem
 from app.models.homepage_media import HomepageMedia
-from app.schemas.homepage import HomepageItemCreateRequest, HomepageItemUpdateRequest, HomepageMediaUpdateRequest
+from app.schemas.homepage import (
+    CANVAS_KEY_DEFAULT,
+    HomepageItemCreateRequest,
+    HomepageItemUpdateRequest,
+    HomepageMediaUpdateRequest,
+)
 from app.services.audit_service import write_audit_log
 
 logger = logging.getLogger(__name__)
@@ -314,7 +320,31 @@ def update_homepage_media(
     return media
 
 
-def is_media_published(db: Session, media_id: int) -> bool:
+def _media_id_matches(value: Any, media_id: int) -> bool:
+    """Return True when a JSON value explicitly references the media id."""
+
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return value == media_id
+    if isinstance(value, str):
+        return value.isdigit() and int(value) == media_id
+    return False
+
+
+def _canvas_references_media_id(value: Any, media_id: int) -> bool:
+    """Recursively inspect published canvas JSON for explicit mediaId references."""
+
+    if isinstance(value, list):
+        return any(_canvas_references_media_id(item, media_id) for item in value)
+    if isinstance(value, dict):
+        if _media_id_matches(value.get("mediaId"), media_id):
+            return True
+        return any(_canvas_references_media_id(item, media_id) for item in value.values())
+    return False
+
+
+def is_media_referenced_by_visible_homepage_item(db: Session, media_id: int) -> bool:
     """Return whether at least one visible homepage item references media."""
 
     return bool(
@@ -327,6 +357,42 @@ def is_media_published(db: Session, media_id: int) -> bool:
             .limit(1)
         ).scalar_one_or_none()
     )
+
+
+def is_media_referenced_by_published_canvas(db: Session, media_id: int) -> bool:
+    """Return whether the published default Journey canvas explicitly references media."""
+
+    canvas = db.execute(
+        select(HomepageCanvasState.canvas_data)
+        .where(HomepageCanvasState.canvas_key == CANVAS_KEY_DEFAULT)
+        .limit(1)
+    ).scalar_one_or_none()
+    if not isinstance(canvas, dict):
+        return False
+    return _canvas_references_media_id(canvas, media_id)
+
+
+def is_media_publicly_referenced(db: Session, media_id: int) -> bool:
+    """Return whether media is referenced by an approved public surface."""
+
+    referenced_by_item = is_media_referenced_by_visible_homepage_item(db, media_id)
+    referenced_by_canvas = is_media_referenced_by_published_canvas(db, media_id)
+    write_jsonl_event(
+        "backend",
+        "homepage.media.public_reference_checked",
+        {
+            "mediaId": media_id,
+            "referencedByVisibleHomepageItem": referenced_by_item,
+            "referencedByPublishedCanvas": referenced_by_canvas,
+        },
+    )
+    return referenced_by_item or referenced_by_canvas
+
+
+def is_media_published(db: Session, media_id: int) -> bool:
+    """Return whether media is referenced by an approved public surface."""
+
+    return is_media_publicly_referenced(db, media_id)
 
 
 def get_public_media_file(db: Session, media_id: int, settings: Settings) -> tuple[HomepageMedia, Path]:

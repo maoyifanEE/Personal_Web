@@ -157,7 +157,8 @@ The `homepage_canvas_states` table stores shared Journey canvas JSON for local d
 The `homepage_media` and `homepage_items` tables store the first local-development homepage media
 foundation. Uploaded files are copied to `data/uploads/homepage/`; the database stores metadata and
 project-relative paths only. Uploading a file registers it for admin management but does not publish
-it publicly until enabled media is referenced by at least one visible homepage item.
+it publicly until enabled media is referenced by at least one visible homepage item or the published
+Journey canvas.
 
 The migration seeds system role and permission definitions.
 
@@ -383,7 +384,7 @@ They are ignored by Git and must not be committed.
 
 The database stores project-relative paths only. It must not store original local absolute paths.
 Public file serving is constrained to `HOMEPAGE_MEDIA_ROOT` and returns 404 for unpublished,
-hidden-item-only, disabled, missing, or root-escaped media paths.
+hidden-item-only, unreferenced-canvas, disabled, missing, or root-escaped media paths.
 Allowed extensions are validated against file signatures/magic bytes.
 The admin-only preview route is:
 
@@ -399,8 +400,8 @@ http://127.0.0.1:4173/apps/homepage-admin/index.html
 
 It reuses the existing homepage media and item APIs. It does not add a new
 database schema. Uploading media alone does not publish it; a visible homepage
-item must reference an enabled media row before the public file route becomes
-available. Hiding an item from the UI is a soft hide.
+item or the published Journey canvas must reference an enabled media row before
+the public file route becomes available. Hiding an item from the UI is a soft hide.
 
 Save the shared Journey canvas as an authenticated admin:
 
@@ -416,7 +417,9 @@ curl -X PUT http://127.0.0.1:8000/api/homepage/canvas \
 
 Do not commit real canvas data exports.
 
-The save endpoint rejects Data URL images because server-side image upload persistence is not implemented yet.
+The save endpoint rejects Data URL images. Journey stickers should be uploaded through
+`POST /api/homepage/media` and saved as `mediaId` references before publishing. Background
+Data URL drafts remain local-only.
 
 Soft-delete test/demo data:
 

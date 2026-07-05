@@ -1,5 +1,119 @@
 # Project History
 
+## 2026-07-05 - Refine Journey layout and sticker layer controls
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Make the Journey page canvas-first by removing the large top hero block.
+* Add sticker layer controls so uploaded images can behave as bottom-layer background-like stickers.
+* Add `铺满画布` for selected stickers without reintroducing a separate background upload workflow.
+
+### Actual changes
+
+* Moved `Overview`, `Details`, and `Edit journey` into floating canvas controls.
+* Kept the normal editor toolbar compact around draw, eraser, select/edit, upload sticker, save canvas, clear canvas, and exit.
+* Added selected-sticker actions for moving one layer up/down, sending to top/bottom, and covering the canvas.
+* Normalized sticker `zIndex` values into deterministic layer order before render/save.
+* Removed the old Shift-drop local background behavior so dropped images remain ordinary uploaded stickers.
+* Documented that background-like images are ordinary stickers sent to the bottom layer and saved through `保存画布`.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, public media authorization, deployment script, or production server file was changed.
+* No Journey drawing, smoothing, eraser, node, media upload, Data URL blocking, or public read-only rendering behavior was intentionally changed.
+
+## 2026-07-05 - Simplify Journey canvas save workflow
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Replace the development-stage Journey persistence controls with one clear `保存画布` workflow.
+* Preserve the manually accepted sticker upload, select, drag, resize, rotate, delete, draw, and eraser behavior.
+
+### Actual changes
+
+* Removed local draft save, manual database reload, database publish, reset published canvas, and background upload controls from the normal Journey editor toolbar.
+* Replaced the old publish action with a single `保存画布` button that calls the existing `PUT /api/homepage/canvas` flow.
+* Kept immediate sticker media upload through the existing media API.
+* Kept Data URL blocking before database canvas save.
+* Cleared stale local canvas cache after a successful database save.
+* Added same-origin Journey canvas save notifications through `BroadcastChannel` with a `localStorage` timestamp fallback.
+* Updated Journey workflow documentation to describe PostgreSQL as the normal source of truth and localStorage as fallback/cache only.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, media upload authorization, deployment script, or production server file was changed.
+* No Journey sticker transform, drawing, smoothing, eraser, or node algorithm behavior was intentionally changed.
+
+## 2026-07-05 - Fix Journey sticker admin preview sizing
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Fix newly uploaded Journey stickers that appeared as a flat line and could not be moved by the sticker body.
+
+### Actual changes
+
+* Split Journey sticker media URLs into public `/file` and admin-only `/admin-file` helpers.
+* Use the admin preview URL only while the authorized editor is in edit mode.
+* Keep public and preview rendering on the public media URL.
+* Added persistent sticker `aspectRatio`, `naturalWidth`, and `naturalHeight` fields with backward-compatible sanitization.
+* Measured uploaded image dimensions with a temporary object URL and stored only numeric dimensions.
+* Added a CSS aspect-ratio hit box so stickers do not collapse while images load or fail.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, deployment script, or production server file was changed.
+* Public media authorization was not weakened, and uploaded media was not made globally public.
+* No Journey drawing, smoothing, eraser, or node algorithm was intentionally changed.
+
+## 2026-07-05 - Fix Journey select-mode sticker editing
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Make sticker editing explicit and safe in Journey select mode only.
+* Preserve draw and eraser behavior without accidental sticker movement.
+
+### Actual changes
+
+* Made the Journey toolbar label the select tool as `选择/编辑`.
+* Added mode-specific helper text for draw, erase, and select.
+* Fixed sticker selected-state CSS by adding the expected `is-selected` class.
+* Fixed resize handle class names so selected stickers show usable resize handles.
+* Limited sticker pointer events to edit + select mode.
+* Prevented draw and erase modes from starting sticker move, resize, or rotate interactions.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, deployment script, or production server file was changed.
+* No Journey drawing, smoothing, eraser, node, media upload, public rendering, or Data URL publish-blocking behavior was intentionally changed.
+
+## 2026-07-04 - Persist Journey sticker media through homepage uploads
+
+### Goal
+
+* Work on `Feature/homepage-journey-sticker-media-v1`.
+* Let Journey editor stickers use persistent homepage media uploads instead of new Data URL payloads.
+* Keep the existing homepage media schema, Auth/RBAC policy, Journey drawing algorithms, and deployment state unchanged.
+
+### Actual changes
+
+* Added Journey sticker upload through the existing admin-only `POST /api/homepage/media` endpoint.
+* Saved uploaded stickers as `mediaId` references in the Journey canvas JSON.
+* Rendered public Journey stickers from `/api/homepage/media/{id}/file`.
+* Kept background uploads and old Data URL sticker drafts local-only.
+* Extended public media file authorization so enabled media can be served when referenced by a visible homepage item or by the published default Journey canvas.
+* Kept public media serving denied for enabled-but-unreferenced media.
+
+### Safety boundaries
+
+* No database schema migration was added.
+* No backend configuration, deployment script, Auth/RBAC policy, or production server file was changed.
+* No Journey drawing, smoothing, eraser, node, sticker transform, or pointer-mapping algorithm was intentionally changed.
+* No `.env`, upload file, log, backup, database file, or secret was committed.
+
 ## 2026-07-04 - Add local desktop shortcut installer
 
 ### Goal

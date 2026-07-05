@@ -1,14 +1,19 @@
 const STORAGE_KEY = "journeySketchCanvasStateV1";
+const JOURNEY_CANVAS_SYNC_KEY = "personalWebJourneyCanvasUpdatedAt";
+const JOURNEY_CANVAS_SYNC_CHANNEL = "personal-web-journey-canvas-sync";
 const SCHEMA_VERSION = "sketch-canvas-v1";
 const REMOTE_CANVAS_PATH = "/homepage/canvas";
 const REMOTE_CANVAS_RESET_PATH = "/homepage/canvas/reset";
+const HOMEPAGE_MEDIA_PATH = "/homepage/media";
 const CANVAS_WIDTH = 1000;
 const DEFAULT_CANVAS_HEIGHT = 2400;
 const MIN_CANVAS_HEIGHT = 800;
 const MAX_CANVAS_HEIGHT = 6000;
 const MIN_STROKE_POINTS = 2;
 const STICKER_MIN_WIDTH_PERCENT = 4;
-const STICKER_MAX_WIDTH_PERCENT = 90;
+const STICKER_MAX_WIDTH_PERCENT = 600;
+const STICKER_MIN_ASPECT_RATIO = 0.05;
+const STICKER_MAX_ASPECT_RATIO = 20;
 
 const root = document.querySelector(".timeline-home");
 const canvasHost = document.querySelector("#journey-areas");
@@ -32,6 +37,44 @@ const normalizeNumber = (value, fallback) => {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
 };
+
+const apiBaseUrl = () => window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
+
+const normalizeOptionalMediaId = (value) => {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+};
+
+const homepageMediaPublicFileUrl = (mediaId) => {
+  const normalizedId = normalizeOptionalMediaId(mediaId);
+  return normalizedId ? `${apiBaseUrl()}${HOMEPAGE_MEDIA_PATH}/${normalizedId}/file` : "";
+};
+
+const homepageMediaAdminFileUrl = (mediaId) => {
+  const normalizedId = normalizeOptionalMediaId(mediaId);
+  return normalizedId ? `${apiBaseUrl()}${HOMEPAGE_MEDIA_PATH}/${normalizedId}/admin-file` : "";
+};
+
+const stickerImageSrc = (sticker, options = {}) => {
+  const useAdminPreview = Boolean(options.useAdminPreview);
+  const mediaUrl = useAdminPreview
+    ? homepageMediaAdminFileUrl(sticker?.mediaId)
+    : homepageMediaPublicFileUrl(sticker?.mediaId);
+  return mediaUrl || (typeof sticker?.imageSrc === "string" ? sticker.imageSrc : "");
+};
+
+function clampAspectRatio(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    return 1;
+  }
+  return clamp(number, STICKER_MIN_ASPECT_RATIO, STICKER_MAX_ASPECT_RATIO);
+}
+
+function normalizeOptionalDimension(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const normalizePoint = (point) => ({
@@ -81,6 +124,8 @@ let rawDrawPoints = [];
 let startSnap = null;
 let currentPointer = null;
 let lastGeometryTestResult = null;
+let journeyCanvasSyncChannel = null;
+const JOURNEY_INSTANCE_ID = makeId("journey-tab");
 let journeyAuthState = {
   authenticated: false,
   roles: [],
@@ -94,7 +139,8 @@ let remoteCanvasMeta = {
   revision: 0,
   updatedAt: null,
   updatedByUserId: null,
-  status: "正在读取数据库画布...",
+  status: "正在读取已保存画布...",
+  saving: false,
   warning: false
 };
 
@@ -188,17 +234,61 @@ const sanitizeNode = (node = {}) => ({
   updatedAt: typeof node.updatedAt === "string" ? node.updatedAt : nowIso()
 });
 
-const sanitizeSticker = (sticker = {}) => ({
-  id: typeof sticker.id === "string" && sticker.id ? sticker.id : makeId("sticker"),
-  imageSrc: typeof sticker.imageSrc === "string" ? sticker.imageSrc : "",
-  xPercent: clamp(normalizeNumber(sticker.xPercent, 50), -20, 120),
-  yPercent: clamp(normalizeNumber(sticker.yPercent, 30), -20, 120),
-  widthPercent: clamp(normalizeNumber(sticker.widthPercent, 18), STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT),
-  rotation: clamp(normalizeNumber(sticker.rotation, 0), -720, 720),
-  zIndex: Math.round(clamp(normalizeNumber(sticker.zIndex, 30), 1, 200)),
-  createdAt: typeof sticker.createdAt === "string" ? sticker.createdAt : nowIso(),
-  updatedAt: typeof sticker.updatedAt === "string" ? sticker.updatedAt : nowIso()
-});
+const sanitizeSticker = (sticker = {}) => {
+  const naturalWidth = normalizeOptionalDimension(sticker.naturalWidth);
+  const naturalHeight = normalizeOptionalDimension(sticker.naturalHeight);
+  const derivedAspectRatio = naturalWidth && naturalHeight
+    ? naturalWidth / naturalHeight
+    : sticker.aspectRatio;
+  return {
+    id: typeof sticker.id === "string" && sticker.id ? sticker.id : makeId("sticker"),
+    imageSrc: typeof sticker.imageSrc === "string" ? sticker.imageSrc : "",
+    mediaId: normalizeOptionalMediaId(sticker.mediaId),
+    mediaType: sticker.mediaType === "image" ? "image" : null,
+    mediaTitle: typeof sticker.mediaTitle === "string" ? sticker.mediaTitle : "",
+    mediaFilename: typeof sticker.mediaFilename === "string" ? sticker.mediaFilename : "",
+    source: sticker.source === "homepage-media" ? "homepage-media" : "local-draft",
+    uploadStatus: sticker.uploadStatus === "uploaded" ? "uploaded" : "",
+    xPercent: clamp(normalizeNumber(sticker.xPercent, 50), -20, 120),
+    yPercent: clamp(normalizeNumber(sticker.yPercent, 30), -20, 120),
+    widthPercent: clamp(normalizeNumber(sticker.widthPercent, 18), STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT),
+    rotation: clamp(normalizeNumber(sticker.rotation, 0), -720, 720),
+    zIndex: Math.round(clamp(normalizeNumber(sticker.zIndex, 30), 1, 200)),
+    aspectRatio: clampAspectRatio(derivedAspectRatio),
+    naturalWidth,
+    naturalHeight,
+    createdAt: typeof sticker.createdAt === "string" ? sticker.createdAt : nowIso(),
+    updatedAt: typeof sticker.updatedAt === "string" ? sticker.updatedAt : nowIso()
+  };
+};
+
+const stickerOrderFallback = (sticker, index) => {
+  const created = Date.parse(sticker.createdAt || "");
+  return Number.isFinite(created) ? created : index;
+};
+
+function getOrderedStickers(stickers = state.canvas.stickers) {
+  return stickers
+    .map((sticker, index) => ({ sticker, index }))
+    .sort((a, b) => {
+      const zDiff = normalizeNumber(a.sticker.zIndex, a.index) - normalizeNumber(b.sticker.zIndex, b.index);
+      if (zDiff !== 0) {
+        return zDiff;
+      }
+      const createdDiff = stickerOrderFallback(a.sticker, a.index) - stickerOrderFallback(b.sticker, b.index);
+      return createdDiff || a.index - b.index;
+    })
+    .map((entry) => entry.sticker);
+}
+
+function normalizeStickerZOrder(stickers = state.canvas.stickers) {
+  const ordered = getOrderedStickers(stickers);
+  ordered.forEach((sticker, index) => {
+    sticker.zIndex = index;
+  });
+  state.canvas.stickers = ordered;
+  return ordered;
+}
 
 const sanitizeState = (raw) => {
   const fallback = defaultSketchState();
@@ -230,7 +320,7 @@ const sanitizeState = (raw) => {
     ? merged.canvas.strokes.map(sanitizeStroke).filter(Boolean)
     : [];
   merged.canvas.stickers = Array.isArray(merged.canvas.stickers)
-    ? merged.canvas.stickers.map(sanitizeSticker).filter((sticker) => sticker.imageSrc)
+    ? merged.canvas.stickers.map(sanitizeSticker).filter((sticker) => sticker.mediaId || sticker.imageSrc)
     : [];
   merged.canvas.nextNodeNumber = Math.max(1, Math.round(normalizeNumber(merged.canvas.nextNodeNumber, 1)));
   merged.canvas.nodes = Array.isArray(merged.canvas.nodes)
@@ -254,6 +344,7 @@ const sanitizeState = (raw) => {
     : null;
 
   state = merged;
+  normalizeStickerZOrder();
   reattachAllNodes();
   merged.dirty = false;
   return merged;
@@ -282,10 +373,13 @@ const parseJsonResponse = async (response) => {
   }
 };
 
-const buildPersistedCanvasPayload = () => ({
-  version: SCHEMA_VERSION,
-  canvas: clone(state.canvas)
-});
+const buildPersistedCanvasPayload = () => {
+  normalizeStickerZOrder();
+  return {
+    version: SCHEMA_VERSION,
+    canvas: clone(state.canvas)
+  };
+};
 
 const containsDataUrl = (value) => {
   if (typeof value === "string") {
@@ -300,27 +394,32 @@ const containsDataUrl = (value) => {
   return false;
 };
 
+const canvasContainsDataUrl = (canvasPayload) => containsDataUrl(canvasPayload);
+
 const validateCanvasForRemoteSave = (payload) => {
-  if (containsDataUrl(payload)) {
+  if (canvasContainsDataUrl(payload)) {
+    logJourney("Blocked remote canvas save because local Data URL media is still present.");
     return {
       valid: false,
-      message: "画布包含本地上传图片，数据库发布暂不支持 Data URL。请先保存本地草稿，之后再处理图片上传方案。"
+      message: "当前画布包含本地图片草稿，不能保存到数据库。请使用上传贴纸。"
     };
   }
   return { valid: true, message: "" };
 };
 
-const applyRemoteCanvasState = (remote) => {
+const applyRemoteCanvasState = (remote, options = {}) => {
+  const preserveMode = Boolean(options.preserveMode);
+  const nextMode = preserveMode ? state.mode : "preview";
   if (!remote?.exists || !remote.canvas_data || typeof remote.canvas_data !== "object") {
     remoteCanvasMeta = {
       ...remoteCanvasMeta,
       loaded: true,
       exists: false,
       revision: 0,
-      status: "数据库暂无已发布画布，当前显示本地草稿或空画布。",
+      status: "数据库暂无已保存画布，当前显示空画布或本地缓存。",
       warning: false
     };
-    logJourney("Remote canvas is empty; local draft remains active.");
+    logJourney("Remote canvas is empty; local cache remains fallback only.");
     return false;
   }
 
@@ -334,7 +433,7 @@ const applyRemoteCanvasState = (remote) => {
   state = sanitizeState({
     version: remote.schema_version || remotePayload.version || SCHEMA_VERSION,
     view: state.view,
-    mode: "preview",
+    mode: nextMode,
     canvas: remotePayload.canvas,
     editor: state.editor
   });
@@ -344,7 +443,7 @@ const applyRemoteCanvasState = (remote) => {
     revision: Number(remote.revision) || 0,
     updatedAt: remote.updated_at || null,
     updatedByUserId: remote.updated_by_user_id || null,
-    status: `数据库已加载，当前发布版本 revision ${Number(remote.revision) || 0}`,
+    status: `已加载保存画布，revision ${Number(remote.revision) || 0}`,
     warning: false
   };
   logJourney("Applied remote canvas state.", {
@@ -356,10 +455,9 @@ const applyRemoteCanvasState = (remote) => {
   return true;
 };
 
-const fetchRemoteCanvasState = async () => {
-  const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
+const fetchRemoteCanvasState = async (options = {}) => {
   try {
-    const response = await fetch(`${apiBaseUrl}${REMOTE_CANVAS_PATH}`, {
+    const response = await fetch(`${apiBaseUrl()}${REMOTE_CANVAS_PATH}`, {
       method: "GET",
       credentials: "include",
       headers: {
@@ -370,13 +468,13 @@ const fetchRemoteCanvasState = async () => {
     if (!response.ok) {
       throw new Error(body.detail || `Remote canvas request failed: ${response.status}`);
     }
-    applyRemoteCanvasState(body);
+    applyRemoteCanvasState(body, options);
     return body;
   } catch (error) {
     remoteCanvasMeta = {
       ...remoteCanvasMeta,
       loaded: false,
-      status: "后端不可用，当前显示本地草稿预览。",
+      status: "后端不可用，当前显示本地缓存预览。",
       warning: true
     };
     logJourney("Remote canvas unavailable; using localStorage fallback.", { error: error.message });
@@ -388,23 +486,22 @@ const reloadRemoteCanvasState = async () => {
   updateRemoteStatus("正在重新读取数据库画布...", false);
   const remote = await fetchRemoteCanvasState();
   if (remote) {
-    saveToLocalStorage({ skipGuard: true, silent: true });
-    showMessage("已重新加载数据库发布版本。");
+    showMessage("已重新加载保存画布。");
   } else {
-    showMessage("数据库画布读取失败，当前仍显示本地草稿。", true);
+    showMessage("数据库画布读取失败，当前仍显示本地缓存。", true);
   }
   render();
 };
 
 const canvasErrorMessage = (response, body) => {
   if (response.status === 401) {
-    return "请先登录后再发布首页画布。";
+    return "请先登录后再保存画布。";
   }
   if (response.status === 403) {
-    return "当前账号没有 homepage:edit 权限，不能发布首页画布。";
+    return "当前账号没有 homepage:edit 权限，不能保存画布。";
   }
   if (response.status === 409) {
-    return "数据库版本已变化，请先重新加载后再发布。";
+    return "数据库版本已变化，请刷新页面后再保存。";
   }
   if (response.status === 400) {
     return body.detail || "画布数据未通过后端校验。";
@@ -414,7 +511,11 @@ const canvasErrorMessage = (response, body) => {
 
 const saveRemoteCanvasState = async () => {
   if (!guardJourneyMutation("saveRemoteCanvasState")) {
-    updateRemoteStatus("当前路由或账号没有发布权限。请从 Hub 的首页画布编辑入口进入。", true);
+    updateRemoteStatus("当前路由或账号没有保存权限。请从 Hub 的首页画布编辑入口进入。", true);
+    return;
+  }
+  if (remoteCanvasMeta.saving) {
+    logJourney("Ignored duplicate canvas save while request is already running.");
     return;
   }
   const payload = buildPersistedCanvasPayload();
@@ -425,11 +526,13 @@ const saveRemoteCanvasState = async () => {
     return;
   }
   if (!window.PersonalWebAuth?.authFetch) {
-    updateRemoteStatus("认证服务不可用，无法发布到数据库。", true);
+    updateRemoteStatus("认证服务不可用，无法保存画布。", true);
     return;
   }
 
-  updateRemoteStatus("正在发布到数据库...", false);
+  remoteCanvasMeta.saving = true;
+  updateRemoteStatus("保存中...", false);
+  renderEditorPanel();
   try {
     const response = await window.PersonalWebAuth.authFetch(REMOTE_CANVAS_PATH, {
       method: "PUT",
@@ -451,26 +554,34 @@ const saveRemoteCanvasState = async () => {
       revision: Number(body.revision) || 0,
       updatedAt: body.updated_at || null,
       updatedByUserId: body.updated_by_user_id || null,
-      status: `数据库已发布，revision ${Number(body.revision) || 0}`,
+      status: `画布已保存，revision ${Number(body.revision) || 0}`,
+      saving: false,
       warning: false
     };
-    saveToLocalStorage({ skipGuard: true, silent: true });
+    clearLocalCanvasCache();
+    state.dirty = false;
     updateRemoteStatus(remoteCanvasMeta.status, false);
-    showMessage("已发布到数据库。公开预览会读取这个版本。");
+    updateStatus("画布已保存，公开预览将读取最新版本。");
+    notifyJourneyCanvasSaved(remoteCanvasMeta.revision);
+    showMessage("画布已保存，公开预览将读取最新版本。");
     logJourney("Saved remote canvas state.", { revision: remoteCanvasMeta.revision });
   } catch (error) {
-    updateRemoteStatus(`发布失败：${error.message}`, true);
-    showMessage("发布到数据库失败，本地草稿仍已保留。", true);
+    remoteCanvasMeta.saving = false;
+    updateRemoteStatus(`保存失败：${error.message}`, true);
+    showMessage("保存失败，请检查登录状态或稍后重试。", true);
     logJourney("Remote canvas save failed.", { error: error.message });
+  } finally {
+    remoteCanvasMeta.saving = false;
+    renderEditorPanel();
   }
 };
 
 const resetRemoteCanvasState = async () => {
   if (!guardJourneyMutation("resetRemoteCanvasState")) {
-    updateRemoteStatus("当前路由或账号没有重置发布画布的权限。", true);
+    updateRemoteStatus("当前路由或账号没有重置保存画布的权限。", true);
     return;
   }
-  if (!window.confirm("确认重置数据库中的已发布首页画布吗？本地草稿不会被删除。")) {
+  if (!window.confirm("确认重置数据库中的已保存首页画布吗？本地缓存不会被删除。")) {
     logJourney("Remote canvas reset cancelled.");
     return;
   }
@@ -490,11 +601,11 @@ const resetRemoteCanvasState = async () => {
       revision: 0,
       updatedAt: null,
       updatedByUserId: null,
-      status: "数据库发布画布已重置，当前保留本地草稿。",
+      status: "数据库保存画布已重置。",
       warning: false
     };
     updateRemoteStatus(remoteCanvasMeta.status, false);
-    showMessage("数据库发布画布已重置，本地草稿未删除。");
+    showMessage("数据库保存画布已重置。");
     logJourney("Reset remote canvas state.");
   } catch (error) {
     updateRemoteStatus(`重置失败：${error.message}`, true);
@@ -508,7 +619,7 @@ const markDirty = (reason) => {
   }
   state.dirty = true;
   logJourney("State changed.", { reason });
-  updateStatus(reason === "saved" ? "本地草稿已保存" : "本地草稿未保存");
+  updateStatus(reason === "saved" ? "画布已保存，公开预览将读取最新版本。" : "有未保存的画布修改。");
 };
 
 const saveToLocalStorage = ({ skipGuard = false, silent = false } = {}) => {
@@ -517,17 +628,78 @@ const saveToLocalStorage = ({ skipGuard = false, silent = false } = {}) => {
   }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state, null, 2));
   state.dirty = false;
-  updateStatus("本地草稿已保存");
-  logJourney("Saved sketch canvas state.", {
+  updateStatus("画布缓存已更新。");
+  logJourney("Updated local Journey canvas cache.", {
     storageKey: STORAGE_KEY,
     strokes: state.canvas.strokes.length,
     nodes: state.canvas.nodes.length,
     stickers: state.canvas.stickers.length
   });
   if (!silent) {
-    showMessage("本地草稿已保存。公开预览仍以数据库发布版本为准。");
+    showMessage("本地缓存已更新；公开预览仍以数据库保存版本为准。");
   }
 };
+
+function clearLocalCanvasCache() {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+    logJourney("Cleared local Journey canvas cache after database save.", { storageKey: STORAGE_KEY });
+  } catch (error) {
+    logJourney("Failed to clear local Journey canvas cache.", { error: error.message });
+  }
+}
+
+function notifyJourneyCanvasSaved(revision) {
+  const payload = {
+    type: "journey-canvas-saved",
+    revision,
+    timestamp: Date.now(),
+    sourceId: JOURNEY_INSTANCE_ID
+  };
+  if (journeyCanvasSyncChannel) {
+    journeyCanvasSyncChannel.postMessage(payload);
+  }
+  try {
+    window.localStorage.setItem(JOURNEY_CANVAS_SYNC_KEY, JSON.stringify(payload));
+  } catch (error) {
+    logJourney("Failed to write Journey canvas sync marker.", { error: error.message });
+  }
+  logJourney("Notified same-origin Journey views about saved canvas.", payload);
+}
+
+async function handleJourneyCanvasSavedNotification(payload = {}) {
+  if (payload.sourceId === JOURNEY_INSTANCE_ID || payload.type !== "journey-canvas-saved") {
+    return;
+  }
+  if (state.mode === "edit" && state.dirty) {
+    updateRemoteStatus("其他页面已保存新画布；当前页面有未保存修改，请保存或刷新后再继续。", true);
+    logJourney("Skipped canvas auto-refresh because this editor has unsaved changes.", payload);
+    return;
+  }
+  logJourney("Refreshing Journey canvas after same-origin save notification.", payload);
+  await fetchRemoteCanvasState({ preserveMode: state.mode === "edit" });
+  render();
+}
+
+function installJourneyCanvasSync() {
+  if ("BroadcastChannel" in window) {
+    journeyCanvasSyncChannel = new BroadcastChannel(JOURNEY_CANVAS_SYNC_CHANNEL);
+    journeyCanvasSyncChannel.addEventListener("message", (event) => {
+      handleJourneyCanvasSavedNotification(event.data);
+    });
+  }
+  window.addEventListener("storage", (event) => {
+    if (event.key !== JOURNEY_CANVAS_SYNC_KEY || !event.newValue) {
+      return;
+    }
+    try {
+      handleJourneyCanvasSavedNotification(JSON.parse(event.newValue));
+    } catch (error) {
+      logJourney("Ignored invalid Journey canvas sync marker.", { error: error.message });
+    }
+  });
+}
+
 const clearCanvasState = () => {
   if (!guardJourneyMutation("clearCanvasState")) {
     return;
@@ -1084,6 +1256,9 @@ function render() {
   root.dataset.editorMode = state.mode;
   root.dataset.activeTool = state.editor.activeTool;
   root.dataset.canEdit = String(canEditJourney());
+  document.querySelectorAll("[data-view-button]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.viewButton === state.view));
+  });
   const editorToggle = document.querySelector("[data-editor-toggle]");
   if (editorToggle) {
     editorToggle.hidden = !canEditJourney();
@@ -1225,6 +1400,7 @@ function renderNodeLayer() {
     nodeElement.className = "journey-sketch-node";
     nodeElement.dataset.nodeId = node.id;
     nodeElement.dataset.selected = String(state.editor.selectedNodeId === node.id);
+    nodeElement.classList.toggle("is-selected", state.editor.selectedNodeId === node.id);
     nodeElement.style.left = `${(node.x / CANVAS_WIDTH) * 100}%`;
     nodeElement.style.top = `${(node.y / state.canvas.height) * 100}%`;
     nodeElement.innerHTML = `<span>${escapeHtml(node.label || node.id)}</span>`;
@@ -1241,29 +1417,29 @@ function renderNodeLayer() {
 function renderStickerLayer() {
   const layer = document.createElement("div");
   layer.className = "journey-sketch-stickers";
-  state.canvas.stickers
-    .slice()
-    .sort((a, b) => a.zIndex - b.zIndex)
+  getOrderedStickers()
     .forEach((sticker) => {
       const wrap = document.createElement("div");
       wrap.className = "journey-sketch-sticker";
       wrap.dataset.stickerId = sticker.id;
       wrap.dataset.selected = String(state.editor.selectedStickerId === sticker.id);
+      wrap.classList.toggle("is-selected", state.editor.selectedStickerId === sticker.id);
       wrap.style.left = `${sticker.xPercent}%`;
       wrap.style.top = `${sticker.yPercent}%`;
       wrap.style.width = `${sticker.widthPercent}%`;
+      wrap.style.setProperty("--sticker-aspect-ratio", String(sticker.aspectRatio || 1));
       wrap.style.zIndex = String(sticker.zIndex);
       wrap.style.transform = `translate(-50%, -50%) rotate(${sticker.rotation}deg)`;
       wrap.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "move"));
       const image = document.createElement("img");
-      image.src = sticker.imageSrc;
+      image.src = stickerImageSrc(sticker, { useAdminPreview: canEditJourney() && state.mode === "edit" });
       image.alt = "";
       image.draggable = false;
       wrap.append(image);
       if (state.mode === "edit" && state.editor.selectedStickerId === sticker.id) {
         ["nw", "ne", "sw", "se"].forEach((corner) => {
           const handle = document.createElement("span");
-          handle.className = `journey-sticker-handle journey-sticker-handle--${corner}`;
+          handle.className = `journey-sticker-resize journey-sticker-resize--${corner}`;
           handle.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "resize"));
           wrap.append(handle);
         });
@@ -1306,19 +1482,20 @@ function renderEditorPanel() {
     <div class="journey-sketch-toolbar__row">
       <button type="button" data-tool="draw" aria-pressed="${state.editor.activeTool === "draw"}">手绘</button>
       <button type="button" data-tool="erase" aria-pressed="${state.editor.activeTool === "erase"}">橡皮擦</button>
-      <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">节点/选择</button>
-      <button type="button" data-action="upload-background">上传背景</button>
-      <button type="button" data-action="clear-background">清除背景</button>
+      <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">选择/编辑</button>
       <button type="button" data-action="upload-sticker">上传贴纸</button>
-      <button type="button" data-action="save">保存本地草稿</button>
-      <button type="button" data-action="reload-remote">重新加载数据库</button>
-      <button type="button" data-action="save-remote">发布到数据库</button>
-      <button type="button" data-action="reset-remote">重置发布画布</button>
+      <button type="button" data-action="save-canvas" ${remoteCanvasMeta.saving ? "disabled" : ""}>
+        ${remoteCanvasMeta.saving ? "保存中..." : "保存画布"}
+      </button>
       <button type="button" data-action="clear">清空画布</button>
       <button type="button" data-action="exit">退出编辑</button>
     </div>
     <p class="journey-sketch-save-hint">
-      本地草稿只保存在当前浏览器；发布到数据库后，访客公开预览才会读取到新版本。
+      保存画布后，公开预览会读取最新版本。
+    </p>
+    ${renderSelectedStickerActions()}
+    <p class="journey-sketch-tool-hint" data-tool-hint>
+      ${escapeHtml(activeToolHint())}
     </p>
     <label class="journey-sketch-height">
       画布高度
@@ -1341,18 +1518,20 @@ function renderEditorPanel() {
     <div class="journey-sketch-node-panel">
       ${renderSelectedNodePanel()}
     </div>
-    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden data-file-input="background">
     <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden data-file-input="sticker">
     <p class="journey-sketch-remote-status" data-remote-status data-error="${remoteCanvasMeta.warning}">
       ${escapeHtml(remoteCanvasMeta.status)}
     </p>
-    <p class="journey-sketch-status" data-editor-status>${state.dirty ? "本地草稿未保存" : "本地草稿已保存"}</p>
+    <p class="journey-sketch-status" data-editor-status>${state.dirty ? "有未保存的画布修改。" : "画布已保存，公开预览将读取最新版本。"}</p>
   `;
   toolbar.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => setTool(button.dataset.tool));
   });
   toolbar.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => handleToolbarAction(button.dataset.action));
+  });
+  toolbar.querySelectorAll("[data-sticker-action]").forEach((button) => {
+    button.addEventListener("click", () => handleSelectedStickerAction(button.dataset.stickerAction));
   });
   toolbar.querySelectorAll("[data-setting]").forEach((field) => {
     field.addEventListener("input", () => updateSetting(field));
@@ -1371,6 +1550,25 @@ function renderEditorPanel() {
   toolbar.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
   editorRoot.append(toolbar);
 }
+
+function renderSelectedStickerActions() {
+  const sticker = selectedSticker();
+  if (state.editor.activeTool !== "select" || !sticker) {
+    return "";
+  }
+  return `
+    <div class="journey-sketch-sticker-actions" data-selected-sticker-actions>
+      <p class="journey-sketch-sticker-actions__hint">
+        已选中贴纸：可移动、缩放、旋转、删除、调整图层或铺满画布。
+      </p>
+      <button type="button" data-sticker-action="backward">下移一层</button>
+      <button type="button" data-sticker-action="forward">上移一层</button>
+      <button type="button" data-sticker-action="to-back">置于底层</button>
+      <button type="button" data-sticker-action="to-front">置于顶层</button>
+      <button type="button" data-sticker-action="cover-canvas">铺满画布</button>
+    </div>
+  `;
+}
 function renderSettingSlider(key, label, min, max, step) {
   return `
     <label class="journey-sketch-setting">
@@ -1379,6 +1577,19 @@ function renderSettingSlider(key, label, min, max, step) {
       <strong>${state.editor[key]}</strong>
     </label>
   `;
+}
+
+function activeToolHint() {
+  if (state.editor.activeTool === "select") {
+    if (selectedSticker()) {
+      return "已选中贴纸：可移动、缩放、旋转、删除、调整图层或铺满画布。";
+    }
+    return "选择/编辑模式：点击贴纸后可拖动、缩放、旋转、删除或调整图层。";
+  }
+  if (state.editor.activeTool === "erase") {
+    return "橡皮擦模式：拖动画布会擦除线条，贴纸不会被移动、缩放或旋转。";
+  }
+  return "手绘模式：拖动画布会绘制线条，贴纸不会被移动、缩放或旋转。";
 }
 
 function renderSelectedNodePanel() {
@@ -1410,6 +1621,11 @@ function setTool(tool) {
     return;
   }
   state.editor.activeTool = tool;
+  if (tool !== "select") {
+    state.editor.selectedNodeId = null;
+    state.editor.selectedStickerId = null;
+    state.editor.selectedStrokeId = null;
+  }
   currentPointer = null;
   rawDrawPoints = [];
   startSnap = null;
@@ -1438,15 +1654,10 @@ function handleToolbarAction(action) {
   if (action !== "exit" && !guardJourneyMutation(`toolbar:${action}`)) {
     return;
   }
-  const fileInput = document.querySelector(`[data-file-input='${action === "upload-background" ? "background" : "sticker"}']`);
+  const stickerFileInput = document.querySelector("[data-file-input='sticker']");
   const actions = {
-    "upload-background": () => fileInput?.click(),
-    "clear-background": clearBackground,
-    "upload-sticker": () => fileInput?.click(),
-    save: saveToLocalStorage,
-    "reload-remote": reloadRemoteCanvasState,
-    "save-remote": saveRemoteCanvasState,
-    "reset-remote": resetRemoteCanvasState,
+    "upload-sticker": () => stickerFileInput?.click(),
+    "save-canvas": saveRemoteCanvasState,
     clear: clearCanvasState,
     exit: () => {
       state.mode = "preview";
@@ -1456,20 +1667,28 @@ function handleToolbarAction(action) {
   actions[action]?.();
 }
 
-function clearBackground() {
-  if (!guardJourneyMutation("clearBackground")) {
+function handleSelectedStickerAction(action) {
+  if (!guardJourneyMutation(`stickerAction:${action}`)) {
     return;
   }
-  state.canvas.background = {
-    imageSrc: "",
-    fit: "cover"
+  if (state.editor.activeTool !== "select" || !selectedSticker()) {
+    logJourney("Ignored sticker layer action without selected sticker.", {
+      action,
+      activeTool: state.editor.activeTool
+    });
+    return;
+  }
+  const actions = {
+    forward: moveSelectedStickerForward,
+    backward: moveSelectedStickerBackward,
+    "to-front": moveSelectedStickerToFront,
+    "to-back": moveSelectedStickerToBack,
+    "cover-canvas": coverSelectedStickerCanvas
   };
-  markDirty("background cleared");
-  showMessage("背景已清除。");
-  render();
+  actions[action]?.();
 }
 
-function handleFileInput(input) {
+async function handleFileInput(input) {
   if (!guardJourneyMutation(`fileInput:${input.dataset.fileInput || "unknown"}`)) {
     input.value = "";
     return;
@@ -1478,24 +1697,23 @@ function handleFileInput(input) {
   if (!file) {
     return;
   }
-  readImageFile(file).then((dataUrl) => {
-    if (input.dataset.fileInput === "background") {
-      state.canvas.background.imageSrc = dataUrl;
-      markDirty("background uploaded");
-      showMessage("背景已载入。");
-    } else {
-      addSticker(dataUrl);
-      showMessage("贴纸已添加。");
-    }
-    input.value = "";
+
+  try {
+    await addPersistentStickerFromFile(file);
+    showMessage("贴纸已上传为媒体文件并添加到画布。");
     render();
-  }).catch((error) => {
-    showMessage("图片读取失败，请重试。", true);
-    logJourney("Image file read failed.", { error: error.message });
-  });
+  } catch (error) {
+    showMessage(error.message || "图片处理失败，请重试。", true);
+    logJourney("Image file handling failed.", {
+      inputType: input.dataset.fileInput,
+      error: error.message
+    });
+  } finally {
+    input.value = "";
+  }
 }
 
-function handleCanvasDrop(event) {
+async function handleCanvasDrop(event) {
   event.preventDefault();
   event.currentTarget.classList.remove("is-drag-over");
   if (state.mode !== "edit" || !guardJourneyMutation("handleCanvasDrop")) {
@@ -1505,49 +1723,121 @@ function handleCanvasDrop(event) {
   if (!file) {
     return;
   }
-  readImageFile(file).then((dataUrl) => {
-    if (event.shiftKey) {
-      state.canvas.background.imageSrc = dataUrl;
-      markDirty("background dropped");
-      showMessage("背景已载入。");
-    } else {
-      const point = canvasPointToCssPercent(clientPointToCanvasPoint(event));
-      addSticker(dataUrl, point);
-      showMessage("贴纸已添加。按住 Shift 拖入图片可设为背景。");
-    }
+  const point = canvasPointToCssPercent(clientPointToCanvasPoint(event));
+
+  try {
+    await addPersistentStickerFromFile(file, point);
+    showMessage("贴纸已上传为媒体文件并添加到画布；如需背景效果，请选择贴纸后使用置于底层或铺满画布。");
     render();
-  }).catch((error) => {
-    showMessage("图片读取失败，请重试。", true);
-    logJourney("Dropped image read failed.", { error: error.message });
-  });
+  } catch (error) {
+    showMessage(error.message || "拖入图片处理失败，请重试。", true);
+    logJourney("Dropped image handling failed.", { error: error.message });
+  }
 }
 
-function readImageFile(file) {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith("image/")) {
-      reject(new Error("Unsupported file type"));
+function loadImageDimensions(file) {
+  return new Promise((resolve) => {
+    if (!file || typeof URL === "undefined" || !file.type?.startsWith("image/")) {
+      resolve({ naturalWidth: null, naturalHeight: null, aspectRatio: 1 });
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("File read failed"));
-    reader.readAsDataURL(file);
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    const finish = (result) => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(result);
+    };
+    image.onload = () => {
+      const naturalWidth = normalizeOptionalDimension(image.naturalWidth);
+      const naturalHeight = normalizeOptionalDimension(image.naturalHeight);
+      finish({
+        naturalWidth,
+        naturalHeight,
+        aspectRatio: naturalWidth && naturalHeight ? clampAspectRatio(naturalWidth / naturalHeight) : 1
+      });
+    };
+    image.onerror = () => {
+      logJourney("Failed to measure sticker image dimensions; using square fallback.", {
+        filename: file.name,
+        mimeType: file.type
+      });
+      finish({ naturalWidth: null, naturalHeight: null, aspectRatio: 1 });
+    };
+    image.src = objectUrl;
   });
 }
 
-function addSticker(imageSrc, position = { xPercent: 50, yPercent: 30 }) {
+async function uploadJourneyStickerMedia(file) {
+  if (!file?.type?.startsWith("image/")) {
+    throw new Error("只支持上传图片贴纸。");
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    throw new Error("认证服务不可用，无法上传贴纸媒体。");
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("title", file.name || "Journey sticker");
+  formData.append("description", "Journey sticker media upload");
+  formData.append("sort_order", "0");
+
+  logJourney("Uploading Journey sticker media.", {
+    filename: file.name,
+    mimeType: file.type,
+    size: file.size
+  });
+  const response = await window.PersonalWebAuth.authFetch(HOMEPAGE_MEDIA_PATH, {
+    method: "POST",
+    body: formData
+  });
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(body.detail || `贴纸媒体上传失败：${response.status}`);
+  }
+  if (body.mediaType !== "image" || !normalizeOptionalMediaId(body.id)) {
+    throw new Error("贴纸媒体上传返回的数据无效。");
+  }
+  logJourney("Uploaded Journey sticker media.", {
+    mediaId: body.id,
+    filename: body.originalFilename || body.title || file.name
+  });
+  return body;
+}
+
+async function addPersistentStickerFromFile(file, position = { xPercent: 50, yPercent: 30 }) {
+  const [dimensions, media] = await Promise.all([
+    loadImageDimensions(file),
+    uploadJourneyStickerMedia(file)
+  ]);
+  addSticker({
+    mediaId: media.id,
+    mediaType: "image",
+    mediaTitle: media.title || file.name || "",
+    mediaFilename: media.originalFilename || file.name || "",
+    source: "homepage-media",
+    uploadStatus: "uploaded",
+    naturalWidth: dimensions.naturalWidth,
+    naturalHeight: dimensions.naturalHeight,
+    aspectRatio: dimensions.aspectRatio
+  }, position);
+}
+
+function addSticker(imageSource, position = { xPercent: 50, yPercent: 30 }) {
   if (!guardJourneyMutation("addSticker")) {
     return;
   }
   const sticker = sanitizeSticker({
-    imageSrc,
+    ...(typeof imageSource === "string" ? { imageSrc: imageSource } : imageSource),
     ...position,
     widthPercent: 18,
-    zIndex: 30 + state.canvas.stickers.length
+    zIndex: state.canvas.stickers.length
   });
   state.canvas.stickers.push(sticker);
+  normalizeStickerZOrder();
   state.editor.selectedStickerId = sticker.id;
   state.editor.selectedNodeId = null;
+  state.editor.selectedStrokeId = null;
+  state.editor.activeTool = "select";
   markDirty("sticker added");
   logJourney("Added sticker.", { stickerId: sticker.id });
 }
@@ -1683,6 +1973,14 @@ function startStickerDrag(event, stickerId, mode) {
   if (state.mode !== "edit" || !guardJourneyMutation("startStickerDrag")) {
     return;
   }
+  if (state.editor.activeTool !== "select") {
+    logJourney("Ignored sticker edit outside select mode.", {
+      stickerId,
+      mode,
+      activeTool: state.editor.activeTool
+    });
+    return;
+  }
   event.preventDefault();
   event.stopPropagation();
   const sticker = state.canvas.stickers.find((item) => item.id === stickerId);
@@ -1691,6 +1989,8 @@ function startStickerDrag(event, stickerId, mode) {
   }
   state.editor.selectedStickerId = sticker.id;
   state.editor.selectedNodeId = null;
+  state.editor.selectedStrokeId = null;
+  logJourney("Selected sticker in select mode.", { stickerId: sticker.id, mode });
   const center = cssPercentToCanvasPoint(sticker.xPercent, sticker.yPercent);
   dragState = {
     kind: "sticker",
@@ -1701,6 +2001,7 @@ function startStickerDrag(event, stickerId, mode) {
     center
   };
   event.currentTarget.setPointerCapture?.(event.pointerId);
+  logJourney("Started sticker edit drag.", { stickerId: sticker.id, mode });
   render();
 }
 
@@ -1746,6 +2047,9 @@ window.addEventListener("pointerup", () => {
 
 window.addEventListener("keydown", (event) => {
   if (state.mode !== "edit" || !["Delete", "Backspace"].includes(event.key) || !guardJourneyMutation("deleteKey")) {
+    return;
+  }
+  if (state.editor.activeTool !== "select") {
     return;
   }
   if (state.editor.selectedNodeId) {
@@ -1800,6 +2104,93 @@ function selectNode(nodeId) {
   render();
 }
 
+function selectedSticker() {
+  return state.canvas.stickers.find((sticker) => sticker.id === state.editor.selectedStickerId) || null;
+}
+
+function reorderSelectedSticker(targetIndex) {
+  const selectedId = state.editor.selectedStickerId;
+  const ordered = normalizeStickerZOrder();
+  const currentIndex = ordered.findIndex((sticker) => sticker.id === selectedId);
+  if (currentIndex < 0) {
+    return false;
+  }
+  const nextIndex = clamp(targetIndex, 0, ordered.length - 1);
+  if (nextIndex === currentIndex) {
+    return false;
+  }
+  const [sticker] = ordered.splice(currentIndex, 1);
+  ordered.splice(nextIndex, 0, sticker);
+  ordered.forEach((item, index) => {
+    item.zIndex = index;
+  });
+  state.canvas.stickers = ordered;
+  state.editor.selectedStickerId = selectedId;
+  sticker.updatedAt = nowIso();
+  markDirty("sticker layer changed");
+  logJourney("Changed selected sticker z-order.", {
+    stickerId: selectedId,
+    fromIndex: currentIndex,
+    toIndex: nextIndex
+  });
+  render();
+  return true;
+}
+
+function moveSelectedStickerForward() {
+  const ordered = normalizeStickerZOrder();
+  const index = ordered.findIndex((sticker) => sticker.id === state.editor.selectedStickerId);
+  if (reorderSelectedSticker(index + 1)) {
+    showMessage("贴纸已上移一层。有未保存的画布修改。");
+  }
+}
+
+function moveSelectedStickerBackward() {
+  const ordered = normalizeStickerZOrder();
+  const index = ordered.findIndex((sticker) => sticker.id === state.editor.selectedStickerId);
+  if (reorderSelectedSticker(index - 1)) {
+    showMessage("贴纸已下移一层。有未保存的画布修改。");
+  }
+}
+
+function moveSelectedStickerToFront() {
+  if (reorderSelectedSticker(state.canvas.stickers.length - 1)) {
+    showMessage("贴纸已置于顶层。有未保存的画布修改。");
+  }
+}
+
+function moveSelectedStickerToBack() {
+  if (reorderSelectedSticker(0)) {
+    showMessage("贴纸已置于底层。有未保存的画布修改。");
+  }
+}
+
+function coverSelectedStickerCanvas() {
+  const sticker = selectedSticker();
+  if (!sticker) {
+    return;
+  }
+  const canvasAspect = CANVAS_WIDTH / Math.max(1, state.canvas.height);
+  const stickerAspect = clampAspectRatio(sticker.aspectRatio || 1);
+  const widthPercent = stickerAspect >= canvasAspect
+    ? 100 * (stickerAspect / canvasAspect)
+    : 100;
+  sticker.xPercent = 50;
+  sticker.yPercent = 50;
+  sticker.widthPercent = clamp(widthPercent, STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT);
+  sticker.rotation = 0;
+  sticker.updatedAt = nowIso();
+  markDirty("sticker covered canvas");
+  logJourney("Covered Journey canvas with selected sticker.", {
+    stickerId: sticker.id,
+    canvasAspect,
+    stickerAspect,
+    widthPercent: sticker.widthPercent
+  });
+  render();
+  showMessage("贴纸已铺满画布，可继续移动、缩放或置于底层。有未保存的画布修改。");
+}
+
 function selectedNode() {
   return state.canvas.nodes.find((node) => node.id === state.editor.selectedNodeId) || null;
 }
@@ -1839,6 +2230,7 @@ function deleteSelectedSticker() {
   if (!state.editor.selectedStickerId) {
     return;
   }
+  logJourney("Deleting selected sticker.", { stickerId: state.editor.selectedStickerId });
   state.canvas.stickers = state.canvas.stickers.filter((sticker) => sticker.id !== state.editor.selectedStickerId);
   state.editor.selectedStickerId = null;
   markDirty("sticker deleted");
@@ -2021,6 +2413,7 @@ window.__journeySketchDebug = {
 
 async function initializeJourney() {
   installGlobalControls();
+  installJourneyCanvasSync();
   state = loadInitialState();
   await loadJourneyAuthState();
   await fetchRemoteCanvasState();
