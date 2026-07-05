@@ -196,37 +196,40 @@ Mutation handlers must guard editor actions before changing state.
 
 ## Canvas State Sources
 
-Journey uses two different storage concepts.
+Journey uses PostgreSQL as the normal source of truth for the shared canvas.
 
-Local browser draft:
-
-* stored in `localStorage`
-* useful while editing locally
-* not the published source of truth
-* not shared across browsers
-
-Database published canvas:
+Database saved canvas:
 
 * read through `GET /api/homepage/canvas`
 * saved through `PUT /api/homepage/canvas`
-* reset through `POST /api/homepage/canvas/reset`
 * visible to guests and normal users in public preview
 * writable only by users with `homepage:edit`
 
-The UI must clearly distinguish:
+Local browser cache:
 
-* `保存本地草稿`
-* `发布到数据库`
-* `重新加载数据库`
-* `重置发布画布`
+* stored in `localStorage` only as an invisible fallback/cache
+* must not be presented as the primary workflow
+* must not silently override a newer database canvas
+* should be cleared or refreshed after successful database save
+
+The normal Journey editor workflow is:
+
+* upload sticker media through the existing homepage media API
+* edit strokes, nodes, and stickers on the canvas
+* click one `????` button
+* save the canvas JSON through `PUT /api/homepage/canvas`
+* notify other same-origin Journey tabs to refresh when practical
+
+The normal toolbar must not expose local-draft, manual database reload, database
+publish, or reset-published-canvas wording.
 
 Data URL images must not be published to the database.
 
 Journey sticker images should be uploaded through the homepage media API and saved
-as `mediaId` references before publishing.
+as `mediaId` references before saving the canvas.
 
-Background images and old local sticker drafts may still use Data URLs as local
-browser-only drafts.
+Background images and old local sticker drafts may still contain Data URLs as
+local browser-only fallback data, but the database save must reject them.
 
 The backend rejects any Data URL that remains in the canvas payload.
 
@@ -242,7 +245,7 @@ Read behavior:
 
 * public
 * returns the current shared canvas if it exists
-* returns `exists=false` when no shared canvas has been published
+* returns `exists=false` when no shared canvas has been saved
 
 Save behavior:
 
@@ -258,7 +261,7 @@ Reset behavior:
 * requires CSRF token
 * requires `homepage:edit`
 * removes the published shared canvas row
-* does not delete the browser-local draft
+* is not part of the normal Journey editor toolbar workflow
 
 ## Diagnostics
 

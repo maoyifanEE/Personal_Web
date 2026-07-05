@@ -1,4 +1,6 @@
 const STORAGE_KEY = "journeySketchCanvasStateV1";
+const JOURNEY_CANVAS_SYNC_KEY = "personalWebJourneyCanvasUpdatedAt";
+const JOURNEY_CANVAS_SYNC_CHANNEL = "personal-web-journey-canvas-sync";
 const SCHEMA_VERSION = "sketch-canvas-v1";
 const REMOTE_CANVAS_PATH = "/homepage/canvas";
 const REMOTE_CANVAS_RESET_PATH = "/homepage/canvas/reset";
@@ -122,6 +124,8 @@ let rawDrawPoints = [];
 let startSnap = null;
 let currentPointer = null;
 let lastGeometryTestResult = null;
+let journeyCanvasSyncChannel = null;
+const JOURNEY_INSTANCE_ID = makeId("journey-tab");
 let journeyAuthState = {
   authenticated: false,
   roles: [],
@@ -135,7 +139,8 @@ let remoteCanvasMeta = {
   revision: 0,
   updatedAt: null,
   updatedByUserId: null,
-  status: "正在读取数据库画布...",
+  status: "正在读取已保存画布...",
+  saving: false,
   warning: false
 };
 
@@ -361,26 +366,28 @@ const canvasContainsDataUrl = (canvasPayload) => containsDataUrl(canvasPayload);
 
 const validateCanvasForRemoteSave = (payload) => {
   if (canvasContainsDataUrl(payload)) {
-    logJourney("Blocked remote canvas publish because local Data URL media is still present.");
+    logJourney("Blocked remote canvas save because local Data URL media is still present.");
     return {
       valid: false,
-      message: "画布包含本地草稿图片，不能发布到数据库。请先通过贴纸上传保存为媒体文件；背景图片仍只能作为本地草稿使用。"
+      message: "当前画布包含本地图片草稿，不能保存到数据库。请使用上传贴纸。"
     };
   }
   return { valid: true, message: "" };
 };
 
-const applyRemoteCanvasState = (remote) => {
+const applyRemoteCanvasState = (remote, options = {}) => {
+  const preserveMode = Boolean(options.preserveMode);
+  const nextMode = preserveMode ? state.mode : "preview";
   if (!remote?.exists || !remote.canvas_data || typeof remote.canvas_data !== "object") {
     remoteCanvasMeta = {
       ...remoteCanvasMeta,
       loaded: true,
       exists: false,
       revision: 0,
-      status: "数据库暂无已发布画布，当前显示本地草稿或空画布。",
+      status: "数据库暂无已保存画布，当前显示空画布或本地缓存。",
       warning: false
     };
-    logJourney("Remote canvas is empty; local draft remains active.");
+    logJourney("Remote canvas is empty; local cache remains fallback only.");
     return false;
   }
 
@@ -394,7 +401,7 @@ const applyRemoteCanvasState = (remote) => {
   state = sanitizeState({
     version: remote.schema_version || remotePayload.version || SCHEMA_VERSION,
     view: state.view,
-    mode: "preview",
+    mode: nextMode,
     canvas: remotePayload.canvas,
     editor: state.editor
   });
@@ -404,7 +411,7 @@ const applyRemoteCanvasState = (remote) => {
     revision: Number(remote.revision) || 0,
     updatedAt: remote.updated_at || null,
     updatedByUserId: remote.updated_by_user_id || null,
-    status: `数据库已加载，当前发布版本 revision ${Number(remote.revision) || 0}`,
+    status: `已加载保存画布，revision ${Number(remote.revision) || 0}`,
     warning: false
   };
   logJourney("Applied remote canvas state.", {
@@ -416,7 +423,7 @@ const applyRemoteCanvasState = (remote) => {
   return true;
 };
 
-const fetchRemoteCanvasState = async () => {
+const fetchRemoteCanvasState = async (options = {}) => {
   try {
     const response = await fetch(`${apiBaseUrl()}${REMOTE_CANVAS_PATH}`, {
       method: "GET",
@@ -429,13 +436,13 @@ const fetchRemoteCanvasState = async () => {
     if (!response.ok) {
       throw new Error(body.detail || `Remote canvas request failed: ${response.status}`);
     }
-    applyRemoteCanvasState(body);
+    applyRemoteCanvasState(body, options);
     return body;
   } catch (error) {
     remoteCanvasMeta = {
       ...remoteCanvasMeta,
       loaded: false,
-      status: "后端不可用，当前显示本地草稿预览。",
+      status: "后端不可用，当前显示本地缓存预览。",
       warning: true
     };
     logJourney("Remote canvas unavailable; using localStorage fallback.", { error: error.message });
@@ -447,23 +454,22 @@ const reloadRemoteCanvasState = async () => {
   updateRemoteStatus("正在重新读取数据库画布...", false);
   const remote = await fetchRemoteCanvasState();
   if (remote) {
-    saveToLocalStorage({ skipGuard: true, silent: true });
-    showMessage("已重新加载数据库发布版本。");
+    showMessage("已重新加载保存画布。");
   } else {
-    showMessage("数据库画布读取失败，当前仍显示本地草稿。", true);
+    showMessage("数据库画布读取失败，当前仍显示本地缓存。", true);
   }
   render();
 };
 
 const canvasErrorMessage = (response, body) => {
   if (response.status === 401) {
-    return "请先登录后再发布首页画布。";
+    return "请先登录后再保存画布。";
   }
   if (response.status === 403) {
-    return "当前账号没有 homepage:edit 权限，不能发布首页画布。";
+    return "当前账号没有 homepage:edit 权限，不能保存画布。";
   }
   if (response.status === 409) {
-    return "数据库版本已变化，请先重新加载后再发布。";
+    return "数据库版本已变化，请刷新页面后再保存。";
   }
   if (response.status === 400) {
     return body.detail || "画布数据未通过后端校验。";
@@ -473,7 +479,11 @@ const canvasErrorMessage = (response, body) => {
 
 const saveRemoteCanvasState = async () => {
   if (!guardJourneyMutation("saveRemoteCanvasState")) {
-    updateRemoteStatus("当前路由或账号没有发布权限。请从 Hub 的首页画布编辑入口进入。", true);
+    updateRemoteStatus("当前路由或账号没有保存权限。请从 Hub 的首页画布编辑入口进入。", true);
+    return;
+  }
+  if (remoteCanvasMeta.saving) {
+    logJourney("Ignored duplicate canvas save while request is already running.");
     return;
   }
   const payload = buildPersistedCanvasPayload();
@@ -484,11 +494,13 @@ const saveRemoteCanvasState = async () => {
     return;
   }
   if (!window.PersonalWebAuth?.authFetch) {
-    updateRemoteStatus("认证服务不可用，无法发布到数据库。", true);
+    updateRemoteStatus("认证服务不可用，无法保存画布。", true);
     return;
   }
 
-  updateRemoteStatus("正在发布到数据库...", false);
+  remoteCanvasMeta.saving = true;
+  updateRemoteStatus("保存中...", false);
+  renderEditorPanel();
   try {
     const response = await window.PersonalWebAuth.authFetch(REMOTE_CANVAS_PATH, {
       method: "PUT",
@@ -510,26 +522,34 @@ const saveRemoteCanvasState = async () => {
       revision: Number(body.revision) || 0,
       updatedAt: body.updated_at || null,
       updatedByUserId: body.updated_by_user_id || null,
-      status: `数据库已发布，revision ${Number(body.revision) || 0}`,
+      status: `画布已保存，revision ${Number(body.revision) || 0}`,
+      saving: false,
       warning: false
     };
-    saveToLocalStorage({ skipGuard: true, silent: true });
+    clearLocalCanvasCache();
+    state.dirty = false;
     updateRemoteStatus(remoteCanvasMeta.status, false);
-    showMessage("已发布到数据库。公开预览会读取这个版本。");
+    updateStatus("画布已保存，公开预览将读取最新版本。");
+    notifyJourneyCanvasSaved(remoteCanvasMeta.revision);
+    showMessage("画布已保存，公开预览将读取最新版本。");
     logJourney("Saved remote canvas state.", { revision: remoteCanvasMeta.revision });
   } catch (error) {
-    updateRemoteStatus(`发布失败：${error.message}`, true);
-    showMessage("发布到数据库失败，本地草稿仍已保留。", true);
+    remoteCanvasMeta.saving = false;
+    updateRemoteStatus(`保存失败：${error.message}`, true);
+    showMessage("保存失败，请检查登录状态或稍后重试。", true);
     logJourney("Remote canvas save failed.", { error: error.message });
+  } finally {
+    remoteCanvasMeta.saving = false;
+    renderEditorPanel();
   }
 };
 
 const resetRemoteCanvasState = async () => {
   if (!guardJourneyMutation("resetRemoteCanvasState")) {
-    updateRemoteStatus("当前路由或账号没有重置发布画布的权限。", true);
+    updateRemoteStatus("当前路由或账号没有重置保存画布的权限。", true);
     return;
   }
-  if (!window.confirm("确认重置数据库中的已发布首页画布吗？本地草稿不会被删除。")) {
+  if (!window.confirm("确认重置数据库中的已保存首页画布吗？本地缓存不会被删除。")) {
     logJourney("Remote canvas reset cancelled.");
     return;
   }
@@ -549,11 +569,11 @@ const resetRemoteCanvasState = async () => {
       revision: 0,
       updatedAt: null,
       updatedByUserId: null,
-      status: "数据库发布画布已重置，当前保留本地草稿。",
+      status: "数据库保存画布已重置。",
       warning: false
     };
     updateRemoteStatus(remoteCanvasMeta.status, false);
-    showMessage("数据库发布画布已重置，本地草稿未删除。");
+    showMessage("数据库保存画布已重置。");
     logJourney("Reset remote canvas state.");
   } catch (error) {
     updateRemoteStatus(`重置失败：${error.message}`, true);
@@ -567,7 +587,7 @@ const markDirty = (reason) => {
   }
   state.dirty = true;
   logJourney("State changed.", { reason });
-  updateStatus(reason === "saved" ? "本地草稿已保存" : "本地草稿未保存");
+  updateStatus(reason === "saved" ? "画布已保存，公开预览将读取最新版本。" : "有未保存的画布修改。");
 };
 
 const saveToLocalStorage = ({ skipGuard = false, silent = false } = {}) => {
@@ -576,17 +596,78 @@ const saveToLocalStorage = ({ skipGuard = false, silent = false } = {}) => {
   }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state, null, 2));
   state.dirty = false;
-  updateStatus("本地草稿已保存");
-  logJourney("Saved sketch canvas state.", {
+  updateStatus("画布缓存已更新。");
+  logJourney("Updated local Journey canvas cache.", {
     storageKey: STORAGE_KEY,
     strokes: state.canvas.strokes.length,
     nodes: state.canvas.nodes.length,
     stickers: state.canvas.stickers.length
   });
   if (!silent) {
-    showMessage("本地草稿已保存。公开预览仍以数据库发布版本为准。");
+    showMessage("本地缓存已更新；公开预览仍以数据库保存版本为准。");
   }
 };
+
+function clearLocalCanvasCache() {
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+    logJourney("Cleared local Journey canvas cache after database save.", { storageKey: STORAGE_KEY });
+  } catch (error) {
+    logJourney("Failed to clear local Journey canvas cache.", { error: error.message });
+  }
+}
+
+function notifyJourneyCanvasSaved(revision) {
+  const payload = {
+    type: "journey-canvas-saved",
+    revision,
+    timestamp: Date.now(),
+    sourceId: JOURNEY_INSTANCE_ID
+  };
+  if (journeyCanvasSyncChannel) {
+    journeyCanvasSyncChannel.postMessage(payload);
+  }
+  try {
+    window.localStorage.setItem(JOURNEY_CANVAS_SYNC_KEY, JSON.stringify(payload));
+  } catch (error) {
+    logJourney("Failed to write Journey canvas sync marker.", { error: error.message });
+  }
+  logJourney("Notified same-origin Journey views about saved canvas.", payload);
+}
+
+async function handleJourneyCanvasSavedNotification(payload = {}) {
+  if (payload.sourceId === JOURNEY_INSTANCE_ID || payload.type !== "journey-canvas-saved") {
+    return;
+  }
+  if (state.mode === "edit" && state.dirty) {
+    updateRemoteStatus("其他页面已保存新画布；当前页面有未保存修改，请保存或刷新后再继续。", true);
+    logJourney("Skipped canvas auto-refresh because this editor has unsaved changes.", payload);
+    return;
+  }
+  logJourney("Refreshing Journey canvas after same-origin save notification.", payload);
+  await fetchRemoteCanvasState({ preserveMode: state.mode === "edit" });
+  render();
+}
+
+function installJourneyCanvasSync() {
+  if ("BroadcastChannel" in window) {
+    journeyCanvasSyncChannel = new BroadcastChannel(JOURNEY_CANVAS_SYNC_CHANNEL);
+    journeyCanvasSyncChannel.addEventListener("message", (event) => {
+      handleJourneyCanvasSavedNotification(event.data);
+    });
+  }
+  window.addEventListener("storage", (event) => {
+    if (event.key !== JOURNEY_CANVAS_SYNC_KEY || !event.newValue) {
+      return;
+    }
+    try {
+      handleJourneyCanvasSavedNotification(JSON.parse(event.newValue));
+    } catch (error) {
+      logJourney("Ignored invalid Journey canvas sync marker.", { error: error.message });
+    }
+  });
+}
+
 const clearCanvasState = () => {
   if (!guardJourneyMutation("clearCanvasState")) {
     return;
@@ -1369,18 +1450,15 @@ function renderEditorPanel() {
       <button type="button" data-tool="draw" aria-pressed="${state.editor.activeTool === "draw"}">手绘</button>
       <button type="button" data-tool="erase" aria-pressed="${state.editor.activeTool === "erase"}">橡皮擦</button>
       <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">选择/编辑</button>
-      <button type="button" data-action="upload-background">上传背景</button>
-      <button type="button" data-action="clear-background">清除背景</button>
       <button type="button" data-action="upload-sticker">上传贴纸</button>
-      <button type="button" data-action="save">保存本地草稿</button>
-      <button type="button" data-action="reload-remote">重新加载数据库</button>
-      <button type="button" data-action="save-remote">发布到数据库</button>
-      <button type="button" data-action="reset-remote">重置发布画布</button>
+      <button type="button" data-action="save-canvas" ${remoteCanvasMeta.saving ? "disabled" : ""}>
+        ${remoteCanvasMeta.saving ? "保存中..." : "保存画布"}
+      </button>
       <button type="button" data-action="clear">清空画布</button>
       <button type="button" data-action="exit">退出编辑</button>
     </div>
     <p class="journey-sketch-save-hint">
-      本地草稿只保存在当前浏览器；发布到数据库后，访客公开预览才会读取到新版本。
+      保存画布后，公开预览会读取最新版本。
     </p>
     <p class="journey-sketch-tool-hint" data-tool-hint>
       ${escapeHtml(activeToolHint())}
@@ -1406,12 +1484,11 @@ function renderEditorPanel() {
     <div class="journey-sketch-node-panel">
       ${renderSelectedNodePanel()}
     </div>
-    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden data-file-input="background">
     <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden data-file-input="sticker">
     <p class="journey-sketch-remote-status" data-remote-status data-error="${remoteCanvasMeta.warning}">
       ${escapeHtml(remoteCanvasMeta.status)}
     </p>
-    <p class="journey-sketch-status" data-editor-status>${state.dirty ? "本地草稿未保存" : "本地草稿已保存"}</p>
+    <p class="journey-sketch-status" data-editor-status>${state.dirty ? "有未保存的画布修改。" : "画布已保存，公开预览将读取最新版本。"}</p>
   `;
   toolbar.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => setTool(button.dataset.tool));
@@ -1518,15 +1595,10 @@ function handleToolbarAction(action) {
   if (action !== "exit" && !guardJourneyMutation(`toolbar:${action}`)) {
     return;
   }
-  const fileInput = document.querySelector(`[data-file-input='${action === "upload-background" ? "background" : "sticker"}']`);
+  const stickerFileInput = document.querySelector("[data-file-input='sticker']");
   const actions = {
-    "upload-background": () => fileInput?.click(),
-    "clear-background": clearBackground,
-    "upload-sticker": () => fileInput?.click(),
-    save: saveToLocalStorage,
-    "reload-remote": reloadRemoteCanvasState,
-    "save-remote": saveRemoteCanvasState,
-    "reset-remote": resetRemoteCanvasState,
+    "upload-sticker": () => stickerFileInput?.click(),
+    "save-canvas": saveRemoteCanvasState,
     clear: clearCanvasState,
     exit: () => {
       state.mode = "preview";
@@ -1564,7 +1636,7 @@ async function handleFileInput(input) {
       const dataUrl = await readImageFile(file);
       state.canvas.background.imageSrc = dataUrl;
       markDirty("background uploaded");
-      showMessage("背景已作为本地草稿载入。背景 Data URL 不会发布到数据库。");
+      showMessage("背景已作为本地缓存载入。背景 Data URL 不能保存到数据库。");
     } else {
       await addPersistentStickerFromFile(file);
       showMessage("贴纸已上传为媒体文件并添加到画布。");
@@ -1599,7 +1671,7 @@ async function handleCanvasDrop(event) {
       const dataUrl = await readImageFile(file);
       state.canvas.background.imageSrc = dataUrl;
       markDirty("background dropped");
-      showMessage("背景已作为本地草稿载入。背景 Data URL 不会发布到数据库。");
+      showMessage("背景已作为本地缓存载入。背景 Data URL 不能保存到数据库。");
     } else {
       await addPersistentStickerFromFile(file, point);
       showMessage("贴纸已上传为媒体文件并添加到画布。按住 Shift 拖入图片可设为本地背景草稿。");
@@ -2214,6 +2286,7 @@ window.__journeySketchDebug = {
 
 async function initializeJourney() {
   installGlobalControls();
+  installJourneyCanvasSync();
   state = loadInitialState();
   await loadJourneyAuthState();
   await fetchRemoteCanvasState();

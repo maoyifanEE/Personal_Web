@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-05 - Simplify Journey canvas save workflow
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Replace the development-stage Journey persistence controls with one clear `保存画布` workflow.
+* Preserve the manually accepted sticker upload, select, drag, resize, rotate, delete, draw, and eraser behavior.
+
+### Actual changes
+
+* Removed local draft save, manual database reload, database publish, reset published canvas, and background upload controls from the normal Journey editor toolbar.
+* Replaced the old publish action with a single `保存画布` button that calls the existing `PUT /api/homepage/canvas` flow.
+* Kept immediate sticker media upload through the existing media API.
+* Kept Data URL blocking before database canvas save.
+* Cleared stale local canvas cache after a successful database save.
+* Added same-origin Journey canvas save notifications through `BroadcastChannel` with a `localStorage` timestamp fallback.
+* Updated Journey workflow documentation to describe PostgreSQL as the normal source of truth and localStorage as fallback/cache only.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, media upload authorization, deployment script, or production server file was changed.
+* No Journey sticker transform, drawing, smoothing, eraser, or node algorithm behavior was intentionally changed.
+
 ## 2026-07-05 - Fix Journey sticker admin preview sizing
 
 ### Goal
