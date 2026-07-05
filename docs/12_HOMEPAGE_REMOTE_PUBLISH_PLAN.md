@@ -159,10 +159,21 @@ The import script:
 * Creates a timestamped backup before real import.
 * Imports media files into `data/uploads/homepage/`.
 * Upserts homepage media rows by id.
+* Hides existing visible homepage item rows that are not present in the bundle.
 * Upserts visible homepage item rows by id.
 * Upserts the default homepage canvas row by `canvas_key`.
 
 Import backups are written under `.local_backups/`, which is ignored by Git.
+
+The import semantics replace the public homepage display scope. The remote
+visible `homepage_items` set is made to match the bundle by setting stale
+visible rows to `is_visible = false` before bundled rows are upserted. If a
+bundle intentionally contains no `homepage_items`, real import hides all
+currently visible remote homepage items.
+
+Old `homepage_media` rows may remain in the database for history or rollback.
+They should not remain publicly reachable unless the current published Journey
+canvas or a currently visible homepage item references them.
 
 ## Backup And Rollback
 
@@ -177,6 +188,7 @@ The backup includes:
 * The previous default `homepage_canvas_states` row.
 * Existing `homepage_media` rows that may be overwritten.
 * Existing `homepage_items` rows that may be overwritten.
+* Existing visible `homepage_items` rows that will be hidden as stale.
 * Existing media files that may be overwritten.
 * A backup manifest.
 

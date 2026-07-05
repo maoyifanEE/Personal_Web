@@ -316,6 +316,25 @@ def select_visible_homepage_items(connection, table: Table) -> list[dict[str, An
     return [table_row_to_dict(row) for row in rows]
 
 
+def select_stale_visible_homepage_items(
+    connection,
+    table: Table,
+    bundled_item_ids: set[int],
+) -> list[dict[str, Any]]:
+    """Select currently visible homepage items absent from the incoming bundle."""
+
+    statement = select(table).where(table.c.is_visible.is_(True))
+    if bundled_item_ids:
+        statement = statement.where(table.c.id.notin_(bindparam("ids", expanding=True)))
+        rows = connection.execute(
+            statement.order_by(table.c.sort_order, table.c.id),
+            {"ids": sorted(bundled_item_ids)},
+        ).all()
+    else:
+        rows = connection.execute(statement.order_by(table.c.sort_order, table.c.id)).all()
+    return [table_row_to_dict(row) for row in rows]
+
+
 def filter_export_scope(
     *,
     canvas_media_ids: set[int],
@@ -598,20 +617,23 @@ def backup_existing_state(
     canvas_row: dict[str, Any],
     media_rows: list[dict[str, Any]],
     item_rows: list[dict[str, Any]],
+    stale_item_rows: list[dict[str, Any]],
 ) -> None:
     """Back up rows and files that may be overwritten by import."""
 
     backup_dir.mkdir(parents=True, exist_ok=False)
     media_ids = {row["id"] for row in media_rows}
     item_ids = {row["id"] for row in item_rows}
+    stale_item_ids = {row["id"] for row in stale_item_rows}
 
     current_canvas = select_default_canvas(connection, tables["canvas"])
     current_media = select_rows_by_ids(connection, tables["media"], media_ids)
-    current_items = select_rows_by_ids(connection, tables["items"], item_ids)
+    current_items = select_rows_by_ids(connection, tables["items"], item_ids | stale_item_ids)
 
     write_json(backup_dir / "homepage_canvas_states.json", {"row": current_canvas})
     write_json(backup_dir / "homepage_media.json", {"rows": current_media})
     write_json(backup_dir / "homepage_items.json", {"rows": current_items})
+    write_json(backup_dir / "stale_visible_homepage_items.json", {"rows": stale_item_rows})
 
     for row in current_media:
         relative_path = row.get("relative_path")
@@ -632,6 +654,7 @@ def backup_existing_state(
             "canvasKey": canvas_row.get("canvas_key", CANVAS_KEY_DEFAULT),
             "mediaIds": sorted(media_ids),
             "itemIds": sorted(item_ids),
+            "staleVisibleItemIds": sorted(stale_item_ids),
         },
     )
     log(f"Created import backup at {backup_dir}")
@@ -684,6 +707,18 @@ def import_files(bundle_dir: Path, manifest: dict[str, Any]) -> int:
     return imported
 
 
+def hide_stale_homepage_items(connection, table: Table, stale_item_rows: list[dict[str, Any]]) -> int:
+    """Hide public homepage items that are not present in the imported bundle."""
+
+    stale_ids = [row["id"] for row in stale_item_rows]
+    if not stale_ids:
+        return 0
+    statement = table.update().where(table.c.id.in_(bindparam("ids", expanding=True))).values(is_visible=False)
+    connection.execute(statement, {"ids": stale_ids})
+    log(f"Hid stale visible homepage item ids: {stale_ids}")
+    return len(stale_ids)
+
+
 def import_bundle(args: argparse.Namespace) -> None:
     """Validate and optionally import a homepage publish bundle."""
 
@@ -700,6 +735,13 @@ def import_bundle(args: argparse.Namespace) -> None:
         tables = reflect_tables(engine)
         db_heads = get_db_alembic_current(connection)
         warnings = check_import_compatibility(manifest, db_heads, args.force)
+        bundled_item_ids = {row["id"] for row in item_rows}
+        existing_visible_items = select_visible_homepage_items(connection, tables["items"])
+        stale_visible_items = select_stale_visible_homepage_items(
+            connection,
+            tables["items"],
+            bundled_item_ids,
+        )
 
         if args.dry_run:
             log("DRY_RUN_REPORT_START")
@@ -708,6 +750,10 @@ def import_bundle(args: argparse.Namespace) -> None:
             log(f"currentAlembicHead={db_heads}")
             log(f"importCanvasKey={canvas_row.get('canvas_key')}")
             log(f"importCanvasRevision={canvas_row.get('revision')}")
+            log(f"existingVisibleHomepageItems={len(existing_visible_items)}")
+            log(f"bundledHomepageItems={len(item_rows)}")
+            log(f"staleVisibleHomepageItemsToHide={len(stale_visible_items)}")
+            log(f"staleVisibleHomepageItemIds={[row['id'] for row in stale_visible_items]}")
             log(f"mediaRowsToImport={len(media_rows)}")
             log(f"filesToImport={len(manifest.get('fileHashes', []))}")
             log(f"warningCount={len(warnings)}")
@@ -715,8 +761,17 @@ def import_bundle(args: argparse.Namespace) -> None:
             return
 
         backup_dir = REPO_ROOT / BACKUP_ROOT / f"homepage-import-backup-{utc_now_slug()}"
-        backup_existing_state(connection, tables, backup_dir, canvas_row, media_rows, item_rows)
+        backup_existing_state(
+            connection,
+            tables,
+            backup_dir,
+            canvas_row,
+            media_rows,
+            item_rows,
+            stale_visible_items,
+        )
         files_imported = import_files(bundle_dir, manifest)
+        hidden_stale_items = hide_stale_homepage_items(connection, tables["items"], stale_visible_items)
 
         for row in media_rows:
             upsert_row(connection, tables["media"], row, ["id"])
@@ -734,6 +789,9 @@ def import_bundle(args: argparse.Namespace) -> None:
     log(f"currentAlembicHead={db_heads}")
     log(f"importedCanvasKey={canvas_row.get('canvas_key')}")
     log(f"importedCanvasRevision={canvas_row.get('revision')}")
+    log(f"existingVisibleHomepageItemsBeforeImport={len(existing_visible_items)}")
+    log(f"bundledHomepageItems={len(item_rows)}")
+    log(f"hiddenStaleVisibleHomepageItems={hidden_stale_items}")
     log(f"mediaRowsImported={len(media_rows)}")
     log(f"filesImported={files_imported}")
     log(f"backupPath={backup_dir}")

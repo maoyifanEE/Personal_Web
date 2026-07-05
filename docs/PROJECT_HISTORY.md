@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-07-05 - Replace stale homepage items during bundle import
+
+### Goal
+
+* Continue on `Feature/homepage-remote-publish-v1`.
+* Make Homepage/Journey bundle import replace the visible public homepage item
+  set instead of only appending or upserting bundled rows.
+
+### Actual changes
+
+* Import dry-run now reports existing visible homepage items, bundled homepage
+  items, and stale visible item IDs that would be hidden.
+* Real import now backs up stale visible homepage items before setting their
+  `is_visible` flag to false.
+* Bundled homepage items are still upserted by id after stale visible items are
+  hidden.
+* Documentation now states that old media rows may remain but are not public
+  unless referenced by the current published canvas or visible homepage item.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend API route, database migration, Auth/RBAC policy, public media
+  authorization, Journey editor behavior, or server config was changed.
+* No users, sessions, roles, permissions, runtime uploads, database files,
+  logs, backup folders, exported bundles, or secrets were committed.
+
 ## 2026-07-05 - Prepare Homepage/Journey remote publish tooling
 
 ### Goal
