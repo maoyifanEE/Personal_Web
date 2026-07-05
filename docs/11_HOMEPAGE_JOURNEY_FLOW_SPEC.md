@@ -216,7 +216,7 @@ The normal Journey editor workflow is:
 
 * upload sticker media through the existing homepage media API
 * edit strokes, nodes, and stickers on the canvas
-* click one `????` button
+* click one `保存画布` button
 * save the canvas JSON through `PUT /api/homepage/canvas`
 * notify other same-origin Journey tabs to refresh when practical
 

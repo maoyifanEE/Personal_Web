@@ -60,7 +60,7 @@ Current Journey sketch canvas v1 behavior:
 * Sticker upload, drag, resize, rotate, and delete.
 * Sticker media upload uses the local homepage media API and stores `mediaId` references in the canvas JSON.
 
-Journey canvas JSON is saved to PostgreSQL in local development through the single editor `????` action.
+Journey canvas JSON is saved to PostgreSQL in local development through the single editor `保存画布` action.
 
 Guests and normal users can read the saved Journey canvas.
 
