@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-05 - Refine Journey layout and sticker layer controls
+
+### Goal
+
+* Continue on `Feature/homepage-journey-sticker-media-v1`.
+* Make the Journey page canvas-first by removing the large top hero block.
+* Add sticker layer controls so uploaded images can behave as bottom-layer background-like stickers.
+* Add `铺满画布` for selected stickers without reintroducing a separate background upload workflow.
+
+### Actual changes
+
+* Moved `Overview`, `Details`, and `Edit journey` into floating canvas controls.
+* Kept the normal editor toolbar compact around draw, eraser, select/edit, upload sticker, save canvas, clear canvas, and exit.
+* Added selected-sticker actions for moving one layer up/down, sending to top/bottom, and covering the canvas.
+* Normalized sticker `zIndex` values into deterministic layer order before render/save.
+* Removed the old Shift-drop local background behavior so dropped images remain ordinary uploaded stickers.
+* Documented that background-like images are ordinary stickers sent to the bottom layer and saved through `保存画布`.
+
+### Safety boundaries
+
+* No backend API, database migration, Auth/RBAC policy, public media authorization, deployment script, or production server file was changed.
+* No Journey drawing, smoothing, eraser, node, media upload, Data URL blocking, or public read-only rendering behavior was intentionally changed.
+
 ## 2026-07-05 - Simplify Journey canvas save workflow
 
 ### Goal

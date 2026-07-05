@@ -11,7 +11,7 @@ const MIN_CANVAS_HEIGHT = 800;
 const MAX_CANVAS_HEIGHT = 6000;
 const MIN_STROKE_POINTS = 2;
 const STICKER_MIN_WIDTH_PERCENT = 4;
-const STICKER_MAX_WIDTH_PERCENT = 90;
+const STICKER_MAX_WIDTH_PERCENT = 600;
 const STICKER_MIN_ASPECT_RATIO = 0.05;
 const STICKER_MAX_ASPECT_RATIO = 20;
 
@@ -262,6 +262,34 @@ const sanitizeSticker = (sticker = {}) => {
   };
 };
 
+const stickerOrderFallback = (sticker, index) => {
+  const created = Date.parse(sticker.createdAt || "");
+  return Number.isFinite(created) ? created : index;
+};
+
+function getOrderedStickers(stickers = state.canvas.stickers) {
+  return stickers
+    .map((sticker, index) => ({ sticker, index }))
+    .sort((a, b) => {
+      const zDiff = normalizeNumber(a.sticker.zIndex, a.index) - normalizeNumber(b.sticker.zIndex, b.index);
+      if (zDiff !== 0) {
+        return zDiff;
+      }
+      const createdDiff = stickerOrderFallback(a.sticker, a.index) - stickerOrderFallback(b.sticker, b.index);
+      return createdDiff || a.index - b.index;
+    })
+    .map((entry) => entry.sticker);
+}
+
+function normalizeStickerZOrder(stickers = state.canvas.stickers) {
+  const ordered = getOrderedStickers(stickers);
+  ordered.forEach((sticker, index) => {
+    sticker.zIndex = index;
+  });
+  state.canvas.stickers = ordered;
+  return ordered;
+}
+
 const sanitizeState = (raw) => {
   const fallback = defaultSketchState();
   if (!raw || raw.version !== SCHEMA_VERSION || !raw.canvas) {
@@ -316,6 +344,7 @@ const sanitizeState = (raw) => {
     : null;
 
   state = merged;
+  normalizeStickerZOrder();
   reattachAllNodes();
   merged.dirty = false;
   return merged;
@@ -344,10 +373,13 @@ const parseJsonResponse = async (response) => {
   }
 };
 
-const buildPersistedCanvasPayload = () => ({
-  version: SCHEMA_VERSION,
-  canvas: clone(state.canvas)
-});
+const buildPersistedCanvasPayload = () => {
+  normalizeStickerZOrder();
+  return {
+    version: SCHEMA_VERSION,
+    canvas: clone(state.canvas)
+  };
+};
 
 const containsDataUrl = (value) => {
   if (typeof value === "string") {
@@ -1224,6 +1256,9 @@ function render() {
   root.dataset.editorMode = state.mode;
   root.dataset.activeTool = state.editor.activeTool;
   root.dataset.canEdit = String(canEditJourney());
+  document.querySelectorAll("[data-view-button]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.viewButton === state.view));
+  });
   const editorToggle = document.querySelector("[data-editor-toggle]");
   if (editorToggle) {
     editorToggle.hidden = !canEditJourney();
@@ -1382,9 +1417,7 @@ function renderNodeLayer() {
 function renderStickerLayer() {
   const layer = document.createElement("div");
   layer.className = "journey-sketch-stickers";
-  state.canvas.stickers
-    .slice()
-    .sort((a, b) => a.zIndex - b.zIndex)
+  getOrderedStickers()
     .forEach((sticker) => {
       const wrap = document.createElement("div");
       wrap.className = "journey-sketch-sticker";
@@ -1460,6 +1493,7 @@ function renderEditorPanel() {
     <p class="journey-sketch-save-hint">
       保存画布后，公开预览会读取最新版本。
     </p>
+    ${renderSelectedStickerActions()}
     <p class="journey-sketch-tool-hint" data-tool-hint>
       ${escapeHtml(activeToolHint())}
     </p>
@@ -1496,6 +1530,9 @@ function renderEditorPanel() {
   toolbar.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => handleToolbarAction(button.dataset.action));
   });
+  toolbar.querySelectorAll("[data-sticker-action]").forEach((button) => {
+    button.addEventListener("click", () => handleSelectedStickerAction(button.dataset.stickerAction));
+  });
   toolbar.querySelectorAll("[data-setting]").forEach((field) => {
     field.addEventListener("input", () => updateSetting(field));
     field.addEventListener("change", () => updateSetting(field));
@@ -1513,6 +1550,25 @@ function renderEditorPanel() {
   toolbar.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
   editorRoot.append(toolbar);
 }
+
+function renderSelectedStickerActions() {
+  const sticker = selectedSticker();
+  if (state.editor.activeTool !== "select" || !sticker) {
+    return "";
+  }
+  return `
+    <div class="journey-sketch-sticker-actions" data-selected-sticker-actions>
+      <p class="journey-sketch-sticker-actions__hint">
+        已选中贴纸：可移动、缩放、旋转、删除、调整图层或铺满画布。
+      </p>
+      <button type="button" data-sticker-action="backward">下移一层</button>
+      <button type="button" data-sticker-action="forward">上移一层</button>
+      <button type="button" data-sticker-action="to-back">置于底层</button>
+      <button type="button" data-sticker-action="to-front">置于顶层</button>
+      <button type="button" data-sticker-action="cover-canvas">铺满画布</button>
+    </div>
+  `;
+}
 function renderSettingSlider(key, label, min, max, step) {
   return `
     <label class="journey-sketch-setting">
@@ -1525,7 +1581,10 @@ function renderSettingSlider(key, label, min, max, step) {
 
 function activeToolHint() {
   if (state.editor.activeTool === "select") {
-    return "选择/编辑模式：点击贴纸后可拖动、缩放、旋转或删除；点击空白画布可取消选择。";
+    if (selectedSticker()) {
+      return "已选中贴纸：可移动、缩放、旋转、删除、调整图层或铺满画布。";
+    }
+    return "选择/编辑模式：点击贴纸后可拖动、缩放、旋转、删除或调整图层。";
   }
   if (state.editor.activeTool === "erase") {
     return "橡皮擦模式：拖动画布会擦除线条，贴纸不会被移动、缩放或旋转。";
@@ -1608,17 +1667,25 @@ function handleToolbarAction(action) {
   actions[action]?.();
 }
 
-function clearBackground() {
-  if (!guardJourneyMutation("clearBackground")) {
+function handleSelectedStickerAction(action) {
+  if (!guardJourneyMutation(`stickerAction:${action}`)) {
     return;
   }
-  state.canvas.background = {
-    imageSrc: "",
-    fit: "cover"
+  if (state.editor.activeTool !== "select" || !selectedSticker()) {
+    logJourney("Ignored sticker layer action without selected sticker.", {
+      action,
+      activeTool: state.editor.activeTool
+    });
+    return;
+  }
+  const actions = {
+    forward: moveSelectedStickerForward,
+    backward: moveSelectedStickerBackward,
+    "to-front": moveSelectedStickerToFront,
+    "to-back": moveSelectedStickerToBack,
+    "cover-canvas": coverSelectedStickerCanvas
   };
-  markDirty("background cleared");
-  showMessage("背景已清除。");
-  render();
+  actions[action]?.();
 }
 
 async function handleFileInput(input) {
@@ -1632,15 +1699,8 @@ async function handleFileInput(input) {
   }
 
   try {
-    if (input.dataset.fileInput === "background") {
-      const dataUrl = await readImageFile(file);
-      state.canvas.background.imageSrc = dataUrl;
-      markDirty("background uploaded");
-      showMessage("背景已作为本地缓存载入。背景 Data URL 不能保存到数据库。");
-    } else {
-      await addPersistentStickerFromFile(file);
-      showMessage("贴纸已上传为媒体文件并添加到画布。");
-    }
+    await addPersistentStickerFromFile(file);
+    showMessage("贴纸已上传为媒体文件并添加到画布。");
     render();
   } catch (error) {
     showMessage(error.message || "图片处理失败，请重试。", true);
@@ -1663,37 +1723,16 @@ async function handleCanvasDrop(event) {
   if (!file) {
     return;
   }
-  const useAsBackground = event.shiftKey;
   const point = canvasPointToCssPercent(clientPointToCanvasPoint(event));
 
   try {
-    if (useAsBackground) {
-      const dataUrl = await readImageFile(file);
-      state.canvas.background.imageSrc = dataUrl;
-      markDirty("background dropped");
-      showMessage("背景已作为本地缓存载入。背景 Data URL 不能保存到数据库。");
-    } else {
-      await addPersistentStickerFromFile(file, point);
-      showMessage("贴纸已上传为媒体文件并添加到画布。按住 Shift 拖入图片可设为本地背景草稿。");
-    }
+    await addPersistentStickerFromFile(file, point);
+    showMessage("贴纸已上传为媒体文件并添加到画布；如需背景效果，请选择贴纸后使用置于底层或铺满画布。");
     render();
   } catch (error) {
     showMessage(error.message || "拖入图片处理失败，请重试。", true);
     logJourney("Dropped image handling failed.", { error: error.message });
   }
-}
-
-function readImageFile(file) {
-  return new Promise((resolve, reject) => {
-    if (!file.type.startsWith("image/")) {
-      reject(new Error("Unsupported file type"));
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("File read failed"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function loadImageDimensions(file) {
@@ -1791,9 +1830,10 @@ function addSticker(imageSource, position = { xPercent: 50, yPercent: 30 }) {
     ...(typeof imageSource === "string" ? { imageSrc: imageSource } : imageSource),
     ...position,
     widthPercent: 18,
-    zIndex: 30 + state.canvas.stickers.length
+    zIndex: state.canvas.stickers.length
   });
   state.canvas.stickers.push(sticker);
+  normalizeStickerZOrder();
   state.editor.selectedStickerId = sticker.id;
   state.editor.selectedNodeId = null;
   state.editor.selectedStrokeId = null;
@@ -2062,6 +2102,93 @@ function selectNode(nodeId) {
   state.editor.selectedStickerId = null;
   state.editor.activeTool = "select";
   render();
+}
+
+function selectedSticker() {
+  return state.canvas.stickers.find((sticker) => sticker.id === state.editor.selectedStickerId) || null;
+}
+
+function reorderSelectedSticker(targetIndex) {
+  const selectedId = state.editor.selectedStickerId;
+  const ordered = normalizeStickerZOrder();
+  const currentIndex = ordered.findIndex((sticker) => sticker.id === selectedId);
+  if (currentIndex < 0) {
+    return false;
+  }
+  const nextIndex = clamp(targetIndex, 0, ordered.length - 1);
+  if (nextIndex === currentIndex) {
+    return false;
+  }
+  const [sticker] = ordered.splice(currentIndex, 1);
+  ordered.splice(nextIndex, 0, sticker);
+  ordered.forEach((item, index) => {
+    item.zIndex = index;
+  });
+  state.canvas.stickers = ordered;
+  state.editor.selectedStickerId = selectedId;
+  sticker.updatedAt = nowIso();
+  markDirty("sticker layer changed");
+  logJourney("Changed selected sticker z-order.", {
+    stickerId: selectedId,
+    fromIndex: currentIndex,
+    toIndex: nextIndex
+  });
+  render();
+  return true;
+}
+
+function moveSelectedStickerForward() {
+  const ordered = normalizeStickerZOrder();
+  const index = ordered.findIndex((sticker) => sticker.id === state.editor.selectedStickerId);
+  if (reorderSelectedSticker(index + 1)) {
+    showMessage("贴纸已上移一层。有未保存的画布修改。");
+  }
+}
+
+function moveSelectedStickerBackward() {
+  const ordered = normalizeStickerZOrder();
+  const index = ordered.findIndex((sticker) => sticker.id === state.editor.selectedStickerId);
+  if (reorderSelectedSticker(index - 1)) {
+    showMessage("贴纸已下移一层。有未保存的画布修改。");
+  }
+}
+
+function moveSelectedStickerToFront() {
+  if (reorderSelectedSticker(state.canvas.stickers.length - 1)) {
+    showMessage("贴纸已置于顶层。有未保存的画布修改。");
+  }
+}
+
+function moveSelectedStickerToBack() {
+  if (reorderSelectedSticker(0)) {
+    showMessage("贴纸已置于底层。有未保存的画布修改。");
+  }
+}
+
+function coverSelectedStickerCanvas() {
+  const sticker = selectedSticker();
+  if (!sticker) {
+    return;
+  }
+  const canvasAspect = CANVAS_WIDTH / Math.max(1, state.canvas.height);
+  const stickerAspect = clampAspectRatio(sticker.aspectRatio || 1);
+  const widthPercent = stickerAspect >= canvasAspect
+    ? 100 * (stickerAspect / canvasAspect)
+    : 100;
+  sticker.xPercent = 50;
+  sticker.yPercent = 50;
+  sticker.widthPercent = clamp(widthPercent, STICKER_MIN_WIDTH_PERCENT, STICKER_MAX_WIDTH_PERCENT);
+  sticker.rotation = 0;
+  sticker.updatedAt = nowIso();
+  markDirty("sticker covered canvas");
+  logJourney("Covered Journey canvas with selected sticker.", {
+    stickerId: sticker.id,
+    canvasAspect,
+    stickerAspect,
+    widthPercent: sticker.widthPercent
+  });
+  render();
+  showMessage("贴纸已铺满画布，可继续移动、缩放或置于底层。有未保存的画布修改。");
 }
 
 function selectedNode() {

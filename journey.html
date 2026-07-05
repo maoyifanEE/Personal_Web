@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Journey Sketch Canvas - Personal_Web</title>
+    <title>Journey Canvas - Personal_Web</title>
     <meta
       name="description"
-      content="Journey sketch canvas public read-only prototype with admin-only local editing controls."
+      content="Journey canvas public preview with admin-only local editing controls."
     >
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="./journey.css?v=20260705-simple-save-workflow">
@@ -23,13 +23,10 @@
     >
       <a class="journey-back-link" href="./index.html">Back to homepage</a>
 
-      <section class="timeline-hero" aria-label="Homepage introduction">
-        <div class="timeline-hero__copy">
-          <p class="timeline-eyebrow">Hello, World!</p>
-          <h1 id="page-title">Journey sketch canvas prototype.</h1>
-        </div>
+      <h1 class="sr-only" id="page-title">Journey sketch canvas</h1>
 
-        <div class="timeline-hero__actions">
+      <section class="journey-map" aria-label="Journey canvas workspace">
+        <div class="timeline-floating-controls">
           <div
             class="timeline-view-switch"
             role="group"
@@ -47,9 +44,6 @@
             Edit journey
           </button>
         </div>
-      </section>
-
-      <section class="journey-map" aria-label="Journey sketch canvas prototype">
         <div class="journey-areas" id="journey-areas"></div>
       </section>
     </main>

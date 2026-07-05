@@ -223,13 +223,22 @@ The normal Journey editor workflow is:
 The normal toolbar must not expose local-draft, manual database reload, database
 publish, or reset-published-canvas wording.
 
+The normal toolbar must also not expose separate background upload or clear
+background actions.
+
 Data URL images must not be published to the database.
 
 Journey sticker images should be uploaded through the homepage media API and saved
 as `mediaId` references before saving the canvas.
 
-Background images and old local sticker drafts may still contain Data URLs as
-local browser-only fallback data, but the database save must reject them.
+Background-like images are ordinary stickers. To use an uploaded image as a
+background-like canvas element, select that sticker, use `铺满画布` if needed, and
+then use `置于底层`.
+
+`保存画布` persists sticker order, geometry, aspect ratio metadata, and media IDs.
+
+Old local background or sticker drafts may still contain Data URLs as local
+browser-only fallback data, but the database save must reject them.
 
 The backend rejects any Data URL that remains in the canvas payload.
 
