@@ -131,6 +131,39 @@ The export script:
 * Writes SHA256 hashes into the manifest.
 * Reports missing files as warnings.
 
+## Local UI Export From Journey Editor
+
+Local admins can also export a publish bundle from the Journey editor.
+
+Workflow:
+
+1. Open `journey.html?edit=1`.
+2. Confirm the current user has `homepage:edit`.
+3. Edit the canvas locally.
+4. Click `保存画布`.
+5. Click `导出发布包`.
+6. The browser downloads a `homepage-publish-bundle-YYYYMMDD-HHMMSS.zip` file.
+
+The UI export calls:
+
+```text
+POST /api/homepage/publish-bundle/export
+```
+
+This endpoint is local-admin-only:
+
+* It requires an authenticated user with `homepage:edit`.
+* It requires CSRF validation.
+* It is disabled when `APP_ENV=production`.
+* It must not be added to the public Nginx allowlist.
+* It must not be documented as a public endpoint.
+
+The export still reads from the database and runtime files. If the Journey
+editor has unsaved browser changes, the UI blocks export and asks the admin to
+click `保存画布` first.
+
+Remote import remains command-line and dry-run first in v1.
+
 ## Import Flow
 
 Run from the repository root on the target machine:
@@ -138,6 +171,10 @@ Run from the repository root on the target machine:
 ```powershell
 .\scripts\import-homepage-public-bundle.ps1 -BundlePath <bundle-folder> -DryRun
 ```
+
+`-BundlePath` can point to either an unpacked bundle folder or a downloaded
+bundle ZIP. ZIP entries are checked for absolute paths and `..` traversal before
+they are unpacked under `.local_exports/`.
 
 After reviewing the dry-run report:
 
@@ -218,6 +255,7 @@ Routes and endpoints that must not be public in v1:
 * Admin write APIs.
 * Media upload APIs.
 * Canvas `PUT` and reset APIs.
+* Publish bundle export APIs.
 * Debug APIs.
 * Dev tools.
 * User/session management APIs.

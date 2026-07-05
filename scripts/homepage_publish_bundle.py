@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 from typing import Any
+import zipfile
 
 from sqlalchemy import MetaData, Table, bindparam, create_engine, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -470,10 +471,11 @@ def maybe_create_zip(bundle_dir: Path) -> Path:
     return Path(archive_path)
 
 
-def export_bundle(args: argparse.Namespace) -> None:
+def export_homepage_bundle(create_zip: bool = False, require_repo_root: bool = True) -> dict[str, Any]:
     """Export the public Homepage/Journey bundle."""
 
-    ensure_repo_root()
+    if require_repo_root:
+        ensure_repo_root()
     export_root = REPO_ROOT / EXPORT_ROOT
     bundle_dir = export_root / f"homepage-publish-bundle-{utc_now_slug()}"
     bundle_dir.mkdir(parents=True, exist_ok=False)
@@ -521,26 +523,44 @@ def export_bundle(args: argparse.Namespace) -> None:
         )
         write_json(bundle_dir / "manifest.json", manifest)
 
-    if args.create_zip:
-        maybe_create_zip(bundle_dir)
+    zip_path = maybe_create_zip(bundle_dir) if create_zip else None
+    result = {
+        "bundlePath": str(bundle_dir),
+        "zipPath": str(zip_path) if zip_path else None,
+        "manifest": manifest,
+        "mediaCount": len(media_rows),
+        "fileCount": len(copied_files),
+        "missingFileCount": len(file_warnings),
+        "warningCount": len(warnings),
+    }
+    return result
+
+
+def export_bundle(args: argparse.Namespace) -> None:
+    """CLI wrapper for exporting the public Homepage/Journey bundle."""
+
+    result = export_homepage_bundle(create_zip=args.create_zip)
+    manifest = result["manifest"]
 
     log("EXPORT_REPORT_START")
-    log(f"bundlePath={bundle_dir}")
+    log(f"bundlePath={result['bundlePath']}")
+    if result["zipPath"]:
+        log(f"zipPath={result['zipPath']}")
     log(f"sourceGitCommit={manifest['sourceGitCommit']}")
     log(f"sourceAlembicHead={manifest['sourceAlembicHead']}")
     log(f"sourceCanvasKey={manifest['sourceCanvasKey']}")
     log(f"sourceCanvasRevision={manifest['sourceCanvasRevision']}")
-    log(f"mediaCount={len(media_rows)}")
-    log(f"fileCount={len(copied_files)}")
-    log(f"missingFileCount={len(file_warnings)}")
-    log(f"warningCount={len(warnings)}")
+    log(f"mediaCount={result['mediaCount']}")
+    log(f"fileCount={result['fileCount']}")
+    log(f"missingFileCount={result['missingFileCount']}")
+    log(f"warningCount={result['warningCount']}")
     log("EXPORT_REPORT_END")
 
 
 def load_bundle(bundle_path: Path) -> tuple[Path, dict[str, Any], dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     """Load and minimally validate bundle JSON files."""
 
-    bundle_dir = bundle_path.resolve()
+    bundle_dir = resolve_bundle_path(bundle_path)
     if not bundle_dir.exists() or not bundle_dir.is_dir():
         fail(f"BundlePath must be an existing folder: {bundle_path}")
 
@@ -565,6 +585,32 @@ def load_bundle(bundle_path: Path) -> tuple[Path, dict[str, Any], dict[str, Any]
         media_payload.get("rows", []),
         item_payload.get("rows", []),
     )
+
+
+def resolve_bundle_path(bundle_path: Path) -> Path:
+    """Return a bundle directory, safely unpacking ZIP bundles when needed."""
+
+    resolved = bundle_path.resolve()
+    if resolved.is_dir():
+        return resolved
+    if not resolved.is_file() or resolved.suffix.lower() != ".zip":
+        fail(f"BundlePath must be an existing folder or ZIP file: {bundle_path}")
+
+    unpack_root = REPO_ROOT / EXPORT_ROOT / f"import-unpacked-{utc_now_slug()}"
+    unpack_root.mkdir(parents=True, exist_ok=False)
+    with zipfile.ZipFile(resolved) as archive:
+        for member in archive.infolist():
+            member_name = member.filename.replace("\\", "/")
+            if member.is_dir():
+                continue
+            if not is_safe_posix_relative(member_name):
+                fail(f"Unsafe ZIP entry rejected: {member.filename}")
+            destination = resolve_inside(unpack_root, member_name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, destination.open("wb") as output:
+                shutil.copyfileobj(source, output)
+    log(f"Unpacked ZIP bundle to {unpack_root}")
+    return unpack_root
 
 
 def verify_bundle_files(bundle_dir: Path, manifest: dict[str, Any]) -> None:

@@ -68,6 +68,8 @@ Only admins with `homepage:edit` can save it.
 
 Journey sticker uploads are persisted as homepage media in local development.
 
+Local admins can export a Homepage/Journey publish bundle ZIP from the Journey editor after saving the canvas.
+
 Old local background or sticker drafts may still contain Data URL previews as fallback data only.
 
 Data URL image persistence is intentionally rejected by the backend before saving the shared canvas.

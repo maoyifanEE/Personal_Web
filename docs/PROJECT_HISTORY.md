@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-07-05 - Add Journey editor publish bundle export UI
+
+### Goal
+
+* Continue on `Feature/homepage-remote-publish-v1`.
+* Add a local-admin-only Journey editor button for exporting the saved
+  Homepage/Journey public display bundle as a ZIP.
+
+### Actual changes
+
+* Added `导出发布包` to the Journey editor toolbar after `保存画布`.
+* Added a protected `POST /api/homepage/publish-bundle/export` backend endpoint
+  guarded by `homepage:edit` and CSRF.
+* Refactored the publish bundle helper so CLI export and backend export share
+  the same bundle generation rules.
+* The UI blocks export while the canvas has unsaved browser changes and asks
+  the admin to save first.
+* The endpoint refuses export when `APP_ENV=production`.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend migration, Auth/RBAC policy, public media authorization, remote
+  import semantics, Journey drawing, sticker editing, or server config was changed.
+* No users, sessions, roles, permissions, runtime uploads, exported bundles,
+  database files, logs, debug bundles, backups, or secrets were committed.
+
 ## 2026-07-05 - Replace stale homepage items during bundle import
 
 ### Goal
