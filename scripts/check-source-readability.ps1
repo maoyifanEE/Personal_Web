@@ -25,7 +25,12 @@ $SourceFiles = @(
   "scripts/stop-local-dev.ps1",
   "scripts/create-local-launch-shortcut.ps1",
   "scripts/create-portable-local-launcher.ps1",
-  "scripts/check-source-readability.ps1"
+  "scripts/check-source-readability.ps1",
+  "scripts/export-homepage-public-bundle.ps1",
+  "scripts/import-homepage-public-bundle.ps1",
+  "scripts/check-remote-homepage-public.ps1",
+  "scripts/publish-homepage-to-remote.example.ps1",
+  "scripts/homepage_publish_bundle.py"
 )
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path

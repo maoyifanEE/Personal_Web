@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-07-05 - Prepare Homepage/Journey remote publish tooling
+
+### Goal
+
+* Work on `Feature/homepage-remote-publish-v1`.
+* Prepare safe export/import tooling for Homepage/Journey public display data.
+* Document the public display-only remote deployment path and route allowlist.
+
+### Actual changes
+
+* Added a publish-bundle helper for exporting the default Journey canvas,
+  referenced homepage media rows, visible homepage items, and referenced media files.
+* Added PowerShell wrappers for local export, import dry-run or import, remote
+  public health checks, and a placeholder-only future publish flow.
+* Added `.local_exports/` and `.local_backups/` to Git ignore rules.
+* Added `docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md` and linked it from the README.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No production users, credentials, uploaded runtime files, database files,
+  logs, debug bundles, backups, or secrets were committed.
+* No backend API route, database migration, Auth/RBAC policy, Journey editor
+  behavior, public media authorization, or production server config was changed.
+* Admin/write/debug/reset/dev endpoints are still not part of the initial
+  public deployment plan.
+
 ## 2026-07-05 - Refine Journey layout and sticker layer controls
 
 ### Goal

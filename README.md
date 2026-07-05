@@ -194,6 +194,7 @@ Personal_Web/
 * `docs/09_BACKEND_DATABASE_PLAN.md`: backend/database status and next-stage planning.
 * `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture and implementation status.
 * `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md`: homepage, login, Hub, Journey canvas, and diagnostics flow specification.
+* `docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md`: Homepage/Journey public publish-bundle and allowlist deployment plan.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 ## Local Diagnostics
