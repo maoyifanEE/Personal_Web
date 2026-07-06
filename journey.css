@@ -2653,6 +2653,13 @@ select {
   flex: 1 1 180px;
 }
 
+.journey-node-gallery-help {
+  margin: 7px 0 0;
+  color: rgba(23, 37, 52, 0.6);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .journey-node-gallery-list {
   display: grid;
   gap: 6px;
@@ -2664,11 +2671,49 @@ select {
 .journey-node-gallery-list li {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding: 5px 7px;
   border-radius: 9px;
   background: rgba(139, 140, 246, 0.08);
+}
+
+.journey-node-gallery-list img {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border: 2px solid #ffffff;
+  border-radius: 10px;
+  background: rgba(23, 37, 52, 0.08);
+  object-fit: cover;
+  box-shadow: 0 5px 12px rgba(23, 37, 52, 0.12);
+}
+
+.journey-node-gallery-list__body {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px;
+}
+
+.journey-node-gallery-list__body strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.journey-node-gallery-list__body input {
+  width: 100%;
+  min-height: 30px;
+}
+
+.journey-node-gallery-list__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
 }
 
 .journey-node-gallery-empty {

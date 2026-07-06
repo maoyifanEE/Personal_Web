@@ -302,8 +302,19 @@ Editor preview may derive admin preview URLs at runtime.
 
 Public preview derives public media file URLs at runtime.
 
-The v1 editor provides a minimal admin field for adding a node gallery image by
-existing `mediaId`. It does not implement a full media library picker.
+The selected-node editor provides direct node image upload.
+
+The admin user selects local image files, the editor uploads them through the
+existing homepage media upload API, and the returned media IDs are appended to
+`node.galleryImages`.
+
+Normal editing must not require the user to copy or type a `mediaId`.
+
+After upload, the canvas becomes dirty and the user must still click
+`保存画布` to publish the node gallery references.
+
+Removing a node gallery image removes the reference from the node only. It does
+not delete the uploaded homepage media row or runtime file.
 
 ## Journey Node Hover Popup
 

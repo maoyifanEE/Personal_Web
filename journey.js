@@ -171,6 +171,9 @@ let journeyAuthState = {
 };
 let journeyHasEditPermission = false;
 let journeyCanEdit = false;
+let nodeGalleryUploadState = {
+  uploading: false
+};
 let remoteCanvasMeta = {
   loaded: false,
   exists: false,
@@ -1821,6 +1824,13 @@ function bindSelectedNodeEditor(panel) {
   panel.querySelectorAll("[data-gallery-action]").forEach((button) => {
     button.addEventListener("click", () => handleSelectedNodeGalleryAction(button));
   });
+  panel.querySelectorAll("[data-gallery-field]").forEach((field) => {
+    field.addEventListener("input", () => updateSelectedNodeGalleryField(field));
+    field.addEventListener("change", () => updateSelectedNodeGalleryField(field));
+  });
+  panel.querySelector("[data-node-gallery-file]")?.addEventListener("change", (event) => {
+    handleNodeGalleryFileInput(event.currentTarget);
+  });
   panel.querySelector("[data-node-action='copy-style']")?.addEventListener("click", copySelectedNodeStyle);
   panel.querySelector("[data-node-action='set-default-style']")?.addEventListener("click", setSelectedNodeStyleAsDefault);
   panel.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
@@ -1918,14 +1928,28 @@ function renderNodeColorSwatches(node) {
 
 function renderNodeGalleryList(node) {
   if (!node.galleryImages.length) {
-    return "<p class=\"journey-node-gallery-empty\">暂无节点图片。可先填写媒体 ID 添加。</p>";
+    return "<p class=\"journey-node-gallery-empty\">暂无节点图片。点击“上传节点图片”后会自动添加到这里。</p>";
   }
   return `
     <ul class="journey-node-gallery-list">
       ${node.galleryImages.map((image, index) => `
         <li>
-          <span>mediaId ${image.mediaId}</span>
-          <button type="button" data-gallery-action="remove" data-gallery-index="${index}">移除</button>
+          <img src="${escapeHtml(nodeGalleryImageSrc(image, { useAdminPreview: true }))}" alt="${escapeHtml(image.alt || `node image ${index + 1}`)}">
+          <div class="journey-node-gallery-list__body">
+            <strong>${escapeHtml(image.alt || `图片 ${index + 1}`)}</strong>
+            <input
+              type="text"
+              data-gallery-field="caption"
+              data-gallery-index="${index}"
+              value="${escapeHtml(image.caption || "")}"
+              placeholder="图片说明"
+            >
+          </div>
+          <div class="journey-node-gallery-list__actions">
+            <button type="button" data-gallery-action="move-up" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>上移</button>
+            <button type="button" data-gallery-action="move-down" data-gallery-index="${index}" ${index === node.galleryImages.length - 1 ? "disabled" : ""}>下移</button>
+            <button type="button" data-gallery-action="remove" data-gallery-index="${index}">移除</button>
+          </div>
         </li>
       `).join("")}
     </ul>
@@ -2014,10 +2038,12 @@ function renderSelectedNodePanelV2() {
     <div class="journey-node-gallery-editor">
       <p>节点图片</p>
       <div class="journey-node-gallery-add">
-        <input type="number" min="1" step="1" data-gallery-media-id placeholder="mediaId">
-        <input type="text" data-gallery-caption placeholder="图片说明">
-        <button type="button" data-gallery-action="add">添加图片</button>
+        <button type="button" data-gallery-action="upload" ${nodeGalleryUploadState.uploading ? "disabled" : ""}>
+          ${nodeGalleryUploadState.uploading ? "正在上传节点图片..." : "上传节点图片"}
+        </button>
+        <input type="file" accept="image/*" multiple hidden data-node-gallery-file>
       </div>
+      <p class="journey-node-gallery-help">图片会上传为首页媒体，并自动作为 mediaId 引用保存到节点图库。请再点击“保存画布”发布引用。</p>
       ${renderNodeGalleryList(node)}
     </div>
     <dl>
@@ -2199,20 +2225,44 @@ function loadImageDimensions(file) {
 }
 
 async function uploadJourneyStickerMedia(file) {
+  return uploadJourneyImageMedia(file, {
+    title: file?.name || "Journey sticker",
+    description: "Journey sticker media upload",
+    invalidTypeMessage: "只支持上传图片贴纸。",
+    authMessage: "认证服务不可用，无法上传贴纸媒体。",
+    failurePrefix: "贴纸媒体上传失败",
+    invalidResponseMessage: "贴纸媒体上传返回的数据无效。",
+    logLabel: "Journey sticker media"
+  });
+}
+
+async function uploadJourneyNodeGalleryMedia(file) {
+  return uploadJourneyImageMedia(file, {
+    title: file?.name || "Journey node image",
+    description: "Journey node gallery image upload",
+    invalidTypeMessage: "只支持上传节点图片。",
+    authMessage: "认证服务不可用，无法上传节点图片。",
+    failurePrefix: "节点图片上传失败",
+    invalidResponseMessage: "节点图片上传返回的数据无效。",
+    logLabel: "Journey node gallery media"
+  });
+}
+
+async function uploadJourneyImageMedia(file, options = {}) {
   if (!file?.type?.startsWith("image/")) {
-    throw new Error("只支持上传图片贴纸。");
+    throw new Error(options.invalidTypeMessage || "只支持上传图片。");
   }
   if (!window.PersonalWebAuth?.authFetch) {
-    throw new Error("认证服务不可用，无法上传贴纸媒体。");
+    throw new Error(options.authMessage || "认证服务不可用，无法上传图片。");
   }
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("title", file.name || "Journey sticker");
-  formData.append("description", "Journey sticker media upload");
+  formData.append("title", options.title || file.name || "Journey image");
+  formData.append("description", options.description || "Journey image upload");
   formData.append("sort_order", "0");
 
-  logJourney("Uploading Journey sticker media.", {
+  logJourney(`Uploading ${options.logLabel || "Journey image media"}.`, {
     filename: file.name,
     mimeType: file.type,
     size: file.size
@@ -2223,12 +2273,12 @@ async function uploadJourneyStickerMedia(file) {
   });
   const body = await parseJsonResponse(response);
   if (!response.ok) {
-    throw new Error(body.detail || `贴纸媒体上传失败：${response.status}`);
+    throw new Error(body.detail || `${options.failurePrefix || "图片上传失败"}：${response.status}`);
   }
   if (body.mediaType !== "image" || !normalizeOptionalMediaId(body.id)) {
-    throw new Error("贴纸媒体上传返回的数据无效。");
+    throw new Error(options.invalidResponseMessage || "图片上传返回的数据无效。");
   }
-  logJourney("Uploaded Journey sticker media.", {
+  logJourney(`Uploaded ${options.logLabel || "Journey image media"}.`, {
     mediaId: body.id,
     filename: body.originalFilename || body.title || file.name
   });
@@ -2714,34 +2764,122 @@ function handleSelectedNodeGalleryAction(button) {
   }
   const node = selectedNode();
   if (!node) {
+    showMessage("请先选择一个节点。", true);
     return;
   }
   const action = button.dataset.galleryAction;
-  if (action === "add") {
-    const container = button.closest(".journey-node-gallery-add");
-    const mediaId = normalizeOptionalMediaId(container?.querySelector("[data-gallery-media-id]")?.value);
-    const caption = container?.querySelector("[data-gallery-caption]")?.value || "";
-    if (!mediaId) {
-      showMessage("请输入有效的媒体 ID。", true);
+  if (action === "upload") {
+    if (nodeGalleryUploadState.uploading) {
       return;
     }
-    node.galleryImages = sanitizeGalleryImages([
-      ...node.galleryImages,
-      {
-        mediaId,
-        alt: node.title || node.label || node.id,
-        caption
-      }
-    ]);
-    node.updatedAt = nowIso();
-    markDirty("node gallery image added");
-    showMessage("已添加节点图片引用。");
-    render();
+    const fileInput = button.closest(".journey-node-gallery-editor")?.querySelector("[data-node-gallery-file]");
+    fileInput?.click();
   } else if (action === "remove") {
     const index = Number(button.dataset.galleryIndex);
     node.galleryImages = node.galleryImages.filter((_, itemIndex) => itemIndex !== index);
     node.updatedAt = nowIso();
     markDirty("node gallery image removed");
+    render();
+  } else if (action === "move-up" || action === "move-down") {
+    const index = Number(button.dataset.galleryIndex);
+    const nextIndex = action === "move-up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= node.galleryImages.length) {
+      return;
+    }
+    const images = [...node.galleryImages];
+    const [image] = images.splice(index, 1);
+    images.splice(nextIndex, 0, image);
+    node.galleryImages = sanitizeGalleryImages(images);
+    node.updatedAt = nowIso();
+    markDirty("node gallery image reordered");
+    render();
+  }
+}
+
+function updateSelectedNodeGalleryField(field) {
+  if (!guardJourneyMutation("updateSelectedNodeGalleryField")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    return;
+  }
+  const index = Number(field.dataset.galleryIndex);
+  const image = node.galleryImages[index];
+  if (!image) {
+    return;
+  }
+  if (field.dataset.galleryField === "caption") {
+    image.caption = field.value.slice(0, 180);
+  }
+  node.updatedAt = nowIso();
+  markDirty("node gallery image updated");
+}
+
+async function handleNodeGalleryFileInput(input) {
+  if (!guardJourneyMutation("handleNodeGalleryFileInput")) {
+    input.value = "";
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    showMessage("请先选择一个节点。", true);
+    input.value = "";
+    return;
+  }
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if (!files.length) {
+    showMessage("未选择图片。", true);
+    return;
+  }
+  const invalidFile = files.find((file) => !file.type?.startsWith("image/"));
+  if (invalidFile) {
+    showMessage(`不支持的文件类型：${invalidFile.name || invalidFile.type || "unknown"}`, true);
+    return;
+  }
+  if (nodeGalleryUploadState.uploading) {
+    showMessage("节点图片正在上传，请稍后。", true);
+    return;
+  }
+
+  nodeGalleryUploadState.uploading = true;
+  showMessage("正在上传节点图片...");
+  render();
+  const uploadedImages = [];
+  try {
+    for (const file of files) {
+      const media = await uploadJourneyNodeGalleryMedia(file);
+      const mediaId = normalizeOptionalMediaId(media.id);
+      if (!mediaId) {
+        throw new Error("节点图片上传返回缺少 mediaId。");
+      }
+      uploadedImages.push({
+        mediaId,
+        alt: media.title || media.originalFilename || file.name || node.title || node.label || node.id,
+        caption: ""
+      });
+    }
+    const currentNode = selectedNode();
+    if (!currentNode || currentNode.id !== node.id) {
+      throw new Error("上传完成前选中的节点已变化，请重新选择节点后再添加图片。");
+    }
+    currentNode.galleryImages = sanitizeGalleryImages([
+      ...currentNode.galleryImages,
+      ...uploadedImages
+    ]);
+    currentNode.updatedAt = nowIso();
+    markDirty("node gallery image uploaded");
+    showMessage("图片已上传并添加到节点，请保存画布。");
+    logJourney("Added uploaded node gallery images.", {
+      nodeId: currentNode.id,
+      mediaIds: uploadedImages.map((image) => image.mediaId)
+    });
+  } catch (error) {
+    showMessage(`节点图片上传失败：${error.message}`, true);
+    logJourney("Node gallery image upload failed.", { error: error.message });
+  } finally {
+    nodeGalleryUploadState.uploading = false;
     render();
   }
 }

@@ -1,5 +1,35 @@
 # Project History
 
+## 2026-07-06 - Add direct Journey node gallery image upload
+
+### Goal
+
+* Continue on `Feature/journey-node-hover-gallery-v1`.
+* Replace the selected-node gallery workflow that required manually entering a
+  `mediaId`.
+* Preserve the accepted slim route visual design, colorful node badge design,
+  floating selected-node editor, sticker upload flow, save flow, public preview,
+  and Journey-only publish bundle export.
+
+### Actual changes
+
+* Added a selected-node `上传节点图片` file upload action for image files.
+* Reused the existing homepage media upload API and authenticated multipart
+  upload flow already used by Journey stickers.
+* Automatically appends uploaded image media IDs to `node.galleryImages`.
+* Added compact selected-node gallery previews, caption editing, remove, and
+  up/down ordering controls.
+* Kept saved canvas JSON as `mediaId` references only; no Data URLs, local
+  paths, admin-file URLs, or public file URLs are stored.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No backend code, database migration, Auth/RBAC policy, server config, or
+  production route rule was changed.
+* No runtime uploads, exported bundles, database files, logs, debug bundles,
+  backups, `.env`, `.venv`, or secrets were committed.
+
 ## 2026-07-05 - Add Journey node hover gallery and style controls
 
 ### Goal
