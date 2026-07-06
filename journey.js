@@ -17,19 +17,19 @@ const STICKER_MIN_ASPECT_RATIO = 0.05;
 const STICKER_MAX_ASPECT_RATIO = 20;
 const DEFAULT_ROUTE_STYLE = Object.freeze({
   color: "#8B8CF6",
-  width: 10,
+  width: 4,
   dashed: true,
-  dashLength: 18,
-  dashGap: 16
+  dashLength: 12,
+  dashGap: 10
 });
 const DEFAULT_NODE_STYLE = Object.freeze({
   color: "#8B8CF6",
-  size: 34,
+  size: 42,
   ring: "double",
   glow: "soft"
 });
 const NODE_COLOR_OPTIONS = ["#8B8CF6", "#7C3AED", "#22C55E", "#F97316", "#EC4899", "#06B6D4", "#FACC15"];
-const MIN_NODE_SIZE = 18;
+const MIN_NODE_SIZE = 24;
 const MAX_NODE_SIZE = 72;
 const MIN_PREVIEW_THUMBNAILS = 1;
 const MAX_PREVIEW_THUMBNAILS = 10;
@@ -252,20 +252,52 @@ const sanitizeBackground = (background = {}) => ({
   opacity: clamp(normalizeNumber(background.opacity, 1), 0, 1)
 });
 
-const sanitizeRouteStyle = (style = {}) => ({
-  color: sanitizeHexColor(style.color, DEFAULT_ROUTE_STYLE.color),
-  width: Math.round(clamp(normalizeNumber(style.width, DEFAULT_ROUTE_STYLE.width), 3, 28)),
-  dashed: style.dashed === undefined ? DEFAULT_ROUTE_STYLE.dashed : Boolean(style.dashed),
-  dashLength: Math.round(clamp(normalizeNumber(style.dashLength, DEFAULT_ROUTE_STYLE.dashLength), 4, 48)),
-  dashGap: Math.round(clamp(normalizeNumber(style.dashGap, DEFAULT_ROUTE_STYLE.dashGap), 2, 48))
-});
+const sanitizeRouteStyle = (style = {}) => {
+  const width = normalizeNumber(style.width, DEFAULT_ROUTE_STYLE.width);
+  const dashLength = normalizeNumber(style.dashLength, DEFAULT_ROUTE_STYLE.dashLength);
+  const dashGap = normalizeNumber(style.dashGap, DEFAULT_ROUTE_STYLE.dashGap);
+  const looksLikeLegacyChunkyDefault =
+    Math.round(width) === 10 &&
+    Math.round(dashLength) === 18 &&
+    Math.round(dashGap) === 16;
+  return {
+    color: sanitizeHexColor(style.color, DEFAULT_ROUTE_STYLE.color),
+    width: Math.round(clamp(
+      looksLikeLegacyChunkyDefault ? DEFAULT_ROUTE_STYLE.width : width,
+      2,
+      18
+    )),
+    dashed: style.dashed === undefined ? DEFAULT_ROUTE_STYLE.dashed : Boolean(style.dashed),
+    dashLength: Math.round(clamp(
+      looksLikeLegacyChunkyDefault ? DEFAULT_ROUTE_STYLE.dashLength : dashLength,
+      4,
+      28
+    )),
+    dashGap: Math.round(clamp(
+      looksLikeLegacyChunkyDefault ? DEFAULT_ROUTE_STYLE.dashGap : dashGap,
+      4,
+      28
+    ))
+  };
+};
 
-const sanitizeNodeStyle = (style = {}) => ({
-  color: sanitizeHexColor(style.color, DEFAULT_NODE_STYLE.color),
-  size: Math.round(clamp(normalizeNumber(style.size, DEFAULT_NODE_STYLE.size), MIN_NODE_SIZE, MAX_NODE_SIZE)),
-  ring: ["double", "simple"].includes(style.ring) ? style.ring : DEFAULT_NODE_STYLE.ring,
-  glow: ["none", "soft"].includes(style.glow) ? style.glow : DEFAULT_NODE_STYLE.glow
-});
+const sanitizeNodeStyle = (style = {}) => {
+  const color = sanitizeHexColor(style.color, DEFAULT_NODE_STYLE.color);
+  const rawSize = normalizeNumber(style.size, DEFAULT_NODE_STYLE.size);
+  const looksLikeLegacyDefault =
+    Math.round(rawSize) === 34 &&
+    color.toLowerCase() === DEFAULT_NODE_STYLE.color.toLowerCase();
+  return {
+    color,
+    size: Math.round(clamp(
+      looksLikeLegacyDefault ? DEFAULT_NODE_STYLE.size : rawSize,
+      MIN_NODE_SIZE,
+      MAX_NODE_SIZE
+    )),
+    ring: ["double", "simple"].includes(style.ring) ? style.ring : DEFAULT_NODE_STYLE.ring,
+    glow: ["none", "soft"].includes(style.glow) ? style.glow : DEFAULT_NODE_STYLE.glow
+  };
+};
 
 const sanitizeGalleryImage = (image = {}) => {
   const mediaId = normalizeOptionalMediaId(image.mediaId);
@@ -1525,10 +1557,8 @@ function renderStrokeLayer() {
     const shadow = document.createElementNS("http://www.w3.org/2000/svg", "path");
     shadow.setAttribute("class", "journey-sketch-stroke-shadow");
     shadow.setAttribute("d", d);
-    shadow.setAttribute("stroke-width", String(routeStyle.width + 12));
-    if (dashValue) {
-      shadow.setAttribute("stroke-dasharray", dashValue);
-    }
+    shadow.setAttribute("stroke", routeStyle.color);
+    shadow.setAttribute("stroke-width", String(routeStyle.width + 5));
     const main = document.createElementNS("http://www.w3.org/2000/svg", "path");
     main.setAttribute("class", "journey-sketch-stroke-main");
     main.setAttribute("d", d);
@@ -1550,7 +1580,7 @@ function renderStrokeLayer() {
         circle.setAttribute("class", "journey-sketch-endpoint");
         circle.setAttribute("cx", point.x);
         circle.setAttribute("cy", point.y);
-        circle.setAttribute("r", "7");
+        circle.setAttribute("r", "4.5");
         svg.append(circle);
       });
     }
@@ -1745,9 +1775,6 @@ function renderEditorPanel() {
         显示采样点
       </label>
     </details>
-    <div class="journey-sketch-node-panel">
-      ${renderSelectedNodePanelV2()}
-    </div>
     <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden data-file-input="sticker">
     <p class="journey-sketch-remote-status" data-remote-status data-error="${remoteCanvasMeta.warning}">
       ${escapeHtml(remoteCanvasMeta.status)}
@@ -1776,23 +1803,43 @@ function renderEditorPanel() {
   toolbar.querySelectorAll("[data-file-input]").forEach((input) => {
     input.addEventListener("change", () => handleFileInput(input));
   });
-  toolbar.querySelector("[data-node-label]")?.addEventListener("input", (event) => updateSelectedNodeLabel(event.target.value));
-  toolbar.querySelectorAll("[data-node-field]").forEach((field) => {
+  editorRoot.append(toolbar);
+  renderSelectedNodeEditor();
+}
+
+function bindSelectedNodeEditor(panel) {
+  panel.querySelector("[data-node-label]")?.addEventListener("input", (event) => updateSelectedNodeLabel(event.target.value));
+  panel.querySelectorAll("[data-node-field]").forEach((field) => {
     field.addEventListener("input", () => updateSelectedNodeField(field));
     field.addEventListener("change", () => updateSelectedNodeField(field));
   });
-  toolbar.querySelectorAll("[data-node-style]").forEach((field) => {
+  panel.querySelectorAll("[data-node-style]").forEach((field) => {
     field.addEventListener("click", () => updateSelectedNodeStyle(field));
     field.addEventListener("input", () => updateSelectedNodeStyle(field));
     field.addEventListener("change", () => updateSelectedNodeStyle(field));
   });
-  toolbar.querySelectorAll("[data-gallery-action]").forEach((button) => {
+  panel.querySelectorAll("[data-gallery-action]").forEach((button) => {
     button.addEventListener("click", () => handleSelectedNodeGalleryAction(button));
   });
-  toolbar.querySelector("[data-node-action='copy-style']")?.addEventListener("click", copySelectedNodeStyle);
-  toolbar.querySelector("[data-node-action='set-default-style']")?.addEventListener("click", setSelectedNodeStyleAsDefault);
-  toolbar.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
-  editorRoot.append(toolbar);
+  panel.querySelector("[data-node-action='copy-style']")?.addEventListener("click", copySelectedNodeStyle);
+  panel.querySelector("[data-node-action='set-default-style']")?.addEventListener("click", setSelectedNodeStyleAsDefault);
+  panel.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
+}
+
+function renderSelectedNodeEditor() {
+  if (
+    state.mode !== "edit" ||
+    state.editor.activeTool !== "select" ||
+    !selectedNode()
+  ) {
+    return;
+  }
+  const panel = document.createElement("aside");
+  panel.className = "journey-sketch-node-panel journey-sketch-node-panel--floating";
+  panel.setAttribute("aria-label", "Selected journey node editor");
+  panel.innerHTML = renderSelectedNodePanelV2();
+  bindSelectedNodeEditor(panel);
+  editorRoot.append(panel);
 }
 
 function renderSelectedStickerActions() {
@@ -1834,7 +1881,7 @@ function renderRouteStyleControls() {
       </label>
       <label class="journey-sketch-setting">
         <span>路线粗细</span>
-        <input type="range" min="3" max="28" step="1" data-setting="routeWidth" value="${style.width}">
+        <input type="range" min="2" max="18" step="1" data-setting="routeWidth" value="${style.width}">
         <strong>${style.width}</strong>
       </label>
       <label class="journey-sketch-check">
@@ -1843,12 +1890,12 @@ function renderRouteStyleControls() {
       </label>
       <label class="journey-sketch-setting">
         <span>虚线长度</span>
-        <input type="range" min="4" max="48" step="1" data-setting="routeDashLength" value="${style.dashLength}">
+        <input type="range" min="4" max="28" step="1" data-setting="routeDashLength" value="${style.dashLength}">
         <strong>${style.dashLength}</strong>
       </label>
       <label class="journey-sketch-setting">
         <span>虚线间隔</span>
-        <input type="range" min="2" max="48" step="1" data-setting="routeDashGap" value="${style.dashGap}">
+        <input type="range" min="4" max="28" step="1" data-setting="routeDashGap" value="${style.dashGap}">
         <strong>${style.dashGap}</strong>
       </label>
     </div>
@@ -2017,13 +2064,13 @@ function updateSetting(field) {
   } else if (key === "routeColor") {
     state.canvas.routeStyle.color = sanitizeHexColor(field.value, DEFAULT_ROUTE_STYLE.color);
   } else if (key === "routeWidth") {
-    state.canvas.routeStyle.width = Math.round(clamp(Number(field.value), 3, 28));
+    state.canvas.routeStyle.width = Math.round(clamp(Number(field.value), 2, 18));
   } else if (key === "routeDashed") {
     state.canvas.routeStyle.dashed = field.checked;
   } else if (key === "routeDashLength") {
-    state.canvas.routeStyle.dashLength = Math.round(clamp(Number(field.value), 4, 48));
+    state.canvas.routeStyle.dashLength = Math.round(clamp(Number(field.value), 4, 28));
   } else if (key === "routeDashGap") {
-    state.canvas.routeStyle.dashGap = Math.round(clamp(Number(field.value), 2, 48));
+    state.canvas.routeStyle.dashGap = Math.round(clamp(Number(field.value), 4, 28));
   } else if (key === "showSamples") {
     state.editor.showSamples = field.checked;
   } else {
