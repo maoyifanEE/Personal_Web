@@ -15,6 +15,26 @@ const STICKER_MIN_WIDTH_PERCENT = 4;
 const STICKER_MAX_WIDTH_PERCENT = 600;
 const STICKER_MIN_ASPECT_RATIO = 0.05;
 const STICKER_MAX_ASPECT_RATIO = 20;
+const DEFAULT_ROUTE_STYLE = Object.freeze({
+  color: "#8B8CF6",
+  width: 4,
+  dashed: true,
+  dashLength: 12,
+  dashGap: 10
+});
+const DEFAULT_NODE_STYLE = Object.freeze({
+  color: "#8B8CF6",
+  size: 42,
+  ring: "double",
+  glow: "soft"
+});
+const NODE_COLOR_OPTIONS = ["#8B8CF6", "#7C3AED", "#22C55E", "#F97316", "#EC4899", "#06B6D4", "#FACC15"];
+const MIN_NODE_SIZE = 24;
+const MAX_NODE_SIZE = 72;
+const MIN_PREVIEW_THUMBNAILS = 1;
+const MAX_PREVIEW_THUMBNAILS = 10;
+const DEFAULT_PREVIEW_THUMBNAILS = 4;
+const NODE_HOVER_CLOSE_DELAY_MS = 220;
 
 const root = document.querySelector(".timeline-home");
 const canvasHost = document.querySelector("#journey-areas");
@@ -64,6 +84,19 @@ const stickerImageSrc = (sticker, options = {}) => {
   return mediaUrl || (typeof sticker?.imageSrc === "string" ? sticker.imageSrc : "");
 };
 
+const nodeGalleryImageSrc = (image, options = {}) => {
+  const useAdminPreview = Boolean(options.useAdminPreview);
+  return useAdminPreview
+    ? homepageMediaAdminFileUrl(image?.mediaId)
+    : homepageMediaPublicFileUrl(image?.mediaId);
+};
+
+function sanitizeHexColor(value, fallback) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value.trim())
+    ? value.trim()
+    : fallback;
+}
+
 function clampAspectRatio(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number <= 0) {
@@ -98,6 +131,9 @@ const defaultSketchState = () => ({
       positionY: 50,
       opacity: 1
     },
+    routeStyle: { ...DEFAULT_ROUTE_STYLE },
+    defaultNodeStyle: { ...DEFAULT_NODE_STYLE },
+    maxPreviewThumbnails: DEFAULT_PREVIEW_THUMBNAILS,
     strokes: [],
     nodes: [],
     stickers: [],
@@ -115,7 +151,8 @@ const defaultSketchState = () => ({
     smoothIterations: 2,
     snapRadius: 34,
     eraseRadius: 22,
-    endpointTolerance: 8
+    endpointTolerance: 8,
+    nodeStyleTemplate: null
   }
 });
 
@@ -134,6 +171,9 @@ let journeyAuthState = {
 };
 let journeyHasEditPermission = false;
 let journeyCanEdit = false;
+let nodeGalleryUploadState = {
+  uploading: false
+};
 let remoteCanvasMeta = {
   loaded: false,
   exists: false,
@@ -146,6 +186,11 @@ let remoteCanvasMeta = {
 };
 let publishBundleExportMeta = {
   exporting: false
+};
+let nodeHoverState = {
+  nodeId: null,
+  imageIndex: 0,
+  closeTimer: null
 };
 
 function canEditJourney() {
@@ -210,6 +255,69 @@ const sanitizeBackground = (background = {}) => ({
   opacity: clamp(normalizeNumber(background.opacity, 1), 0, 1)
 });
 
+const sanitizeRouteStyle = (style = {}) => {
+  const width = normalizeNumber(style.width, DEFAULT_ROUTE_STYLE.width);
+  const dashLength = normalizeNumber(style.dashLength, DEFAULT_ROUTE_STYLE.dashLength);
+  const dashGap = normalizeNumber(style.dashGap, DEFAULT_ROUTE_STYLE.dashGap);
+  const looksLikeLegacyChunkyDefault =
+    Math.round(width) === 10 &&
+    Math.round(dashLength) === 18 &&
+    Math.round(dashGap) === 16;
+  return {
+    color: sanitizeHexColor(style.color, DEFAULT_ROUTE_STYLE.color),
+    width: Math.round(clamp(
+      looksLikeLegacyChunkyDefault ? DEFAULT_ROUTE_STYLE.width : width,
+      2,
+      18
+    )),
+    dashed: style.dashed === undefined ? DEFAULT_ROUTE_STYLE.dashed : Boolean(style.dashed),
+    dashLength: Math.round(clamp(
+      looksLikeLegacyChunkyDefault ? DEFAULT_ROUTE_STYLE.dashLength : dashLength,
+      4,
+      28
+    )),
+    dashGap: Math.round(clamp(
+      looksLikeLegacyChunkyDefault ? DEFAULT_ROUTE_STYLE.dashGap : dashGap,
+      4,
+      28
+    ))
+  };
+};
+
+const sanitizeNodeStyle = (style = {}) => {
+  const color = sanitizeHexColor(style.color, DEFAULT_NODE_STYLE.color);
+  const rawSize = normalizeNumber(style.size, DEFAULT_NODE_STYLE.size);
+  const looksLikeLegacyDefault =
+    Math.round(rawSize) === 34 &&
+    color.toLowerCase() === DEFAULT_NODE_STYLE.color.toLowerCase();
+  return {
+    color,
+    size: Math.round(clamp(
+      looksLikeLegacyDefault ? DEFAULT_NODE_STYLE.size : rawSize,
+      MIN_NODE_SIZE,
+      MAX_NODE_SIZE
+    )),
+    ring: ["double", "simple"].includes(style.ring) ? style.ring : DEFAULT_NODE_STYLE.ring,
+    glow: ["none", "soft"].includes(style.glow) ? style.glow : DEFAULT_NODE_STYLE.glow
+  };
+};
+
+const sanitizeGalleryImage = (image = {}) => {
+  const mediaId = normalizeOptionalMediaId(image.mediaId);
+  if (!mediaId) {
+    return null;
+  }
+  return {
+    mediaId,
+    alt: typeof image.alt === "string" ? image.alt.slice(0, 120) : "",
+    caption: typeof image.caption === "string" ? image.caption.slice(0, 180) : ""
+  };
+};
+
+const sanitizeGalleryImages = (images = []) => Array.isArray(images)
+  ? images.map(sanitizeGalleryImage).filter(Boolean).slice(0, 24)
+  : [];
+
 const sanitizeStroke = (stroke = {}) => {
   const points = Array.isArray(stroke.points)
     ? removeNearDuplicatePoints(stroke.points.map(normalizePoint), 0.5)
@@ -226,17 +334,28 @@ const sanitizeStroke = (stroke = {}) => {
   };
 };
 
-const sanitizeNode = (node = {}) => ({
-  id: typeof node.id === "string" && node.id ? node.id : `N${state.canvas.nextNodeNumber.toString().padStart(3, "0")}`,
-  label: typeof node.label === "string" && node.label ? node.label : node.id || "Node",
-  x: clamp(normalizeNumber(node.x, 0), 0, CANVAS_WIDTH),
-  y: clamp(normalizeNumber(node.y, 0), 0, state.canvas.height),
-  strokeId: typeof node.strokeId === "string" ? node.strokeId : null,
-  segmentIndex: Number.isFinite(Number(node.segmentIndex)) ? Math.max(0, Math.round(Number(node.segmentIndex))) : null,
-  componentId: typeof node.componentId === "string" ? node.componentId : null,
-  createdAt: typeof node.createdAt === "string" ? node.createdAt : nowIso(),
-  updatedAt: typeof node.updatedAt === "string" ? node.updatedAt : nowIso()
-});
+const sanitizeNode = (node = {}) => {
+  const fallbackId = `N${state.canvas.nextNodeNumber.toString().padStart(3, "0")}`;
+  const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
+  const label = typeof node.label === "string" && node.label ? node.label : id;
+  return {
+    id,
+    label,
+    title: typeof node.title === "string" && node.title ? node.title : label,
+    subtitle: typeof node.subtitle === "string" ? node.subtitle.slice(0, 160) : "",
+    meta: typeof node.meta === "string" ? node.meta.slice(0, 160) : "",
+    description: typeof node.description === "string" ? node.description.slice(0, 400) : "",
+    x: clamp(normalizeNumber(node.x, 0), 0, CANVAS_WIDTH),
+    y: clamp(normalizeNumber(node.y, 0), 0, state.canvas.height),
+    strokeId: typeof node.strokeId === "string" ? node.strokeId : null,
+    segmentIndex: Number.isFinite(Number(node.segmentIndex)) ? Math.max(0, Math.round(Number(node.segmentIndex))) : null,
+    componentId: typeof node.componentId === "string" ? node.componentId : null,
+    style: sanitizeNodeStyle(node.style || state.canvas.defaultNodeStyle),
+    galleryImages: sanitizeGalleryImages(node.galleryImages),
+    createdAt: typeof node.createdAt === "string" ? node.createdAt : nowIso(),
+    updatedAt: typeof node.updatedAt === "string" ? node.updatedAt : nowIso()
+  };
+};
 
 const sanitizeSticker = (sticker = {}) => {
   const naturalWidth = normalizeOptionalDimension(sticker.naturalWidth);
@@ -320,6 +439,13 @@ const sanitizeState = (raw) => {
   merged.canvas.width = CANVAS_WIDTH;
   merged.canvas.height = Math.round(clamp(normalizeNumber(merged.canvas.height, DEFAULT_CANVAS_HEIGHT), MIN_CANVAS_HEIGHT, MAX_CANVAS_HEIGHT));
   merged.canvas.background = sanitizeBackground(merged.canvas.background);
+  merged.canvas.routeStyle = sanitizeRouteStyle(merged.canvas.routeStyle);
+  merged.canvas.defaultNodeStyle = sanitizeNodeStyle(merged.canvas.defaultNodeStyle);
+  merged.canvas.maxPreviewThumbnails = Math.round(clamp(
+    normalizeNumber(merged.canvas.maxPreviewThumbnails, DEFAULT_PREVIEW_THUMBNAILS),
+    MIN_PREVIEW_THUMBNAILS,
+    MAX_PREVIEW_THUMBNAILS
+  ));
   merged.canvas.strokes = Array.isArray(merged.canvas.strokes)
     ? merged.canvas.strokes.map(sanitizeStroke).filter(Boolean)
     : [];
@@ -340,6 +466,9 @@ const sanitizeState = (raw) => {
   merged.editor.snapRadius = Math.round(clamp(normalizeNumber(merged.editor.snapRadius, 34), 8, 100));
   merged.editor.eraseRadius = Math.round(clamp(normalizeNumber(merged.editor.eraseRadius, 22), 4, 90));
   merged.editor.endpointTolerance = Math.round(clamp(normalizeNumber(merged.editor.endpointTolerance, 8), 2, 40));
+  merged.editor.nodeStyleTemplate = merged.editor.nodeStyleTemplate
+    ? sanitizeNodeStyle(merged.editor.nodeStyleTemplate)
+    : null;
   merged.editor.selectedNodeId = merged.canvas.nodes.some((node) => node.id === merged.editor.selectedNodeId)
     ? merged.editor.selectedNodeId
     : null;
@@ -1208,14 +1337,21 @@ function addNodeNear(point) {
   }
   const nodeId = `N${state.canvas.nextNodeNumber.toString().padStart(3, "0")}`;
   state.canvas.nextNodeNumber += 1;
+  const inheritedStyle = sanitizeNodeStyle(state.editor.nodeStyleTemplate || state.canvas.defaultNodeStyle);
   const node = {
     id: nodeId,
     label: nodeId,
+    title: nodeId,
+    subtitle: "",
+    meta: "",
+    description: "",
     x: projection.point.x,
     y: projection.point.y,
     strokeId: projection.strokeId,
     segmentIndex: projection.segmentIndex,
     componentId: projection.componentId,
+    style: inheritedStyle,
+    galleryImages: [],
     createdAt: nowIso(),
     updatedAt: nowIso()
   };
@@ -1413,6 +1549,8 @@ function renderStrokeLayer() {
   svg.classList.add("journey-sketch-strokes");
   svg.setAttribute("viewBox", `0 0 ${CANVAS_WIDTH} ${state.canvas.height}`);
   svg.setAttribute("preserveAspectRatio", "none");
+  const routeStyle = sanitizeRouteStyle(state.canvas.routeStyle);
+  const dashValue = routeStyle.dashed ? `${routeStyle.dashLength} ${routeStyle.dashGap}` : "";
   const endpointCounts = endpointConnectionCounts();
   state.canvas.strokes.forEach((stroke) => {
     const d = strokePathD(stroke.points);
@@ -1422,11 +1560,16 @@ function renderStrokeLayer() {
     const shadow = document.createElementNS("http://www.w3.org/2000/svg", "path");
     shadow.setAttribute("class", "journey-sketch-stroke-shadow");
     shadow.setAttribute("d", d);
-    shadow.setAttribute("stroke-width", String(stroke.width + 10));
+    shadow.setAttribute("stroke", routeStyle.color);
+    shadow.setAttribute("stroke-width", String(routeStyle.width + 5));
     const main = document.createElementNS("http://www.w3.org/2000/svg", "path");
     main.setAttribute("class", "journey-sketch-stroke-main");
     main.setAttribute("d", d);
-    main.setAttribute("stroke-width", String(stroke.width));
+    main.setAttribute("stroke", routeStyle.color);
+    main.setAttribute("stroke-width", String(routeStyle.width));
+    if (dashValue) {
+      main.setAttribute("stroke-dasharray", dashValue);
+    }
     svg.append(shadow, main);
     if (state.mode === "edit") {
       [
@@ -1440,7 +1583,7 @@ function renderStrokeLayer() {
         circle.setAttribute("class", "journey-sketch-endpoint");
         circle.setAttribute("cx", point.x);
         circle.setAttribute("cy", point.y);
-        circle.setAttribute("r", "7");
+        circle.setAttribute("r", "4.5");
         svg.append(circle);
       });
     }
@@ -1500,7 +1643,18 @@ function renderNodeLayer() {
     nodeElement.classList.toggle("is-selected", state.editor.selectedNodeId === node.id);
     nodeElement.style.left = `${(node.x / CANVAS_WIDTH) * 100}%`;
     nodeElement.style.top = `${(node.y / state.canvas.height) * 100}%`;
-    nodeElement.innerHTML = `<span>${escapeHtml(node.label || node.id)}</span>`;
+    nodeElement.style.setProperty("--node-color", node.style.color);
+    nodeElement.style.setProperty("--node-size", `${node.style.size}px`);
+    nodeElement.innerHTML = `
+      <span class="journey-sketch-node__dot" aria-hidden="true"></span>
+      <span class="journey-sketch-node__label">${escapeHtml(node.label || node.title || node.id)}</span>
+    `;
+    nodeElement.addEventListener("pointerenter", () => showNodeHoverPopup(node.id, nodeElement));
+    nodeElement.addEventListener("pointerleave", scheduleNodeHoverClose);
+    nodeElement.addEventListener("mouseenter", () => showNodeHoverPopup(node.id, nodeElement));
+    nodeElement.addEventListener("mouseleave", scheduleNodeHoverClose);
+    nodeElement.addEventListener("focus", () => showNodeHoverPopup(node.id, nodeElement));
+    nodeElement.addEventListener("blur", scheduleNodeHoverClose);
     nodeElement.addEventListener("pointerdown", (event) => startNodeDrag(event, node.id));
     nodeElement.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1602,6 +1756,15 @@ function renderEditorPanel() {
       <input type="range" min="${MIN_CANVAS_HEIGHT}" max="${MAX_CANVAS_HEIGHT}" step="50" data-setting="height" value="${state.canvas.height}">
       <input type="number" min="${MIN_CANVAS_HEIGHT}" max="${MAX_CANVAS_HEIGHT}" step="50" data-setting="height" value="${state.canvas.height}">
     </label>
+    <details class="journey-route-style-settings" open>
+      <summary>路线与节点样式</summary>
+      ${renderRouteStyleControls()}
+      <label class="journey-sketch-setting">
+        <span>预览图最多数</span>
+        <input type="range" min="${MIN_PREVIEW_THUMBNAILS}" max="${MAX_PREVIEW_THUMBNAILS}" step="1" data-setting="maxPreviewThumbnails" value="${state.canvas.maxPreviewThumbnails}">
+        <strong>${state.canvas.maxPreviewThumbnails}</strong>
+      </label>
+    </details>
     <details class="journey-sketch-curve-settings" ${state.editor.showCurveSettings ? "open" : ""}>
       <summary>曲线参数</summary>
       ${renderSettingSlider("lineWidth", "线宽", 2, 40, 1)}
@@ -1615,9 +1778,6 @@ function renderEditorPanel() {
         显示采样点
       </label>
     </details>
-    <div class="journey-sketch-node-panel">
-      ${renderSelectedNodePanel()}
-    </div>
     <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden data-file-input="sticker">
     <p class="journey-sketch-remote-status" data-remote-status data-error="${remoteCanvasMeta.warning}">
       ${escapeHtml(remoteCanvasMeta.status)}
@@ -1637,7 +1797,7 @@ function renderEditorPanel() {
     field.addEventListener("input", () => updateSetting(field));
     field.addEventListener("change", () => updateSetting(field));
   });
-  toolbar.querySelector("details")?.addEventListener("toggle", (event) => {
+  toolbar.querySelector(".journey-sketch-curve-settings")?.addEventListener("toggle", (event) => {
     if (!guardJourneyMutation("toggleCurveSettings")) {
       return;
     }
@@ -1646,9 +1806,50 @@ function renderEditorPanel() {
   toolbar.querySelectorAll("[data-file-input]").forEach((input) => {
     input.addEventListener("change", () => handleFileInput(input));
   });
-  toolbar.querySelector("[data-node-label]")?.addEventListener("input", (event) => updateSelectedNodeLabel(event.target.value));
-  toolbar.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
   editorRoot.append(toolbar);
+  renderSelectedNodeEditor();
+}
+
+function bindSelectedNodeEditor(panel) {
+  panel.querySelector("[data-node-label]")?.addEventListener("input", (event) => updateSelectedNodeLabel(event.target.value));
+  panel.querySelectorAll("[data-node-field]").forEach((field) => {
+    field.addEventListener("input", () => updateSelectedNodeField(field));
+    field.addEventListener("change", () => updateSelectedNodeField(field));
+  });
+  panel.querySelectorAll("[data-node-style]").forEach((field) => {
+    field.addEventListener("click", () => updateSelectedNodeStyle(field));
+    field.addEventListener("input", () => updateSelectedNodeStyle(field));
+    field.addEventListener("change", () => updateSelectedNodeStyle(field));
+  });
+  panel.querySelectorAll("[data-gallery-action]").forEach((button) => {
+    button.addEventListener("click", () => handleSelectedNodeGalleryAction(button));
+  });
+  panel.querySelectorAll("[data-gallery-field]").forEach((field) => {
+    field.addEventListener("input", () => updateSelectedNodeGalleryField(field));
+    field.addEventListener("change", () => updateSelectedNodeGalleryField(field));
+  });
+  panel.querySelector("[data-node-gallery-file]")?.addEventListener("change", (event) => {
+    handleNodeGalleryFileInput(event.currentTarget);
+  });
+  panel.querySelector("[data-node-action='copy-style']")?.addEventListener("click", copySelectedNodeStyle);
+  panel.querySelector("[data-node-action='set-default-style']")?.addEventListener("click", setSelectedNodeStyleAsDefault);
+  panel.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
+}
+
+function renderSelectedNodeEditor() {
+  if (
+    state.mode !== "edit" ||
+    state.editor.activeTool !== "select" ||
+    !selectedNode()
+  ) {
+    return;
+  }
+  const panel = document.createElement("aside");
+  panel.className = "journey-sketch-node-panel journey-sketch-node-panel--floating";
+  panel.setAttribute("aria-label", "Selected journey node editor");
+  panel.innerHTML = renderSelectedNodePanelV2();
+  bindSelectedNodeEditor(panel);
+  editorRoot.append(panel);
 }
 
 function renderSelectedStickerActions() {
@@ -1676,6 +1877,82 @@ function renderSettingSlider(key, label, min, max, step) {
       <input type="range" min="${min}" max="${max}" step="${step}" data-setting="${key}" value="${state.editor[key]}">
       <strong>${state.editor[key]}</strong>
     </label>
+  `;
+}
+
+function renderRouteStyleControls() {
+  const style = sanitizeRouteStyle(state.canvas.routeStyle);
+  return `
+    <div class="journey-route-style-grid">
+      <label class="journey-sketch-setting">
+        <span>路线颜色</span>
+        <input type="color" data-setting="routeColor" value="${style.color}">
+        <strong>${escapeHtml(style.color)}</strong>
+      </label>
+      <label class="journey-sketch-setting">
+        <span>路线粗细</span>
+        <input type="range" min="2" max="18" step="1" data-setting="routeWidth" value="${style.width}">
+        <strong>${style.width}</strong>
+      </label>
+      <label class="journey-sketch-check">
+        <input type="checkbox" data-setting="routeDashed" ${style.dashed ? "checked" : ""}>
+        虚线路线
+      </label>
+      <label class="journey-sketch-setting">
+        <span>虚线长度</span>
+        <input type="range" min="4" max="28" step="1" data-setting="routeDashLength" value="${style.dashLength}">
+        <strong>${style.dashLength}</strong>
+      </label>
+      <label class="journey-sketch-setting">
+        <span>虚线间隔</span>
+        <input type="range" min="4" max="28" step="1" data-setting="routeDashGap" value="${style.dashGap}">
+        <strong>${style.dashGap}</strong>
+      </label>
+    </div>
+  `;
+}
+
+function renderNodeColorSwatches(node) {
+  return NODE_COLOR_OPTIONS.map((color) => `
+    <button
+      type="button"
+      class="journey-node-color-swatch"
+      data-node-style="color"
+      data-color="${color}"
+      aria-pressed="${node.style.color.toLowerCase() === color.toLowerCase()}"
+      style="--swatch-color: ${color}"
+      title="${color}"
+    ></button>
+  `).join("");
+}
+
+function renderNodeGalleryList(node) {
+  if (!node.galleryImages.length) {
+    return "<p class=\"journey-node-gallery-empty\">暂无节点图片。点击“上传节点图片”后会自动添加到这里。</p>";
+  }
+  return `
+    <ul class="journey-node-gallery-list">
+      ${node.galleryImages.map((image, index) => `
+        <li>
+          <img src="${escapeHtml(nodeGalleryImageSrc(image, { useAdminPreview: true }))}" alt="${escapeHtml(image.alt || `node image ${index + 1}`)}">
+          <div class="journey-node-gallery-list__body">
+            <strong>${escapeHtml(image.alt || `图片 ${index + 1}`)}</strong>
+            <input
+              type="text"
+              data-gallery-field="caption"
+              data-gallery-index="${index}"
+              value="${escapeHtml(image.caption || "")}"
+              placeholder="图片说明"
+            >
+          </div>
+          <div class="journey-node-gallery-list__actions">
+            <button type="button" data-gallery-action="move-up" data-gallery-index="${index}" ${index === 0 ? "disabled" : ""}>上移</button>
+            <button type="button" data-gallery-action="move-down" data-gallery-index="${index}" ${index === node.galleryImages.length - 1 ? "disabled" : ""}>下移</button>
+            <button type="button" data-gallery-action="remove" data-gallery-index="${index}">移除</button>
+          </div>
+        </li>
+      `).join("")}
+    </ul>
   `;
 }
 
@@ -1716,6 +1993,69 @@ function renderSelectedNodePanel() {
   `;
 }
 
+function renderSelectedNodePanelV2() {
+  const node = selectedNode();
+  if (!node) {
+    return "<p>右键点击路线附近创建节点。新节点会继承当前默认节点样式。</p>";
+  }
+  return `
+    <label>
+      节点 ID
+      <input value="${escapeHtml(node.id)}" readonly>
+    </label>
+    <label>
+      标签
+      <input data-node-label value="${escapeHtml(node.label)}">
+    </label>
+    <label>
+      标题
+      <input data-node-field="title" value="${escapeHtml(node.title || node.label || node.id)}">
+    </label>
+    <label>
+      副标题 / 日期
+      <input data-node-field="meta" value="${escapeHtml(node.meta || node.subtitle || "")}">
+    </label>
+    <label>
+      描述
+      <textarea data-node-field="description" rows="2">${escapeHtml(node.description || "")}</textarea>
+    </label>
+    <div class="journey-node-style-controls">
+      <p>节点样式</p>
+      <div class="journey-node-color-grid">
+        ${renderNodeColorSwatches(node)}
+        <input type="color" data-node-style="color" value="${node.style.color}" aria-label="自定义节点颜色">
+      </div>
+      <label class="journey-sketch-setting">
+        <span>节点大小</span>
+        <input type="range" min="${MIN_NODE_SIZE}" max="${MAX_NODE_SIZE}" step="1" data-node-style="size" value="${node.style.size}">
+        <strong>${node.style.size}</strong>
+      </label>
+      <div class="journey-node-style-actions">
+        <button type="button" data-node-action="copy-style">复制节点样式</button>
+        <button type="button" data-node-action="set-default-style">设为默认样式</button>
+      </div>
+    </div>
+    <div class="journey-node-gallery-editor">
+      <p>节点图片</p>
+      <div class="journey-node-gallery-add">
+        <button type="button" data-gallery-action="upload" ${nodeGalleryUploadState.uploading ? "disabled" : ""}>
+          ${nodeGalleryUploadState.uploading ? "正在上传节点图片..." : "上传节点图片"}
+        </button>
+        <input type="file" accept="image/*" multiple hidden data-node-gallery-file>
+      </div>
+      <p class="journey-node-gallery-help">图片会上传为首页媒体，并自动作为 mediaId 引用保存到节点图库。请再点击“保存画布”发布引用。</p>
+      ${renderNodeGalleryList(node)}
+    </div>
+    <dl>
+      <div><dt>x / y</dt><dd>${Math.round(node.x)} / ${Math.round(node.y)}</dd></div>
+      <div><dt>strokeId</dt><dd>${shortId(node.strokeId)}</dd></div>
+      <div><dt>segmentIndex</dt><dd>${node.segmentIndex ?? "-"}</dd></div>
+      <div><dt>componentId</dt><dd>${shortId(node.componentId)}</dd></div>
+    </dl>
+    <button type="button" class="danger-button" data-node-action="delete">删除节点</button>
+  `;
+}
+
 function setTool(tool) {
   if (!guardJourneyMutation(`setTool:${tool}`)) {
     return;
@@ -1741,6 +2081,22 @@ function updateSetting(field) {
   const key = field.dataset.setting;
   if (key === "height") {
     state.canvas.height = Math.round(clamp(Number(field.value), MIN_CANVAS_HEIGHT, MAX_CANVAS_HEIGHT));
+  } else if (key === "maxPreviewThumbnails") {
+    state.canvas.maxPreviewThumbnails = Math.round(clamp(
+      Number(field.value),
+      MIN_PREVIEW_THUMBNAILS,
+      MAX_PREVIEW_THUMBNAILS
+    ));
+  } else if (key === "routeColor") {
+    state.canvas.routeStyle.color = sanitizeHexColor(field.value, DEFAULT_ROUTE_STYLE.color);
+  } else if (key === "routeWidth") {
+    state.canvas.routeStyle.width = Math.round(clamp(Number(field.value), 2, 18));
+  } else if (key === "routeDashed") {
+    state.canvas.routeStyle.dashed = field.checked;
+  } else if (key === "routeDashLength") {
+    state.canvas.routeStyle.dashLength = Math.round(clamp(Number(field.value), 4, 28));
+  } else if (key === "routeDashGap") {
+    state.canvas.routeStyle.dashGap = Math.round(clamp(Number(field.value), 4, 28));
   } else if (key === "showSamples") {
     state.editor.showSamples = field.checked;
   } else {
@@ -1869,20 +2225,44 @@ function loadImageDimensions(file) {
 }
 
 async function uploadJourneyStickerMedia(file) {
+  return uploadJourneyImageMedia(file, {
+    title: file?.name || "Journey sticker",
+    description: "Journey sticker media upload",
+    invalidTypeMessage: "只支持上传图片贴纸。",
+    authMessage: "认证服务不可用，无法上传贴纸媒体。",
+    failurePrefix: "贴纸媒体上传失败",
+    invalidResponseMessage: "贴纸媒体上传返回的数据无效。",
+    logLabel: "Journey sticker media"
+  });
+}
+
+async function uploadJourneyNodeGalleryMedia(file) {
+  return uploadJourneyImageMedia(file, {
+    title: file?.name || "Journey node image",
+    description: "Journey node gallery image upload",
+    invalidTypeMessage: "只支持上传节点图片。",
+    authMessage: "认证服务不可用，无法上传节点图片。",
+    failurePrefix: "节点图片上传失败",
+    invalidResponseMessage: "节点图片上传返回的数据无效。",
+    logLabel: "Journey node gallery media"
+  });
+}
+
+async function uploadJourneyImageMedia(file, options = {}) {
   if (!file?.type?.startsWith("image/")) {
-    throw new Error("只支持上传图片贴纸。");
+    throw new Error(options.invalidTypeMessage || "只支持上传图片。");
   }
   if (!window.PersonalWebAuth?.authFetch) {
-    throw new Error("认证服务不可用，无法上传贴纸媒体。");
+    throw new Error(options.authMessage || "认证服务不可用，无法上传图片。");
   }
 
   const formData = new FormData();
   formData.append("file", file);
-  formData.append("title", file.name || "Journey sticker");
-  formData.append("description", "Journey sticker media upload");
+  formData.append("title", options.title || file.name || "Journey image");
+  formData.append("description", options.description || "Journey image upload");
   formData.append("sort_order", "0");
 
-  logJourney("Uploading Journey sticker media.", {
+  logJourney(`Uploading ${options.logLabel || "Journey image media"}.`, {
     filename: file.name,
     mimeType: file.type,
     size: file.size
@@ -1893,12 +2273,12 @@ async function uploadJourneyStickerMedia(file) {
   });
   const body = await parseJsonResponse(response);
   if (!response.ok) {
-    throw new Error(body.detail || `贴纸媒体上传失败：${response.status}`);
+    throw new Error(body.detail || `${options.failurePrefix || "图片上传失败"}：${response.status}`);
   }
   if (body.mediaType !== "image" || !normalizeOptionalMediaId(body.id)) {
-    throw new Error("贴纸媒体上传返回的数据无效。");
+    throw new Error(options.invalidResponseMessage || "图片上传返回的数据无效。");
   }
-  logJourney("Uploaded Journey sticker media.", {
+  logJourney(`Uploaded ${options.logLabel || "Journey image media"}.`, {
     mediaId: body.id,
     filename: body.originalFilename || body.title || file.name
   });
@@ -2307,7 +2687,201 @@ function updateSelectedNodeLabel(label) {
   node.label = label || node.id;
   node.updatedAt = nowIso();
   markDirty("node label changed");
+}
+
+function updateSelectedNodeField(field) {
+  if (!guardJourneyMutation("updateSelectedNodeField")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    return;
+  }
+  const key = field.dataset.nodeField;
+  if (!["title", "subtitle", "meta", "description"].includes(key)) {
+    return;
+  }
+  node[key] = String(field.value || "").slice(0, key === "description" ? 400 : 160);
+  if (key === "title" && !node.label) {
+    node.label = node.title || node.id;
+  }
+  node.updatedAt = nowIso();
+  markDirty(`node ${key} changed`);
+}
+
+function updateSelectedNodeStyle(field) {
+  if (!guardJourneyMutation("updateSelectedNodeStyle")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    return;
+  }
+  const key = field.dataset.nodeStyle;
+  if (key === "color") {
+    node.style.color = sanitizeHexColor(field.dataset.color || field.value, DEFAULT_NODE_STYLE.color);
+  } else if (key === "size") {
+    node.style.size = Math.round(clamp(Number(field.value), MIN_NODE_SIZE, MAX_NODE_SIZE));
+  }
+  node.style = sanitizeNodeStyle(node.style);
+  node.updatedAt = nowIso();
+  markDirty(`node style ${key} changed`);
   render();
+}
+
+function copySelectedNodeStyle() {
+  if (!guardJourneyMutation("copySelectedNodeStyle")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    return;
+  }
+  state.editor.nodeStyleTemplate = sanitizeNodeStyle(node.style);
+  showMessage("已复制节点样式；之后新建节点会继承该样式。");
+  logJourney("Copied selected node style.", { nodeId: node.id, style: state.editor.nodeStyleTemplate });
+  render();
+}
+
+function setSelectedNodeStyleAsDefault() {
+  if (!guardJourneyMutation("setSelectedNodeStyleAsDefault")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    return;
+  }
+  state.canvas.defaultNodeStyle = sanitizeNodeStyle(node.style);
+  state.editor.nodeStyleTemplate = sanitizeNodeStyle(node.style);
+  markDirty("default node style changed");
+  showMessage("已设为默认节点样式。");
+  render();
+}
+
+function handleSelectedNodeGalleryAction(button) {
+  if (!guardJourneyMutation("handleSelectedNodeGalleryAction")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    showMessage("请先选择一个节点。", true);
+    return;
+  }
+  const action = button.dataset.galleryAction;
+  if (action === "upload") {
+    if (nodeGalleryUploadState.uploading) {
+      return;
+    }
+    const fileInput = button.closest(".journey-node-gallery-editor")?.querySelector("[data-node-gallery-file]");
+    fileInput?.click();
+  } else if (action === "remove") {
+    const index = Number(button.dataset.galleryIndex);
+    node.galleryImages = node.galleryImages.filter((_, itemIndex) => itemIndex !== index);
+    node.updatedAt = nowIso();
+    markDirty("node gallery image removed");
+    render();
+  } else if (action === "move-up" || action === "move-down") {
+    const index = Number(button.dataset.galleryIndex);
+    const nextIndex = action === "move-up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= node.galleryImages.length) {
+      return;
+    }
+    const images = [...node.galleryImages];
+    const [image] = images.splice(index, 1);
+    images.splice(nextIndex, 0, image);
+    node.galleryImages = sanitizeGalleryImages(images);
+    node.updatedAt = nowIso();
+    markDirty("node gallery image reordered");
+    render();
+  }
+}
+
+function updateSelectedNodeGalleryField(field) {
+  if (!guardJourneyMutation("updateSelectedNodeGalleryField")) {
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    return;
+  }
+  const index = Number(field.dataset.galleryIndex);
+  const image = node.galleryImages[index];
+  if (!image) {
+    return;
+  }
+  if (field.dataset.galleryField === "caption") {
+    image.caption = field.value.slice(0, 180);
+  }
+  node.updatedAt = nowIso();
+  markDirty("node gallery image updated");
+}
+
+async function handleNodeGalleryFileInput(input) {
+  if (!guardJourneyMutation("handleNodeGalleryFileInput")) {
+    input.value = "";
+    return;
+  }
+  const node = selectedNode();
+  if (!node) {
+    showMessage("请先选择一个节点。", true);
+    input.value = "";
+    return;
+  }
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if (!files.length) {
+    showMessage("未选择图片。", true);
+    return;
+  }
+  const invalidFile = files.find((file) => !file.type?.startsWith("image/"));
+  if (invalidFile) {
+    showMessage(`不支持的文件类型：${invalidFile.name || invalidFile.type || "unknown"}`, true);
+    return;
+  }
+  if (nodeGalleryUploadState.uploading) {
+    showMessage("节点图片正在上传，请稍后。", true);
+    return;
+  }
+
+  nodeGalleryUploadState.uploading = true;
+  showMessage("正在上传节点图片...");
+  render();
+  const uploadedImages = [];
+  try {
+    for (const file of files) {
+      const media = await uploadJourneyNodeGalleryMedia(file);
+      const mediaId = normalizeOptionalMediaId(media.id);
+      if (!mediaId) {
+        throw new Error("节点图片上传返回缺少 mediaId。");
+      }
+      uploadedImages.push({
+        mediaId,
+        alt: media.title || media.originalFilename || file.name || node.title || node.label || node.id,
+        caption: ""
+      });
+    }
+    const currentNode = selectedNode();
+    if (!currentNode || currentNode.id !== node.id) {
+      throw new Error("上传完成前选中的节点已变化，请重新选择节点后再添加图片。");
+    }
+    currentNode.galleryImages = sanitizeGalleryImages([
+      ...currentNode.galleryImages,
+      ...uploadedImages
+    ]);
+    currentNode.updatedAt = nowIso();
+    markDirty("node gallery image uploaded");
+    showMessage("图片已上传并添加到节点，请保存画布。");
+    logJourney("Added uploaded node gallery images.", {
+      nodeId: currentNode.id,
+      mediaIds: uploadedImages.map((image) => image.mediaId)
+    });
+  } catch (error) {
+    showMessage(`节点图片上传失败：${error.message}`, true);
+    logJourney("Node gallery image upload failed.", { error: error.message });
+  } finally {
+    nodeGalleryUploadState.uploading = false;
+    render();
+  }
 }
 
 function deleteSelectedNode() {
@@ -2383,6 +2957,160 @@ function escapeHtml(value = "") {
   }[character]));
 }
 
+function clearNodeHoverCloseTimer() {
+  if (nodeHoverState.closeTimer) {
+    window.clearTimeout(nodeHoverState.closeTimer);
+    nodeHoverState.closeTimer = null;
+  }
+}
+
+function shouldSuppressNodeHover() {
+  return Boolean(
+    dragState ||
+    (state.mode === "edit" && ["draw", "erase"].includes(state.editor.activeTool))
+  );
+}
+
+function visibleGalleryImages(node) {
+  return sanitizeGalleryImages(node?.galleryImages);
+}
+
+function findNodeElement(nodeId) {
+  return Array.from(document.querySelectorAll(".journey-sketch-node"))
+    .find((element) => element.dataset.nodeId === nodeId) || null;
+}
+
+function renderNodeGallery(node) {
+  const images = visibleGalleryImages(node);
+  const maxThumbs = Math.round(clamp(
+    normalizeNumber(state.canvas.maxPreviewThumbnails, DEFAULT_PREVIEW_THUMBNAILS),
+    MIN_PREVIEW_THUMBNAILS,
+    MAX_PREVIEW_THUMBNAILS
+  ));
+  if (!images.length) {
+    return `
+      <div class="timeline-event-popover__empty-image">
+        <span>暂无图片</span>
+      </div>
+    `;
+  }
+  const safeIndex = ((nodeHoverState.imageIndex % images.length) + images.length) % images.length;
+  nodeHoverState.imageIndex = safeIndex;
+  const active = images[safeIndex];
+  const imageSrc = nodeGalleryImageSrc(active, { useAdminPreview: canEditJourney() && state.mode === "edit" });
+  const thumbs = images.slice(0, maxThumbs);
+  const moreCount = Math.max(0, images.length - thumbs.length);
+  return `
+    <div class="timeline-event-popover__gallery" data-node-gallery>
+      <div class="timeline-event-popover__image-wrap">
+        <button type="button" class="timeline-event-popover__arrow" data-gallery-action="prev" aria-label="上一张">‹</button>
+        <img src="${escapeHtml(imageSrc)}" alt="${escapeHtml(active.alt || node.title || node.label || node.id)}">
+        <button type="button" class="timeline-event-popover__arrow" data-gallery-action="next" aria-label="下一张">›</button>
+      </div>
+      ${active.caption ? `<p class="timeline-event-popover__caption">${escapeHtml(active.caption)}</p>` : ""}
+      <div class="timeline-event-popover__thumbs">
+        ${thumbs.map((image, index) => `
+          <button type="button" data-gallery-thumb="${index}" aria-pressed="${index === safeIndex}">
+            <img src="${escapeHtml(nodeGalleryImageSrc(image, { useAdminPreview: canEditJourney() && state.mode === "edit" }))}" alt="${escapeHtml(image.alt || `preview ${index + 1}`)}">
+          </button>
+        `).join("")}
+        ${moreCount ? `<span class="timeline-event-popover__more">+${moreCount}</span>` : ""}
+      </div>
+      <p class="timeline-event-popover__counter">${safeIndex + 1} / ${images.length}</p>
+    </div>
+  `;
+}
+
+function showNodeHoverPopup(nodeId, anchorElement = null, options = {}) {
+  if (shouldSuppressNodeHover()) {
+    return;
+  }
+  const node = state.canvas.nodes.find((item) => item.id === nodeId);
+  if (!eventPopover || !node) {
+    return;
+  }
+  clearNodeHoverCloseTimer();
+  if (nodeHoverState.nodeId !== nodeId || options.resetIndex) {
+    nodeHoverState.imageIndex = 0;
+  }
+  nodeHoverState.nodeId = nodeId;
+  eventPopover.innerHTML = `
+    <section class="timeline-event-popover__panel">
+      <div class="timeline-event-popover__top">
+        <div>
+          <p class="timeline-event-popover__type">Journey Node</p>
+          <h2 id="timeline-popover-title">${escapeHtml(node.title || node.label || node.id)}</h2>
+          ${node.meta || node.subtitle ? `<p class="timeline-event-popover__date">${escapeHtml(node.meta || node.subtitle)}</p>` : ""}
+        </div>
+        <button type="button" class="timeline-event-popover__close" data-popover-close aria-label="关闭节点预览">×</button>
+      </div>
+      <div class="timeline-event-popover__body">
+        ${renderNodeGallery(node)}
+        ${node.description ? `<p>${escapeHtml(node.description)}</p>` : ""}
+      </div>
+    </section>
+  `;
+  eventPopover.hidden = false;
+  eventPopover.dataset.nodeId = node.id;
+  eventPopover.onpointerenter = clearNodeHoverCloseTimer;
+  eventPopover.onpointerleave = scheduleNodeHoverClose;
+  eventPopover.querySelector("[data-popover-close]")?.addEventListener("click", closeEventPopover);
+  eventPopover.querySelector("[data-gallery-action='prev']")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    stepNodeGallery(-1);
+  });
+  eventPopover.querySelector("[data-gallery-action='next']")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    stepNodeGallery(1);
+  });
+  eventPopover.querySelectorAll("[data-gallery-thumb]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      nodeHoverState.imageIndex = Number(button.dataset.galleryThumb) || 0;
+      showNodeHoverPopup(nodeId, anchorElement);
+    });
+  });
+  positionNodeHoverPopup(anchorElement || findNodeElement(node.id));
+}
+
+function stepNodeGallery(delta) {
+  const node = state.canvas.nodes.find((item) => item.id === nodeHoverState.nodeId);
+  const images = visibleGalleryImages(node);
+  if (!node || !images.length) {
+    return;
+  }
+  nodeHoverState.imageIndex = (nodeHoverState.imageIndex + delta + images.length) % images.length;
+  showNodeHoverPopup(node.id);
+}
+
+function positionNodeHoverPopup(anchorElement) {
+  const panel = eventPopover?.querySelector(".timeline-event-popover__panel");
+  if (!eventPopover || !panel || !anchorElement) {
+    return;
+  }
+  const anchorRect = anchorElement.getBoundingClientRect();
+  const panelRect = panel.getBoundingClientRect();
+  const margin = 18;
+  const gap = 18;
+  let left = anchorRect.right + gap;
+  if (left + panelRect.width + margin > window.innerWidth) {
+    left = anchorRect.left - panelRect.width - gap;
+  }
+  left = clamp(left, margin, Math.max(margin, window.innerWidth - panelRect.width - margin));
+  let top = anchorRect.top + (anchorRect.height / 2) - (panelRect.height / 2);
+  top = clamp(top, margin, Math.max(margin, window.innerHeight - panelRect.height - margin));
+  eventPopover.style.setProperty("--popover-left", `${Math.round(left)}px`);
+  eventPopover.style.setProperty("--popover-top", `${Math.round(top)}px`);
+  eventPopover.dataset.side = left < anchorRect.left ? "left" : "right";
+}
+
+function scheduleNodeHoverClose() {
+  clearNodeHoverCloseTimer();
+  nodeHoverState.closeTimer = window.setTimeout(() => {
+    closeEventPopover();
+  }, NODE_HOVER_CLOSE_DELAY_MS);
+}
+
 function openEventPopover(nodeId) {
   const node = state.canvas.nodes.find((item) => item.id === nodeId);
   if (!eventPopover || !node) {
@@ -2413,8 +3141,14 @@ function closeEventPopover() {
   if (!eventPopover) {
     return;
   }
+  clearNodeHoverCloseTimer();
+  nodeHoverState.nodeId = null;
+  nodeHoverState.imageIndex = 0;
   eventPopover.hidden = true;
   eventPopover.innerHTML = "";
+  eventPopover.onpointerenter = null;
+  eventPopover.onpointerleave = null;
+  delete eventPopover.dataset.nodeId;
 }
 
 function installGlobalControls() {

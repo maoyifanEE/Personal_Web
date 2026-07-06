@@ -148,6 +148,7 @@ The export script:
 * Does not print the database password.
 * Reads only the default published canvas.
 * Recursively finds `mediaId` references in the canvas JSON.
+* Includes media referenced by Journey stickers and node gallery images.
 * Excludes `homepage_items` by default.
 * Includes visible safe homepage items only when `-IncludeHomepageItems` is provided.
 * Copies only referenced files under `data/uploads/homepage/`.
