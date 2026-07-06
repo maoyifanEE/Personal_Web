@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-06 - Remove homepage latest highlights panel
+
+### Goal
+
+* Work on `BugFix/remove-homepage-latest-highlights-v1`.
+* Remove the public homepage `Latest highlights` panel that displayed old
+  homepage item smoke-test content.
+* Keep homepage entrance buttons, visitor message UI, ICP footer, Journey,
+  backend APIs, and database rows unchanged.
+
+### Actual changes
+
+* Removed the `homepage-public-items` container from `index.html`.
+* Removed the homepage public item fetch/render/refresh logic from `script.js`.
+* Removed the now-unused homepage public item panel styles from `styles.css`.
+
+### Safety boundaries
+
+* No backend code, API route, Auth/RBAC policy, migration, or server config was
+  changed.
+* No homepage item rows, media rows, Journey canvas data, uploads, backups,
+  logs, `.env`, `.venv`, runtime files, or secrets were deleted or committed.
+
 ## 2026-07-06 - Add direct Journey node gallery image upload
 
 ### Goal
