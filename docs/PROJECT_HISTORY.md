@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-07-08 - Add public security filing footer
+
+### Goal
+
+* Work on `BugFix/add-public-security-filing-footer-v1`.
+* Add the approved public security filing icon and number to public page
+  footers.
+* Preserve the existing ICP filing footer, homepage entrances, Journey canvas,
+  backend APIs, Auth/RBAC, database schema, and deployment state.
+
+### Actual changes
+
+* Moved the user-provided public security filing icon into
+  `assets/beian/gongan.png`.
+* Added the public security filing link and icon to the homepage footer.
+* Added the same page-level compliance footer to the Journey page without
+  putting it inside editor-only panels.
+* Updated footer styles so ICP and public security filing entries stay small
+  and wrap on narrow screens.
+
+### Safety boundaries
+
+* No deployment was performed.
+* No server config, backend code, Auth/RBAC policy, database migration, Journey
+  editor behavior, local database data, uploads, logs, backups, `.env`,
+  `.venv`, runtime files, or secrets were changed or committed.
+
 ## 2026-07-06 - Remove homepage latest highlights panel
 
 ### Goal
