@@ -1894,20 +1894,36 @@ select {
   left: 50%;
   bottom: 18px;
   transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  width: min(92vw, 720px);
   font-size: 12px;
   line-height: 1.5;
   text-align: center;
 }
 
-.site-footer a {
+.site-footer__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   color: rgba(24, 42, 58, 0.46);
   text-decoration: none;
 }
 
-.site-footer a:hover,
-.site-footer a:focus-visible {
+.site-footer__link:hover,
+.site-footer__link:focus-visible {
   color: rgba(24, 42, 58, 0.72);
   text-decoration: underline;
+}
+
+.site-footer__icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .private-page {
