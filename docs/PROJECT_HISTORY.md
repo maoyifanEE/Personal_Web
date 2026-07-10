@@ -1,5 +1,34 @@
 # Project History
 
+## 2026-07-10 - Add Journey focus drawing zoom mode
+
+### Goal
+
+* Work on `Feature/journey-focus-zoom-v1`.
+* Add a small editor-only focus mode for drawing long Journey routes.
+* Allow temporary visual canvas zoom without changing saved/public canvas data.
+
+### Actual changes
+
+* Added a `专注绘制` editor button and a compact focus control bar.
+* Added 25%, 50%, 75%, 100%, full-map, and exit controls for editor zoom.
+* Refined focus mode with a distinct neutral workspace and a bordered scaled
+  stage so the canvas boundary remains clear at low zoom.
+* Changed the focus stage layout to use scaled dimensions, avoiding the
+  original unscaled canvas height being reserved after visual zoom.
+* Added `手绘` and `橡皮擦` buttons to the focus control bar while reusing the
+  existing editor tool state.
+* Added Escape exit behavior that resets editor zoom to 100%.
+* Reused the existing pointer-to-canvas coordinate helper so zoomed editor
+  interactions still map back to real canvas coordinates.
+
+### Safety boundaries
+
+* No backend code, database migration, Auth/RBAC policy, deployment script,
+  server config, public Journey rendering data model, local database data,
+  uploads, logs, backups, `.env`, `.venv`, runtime files, or secrets were
+  changed.
+
 ## 2026-07-08 - Add public security filing footer
 
 ### Goal
