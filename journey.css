@@ -2094,13 +2094,53 @@ select {
 
 .timeline-home[data-editor-mode="edit"] .journey-sketch-canvas {
   transform: scale(var(--editor-zoom, 1));
-  transform-origin: top center;
+  transform-origin: top left;
   transition: transform 160ms ease;
 }
 
 .timeline-home[data-focus-mode="true"] .timeline-floating-controls,
 .timeline-home[data-focus-mode="true"] .journey-back-link {
   display: none;
+}
+
+.timeline-home[data-focus-mode="true"] {
+  min-height: 100vh;
+  background: #eef1f4;
+}
+
+.journey-focus-viewport {
+  display: flex;
+  justify-content: center;
+  min-height: calc(100vh - 88px);
+  padding: 28px 24px 96px;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(238, 241, 244, 0.98), rgba(231, 235, 239, 0.98));
+}
+
+.journey-focus-stage {
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  overflow: visible;
+  border: 2px solid rgba(30, 45, 65, 0.25);
+  border-radius: 10px;
+  background: #fffdf8;
+  box-shadow:
+    0 18px 48px rgba(23, 37, 52, 0.16),
+    0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.journey-focus-stage .journey-sketch-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--canvas-width) * 1px);
+  max-width: none;
+  height: var(--canvas-height, 2400px);
+  min-height: 0;
+  margin: 0;
+  transition: none;
 }
 
 .journey-sketch-background,
@@ -3058,6 +3098,11 @@ select {
     bottom: 10px;
     width: calc(100vw - 16px);
     border-radius: 16px;
+  }
+
+  .journey-focus-viewport {
+    min-height: calc(100vh - 108px);
+    padding: 18px 12px 124px;
   }
 
   .journey-focus-controls__status {

@@ -1487,6 +1487,7 @@ function setEditorZoom(value, reason = "manual") {
     focusMode: editorFocusMode
   });
   render();
+  scheduleFocusCanvasStageSizeSync();
 }
 
 function enterEditorFocusMode() {
@@ -1501,6 +1502,7 @@ function enterEditorFocusMode() {
     zoom: editorZoom
   });
   render();
+  scheduleFocusCanvasStageSizeSync();
 }
 
 function exitEditorFocusMode(reason = "button") {
@@ -1517,8 +1519,10 @@ function applyFullMapZoom() {
   if (!editorFocusMode) {
     editorFocusMode = true;
   }
-  const availableWidth = Math.max(1, window.innerWidth - 24);
-  const availableHeight = Math.max(1, window.innerHeight - 96);
+  const focusBar = document.querySelector(".journey-focus-controls");
+  const focusBarHeight = focusBar?.getBoundingClientRect?.().height || 56;
+  const availableWidth = Math.max(1, window.innerWidth - 48);
+  const availableHeight = Math.max(1, window.innerHeight - focusBarHeight - 72);
   const scaleX = availableWidth / CANVAS_WIDTH;
   const scaleY = availableHeight / Math.max(1, state.canvas.height);
   const nextZoom = normalizeEditorZoom(Math.min(scaleX, scaleY));
@@ -1532,6 +1536,39 @@ function applyFullMapZoom() {
     zoom: editorZoom
   });
   render();
+  scheduleFocusCanvasStageSizeSync();
+}
+
+function syncFocusCanvasStageSize() {
+  const stage = document.querySelector(".journey-focus-stage");
+  const canvas = document.querySelector(".journey-focus-stage .journey-sketch-canvas");
+  if (!stage || !canvas) {
+    return;
+  }
+  const realWidth = canvas.offsetWidth || CANVAS_WIDTH;
+  const realHeight = canvas.offsetHeight || state.canvas.height;
+  const scaledWidth = Math.max(1, Math.round(realWidth * editorZoom));
+  const scaledHeight = Math.max(1, Math.round(realHeight * editorZoom));
+  stage.style.width = `${scaledWidth}px`;
+  stage.style.height = `${scaledHeight}px`;
+  stage.style.setProperty("--focus-stage-width", `${scaledWidth}px`);
+  stage.style.setProperty("--focus-stage-height", `${scaledHeight}px`);
+  logJourney("Synced Journey focus stage layout size.", {
+    realWidth,
+    realHeight,
+    scaledWidth,
+    scaledHeight,
+    zoom: editorZoom
+  });
+}
+
+function scheduleFocusCanvasStageSizeSync() {
+  if (!editorFocusMode) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    syncFocusCanvasStageSize();
+  });
 }
 
 function strokePathD(points) {
@@ -1596,8 +1633,21 @@ function render() {
     renderNodeLayer(),
     renderInteractionLayer()
   );
-  canvasHost.append(canvas);
+  if (editorFocusMode && state.mode === "edit" && canEditJourney()) {
+    const viewport = document.createElement("div");
+    viewport.className = "journey-focus-viewport";
+    const stage = document.createElement("div");
+    stage.className = "journey-focus-stage";
+    stage.style.width = `${Math.round(CANVAS_WIDTH * editorZoom)}px`;
+    stage.style.height = `${Math.round(state.canvas.height * editorZoom)}px`;
+    stage.append(canvas);
+    viewport.append(stage);
+    canvasHost.append(viewport);
+  } else {
+    canvasHost.append(canvas);
+  }
   renderEditorPanel();
+  scheduleFocusCanvasStageSizeSync();
 }
 
 function renderBackgroundLayer() {
@@ -1797,6 +1847,8 @@ function renderFocusControls() {
   controls.setAttribute("aria-label", "Journey focus drawing controls");
   controls.innerHTML = `
     <span class="journey-focus-controls__status">专注绘制 · ${Math.round(editorZoom * 100)}%</span>
+    <button type="button" data-focus-tool="draw" aria-pressed="${state.editor.activeTool === "draw"}">手绘</button>
+    <button type="button" data-focus-tool="erase" aria-pressed="${state.editor.activeTool === "erase"}">橡皮擦</button>
     <button type="button" data-focus-zoom="0.25" aria-pressed="${editorZoom === 0.25}">25%</button>
     <button type="button" data-focus-zoom="0.5" aria-pressed="${editorZoom === 0.5}">50%</button>
     <button type="button" data-focus-zoom="0.75" aria-pressed="${editorZoom === 0.75}">75%</button>
@@ -1806,6 +1858,9 @@ function renderFocusControls() {
   `;
   controls.querySelectorAll("[data-focus-zoom]").forEach((button) => {
     button.addEventListener("click", () => setEditorZoom(Number(button.dataset.focusZoom), "focus-control"));
+  });
+  controls.querySelectorAll("[data-focus-tool]").forEach((button) => {
+    button.addEventListener("click", () => setTool(button.dataset.focusTool));
   });
   controls.querySelector("[data-focus-action='full-map']")?.addEventListener("click", applyFullMapZoom);
   controls.querySelector("[data-focus-action='exit']")?.addEventListener("click", () => exitEditorFocusMode("button"));
@@ -2624,6 +2679,10 @@ window.addEventListener("pointerup", () => {
     dragState = null;
     render();
   }
+});
+
+window.addEventListener("resize", () => {
+  scheduleFocusCanvasStageSizeSync();
 });
 
 window.addEventListener("keydown", (event) => {

@@ -12,6 +12,12 @@
 
 * Added a `专注绘制` editor button and a compact focus control bar.
 * Added 25%, 50%, 75%, 100%, full-map, and exit controls for editor zoom.
+* Refined focus mode with a distinct neutral workspace and a bordered scaled
+  stage so the canvas boundary remains clear at low zoom.
+* Changed the focus stage layout to use scaled dimensions, avoiding the
+  original unscaled canvas height being reserved after visual zoom.
+* Added `手绘` and `橡皮擦` buttons to the focus control bar while reusing the
+  existing editor tool state.
 * Added Escape exit behavior that resets editor zoom to 100%.
 * Reused the existing pointer-to-canvas coordinate helper so zoomed editor
   interactions still map back to real canvas coordinates.
