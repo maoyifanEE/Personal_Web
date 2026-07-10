@@ -2884,6 +2884,225 @@ select {
   color: #ad3c2d;
 }
 
+.journey-curve-import-modal {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(23, 37, 52, 0.34);
+  backdrop-filter: blur(8px);
+}
+
+.journey-curve-import-panel {
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 14px;
+  background: #fffdf8;
+  box-shadow: 0 22px 72px rgba(23, 37, 52, 0.26);
+}
+
+.journey-curve-import-header,
+.journey-curve-import-actions,
+.journey-curve-import-controls,
+.journey-curve-import-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.journey-curve-import-header {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.journey-curve-import-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.journey-curve-import-file {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.journey-curve-import-file input {
+  width: min(100%, 420px);
+}
+
+.journey-curve-import-panel button,
+.journey-curve-import-panel select,
+.journey-curve-import-panel input {
+  min-height: 34px;
+}
+
+.journey-curve-import-panel button {
+  padding: 7px 11px;
+  cursor: pointer;
+  border: 1px solid rgba(23, 37, 52, 0.16);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.journey-curve-import-panel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.journey-curve-import-panel button:focus-visible,
+.journey-curve-import-panel select:focus-visible,
+.journey-curve-import-panel input:focus-visible {
+  outline: 3px solid rgba(22, 143, 144, 0.32);
+  outline-offset: 3px;
+}
+
+.journey-curve-import-meta {
+  margin: 0 0 12px;
+}
+
+.journey-curve-import-meta div,
+.journey-curve-import-details div {
+  display: grid;
+  gap: 3px;
+  min-width: 140px;
+}
+
+.journey-curve-import-meta dt,
+.journey-curve-import-details dt {
+  color: rgba(23, 37, 52, 0.52);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.journey-curve-import-meta dd,
+.journey-curve-import-details dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.journey-curve-import-warning,
+.journey-curve-import-status {
+  margin: 10px 0;
+  color: rgba(23, 37, 52, 0.68);
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.5;
+}
+
+.journey-curve-import-warning {
+  color: #9a5b00;
+}
+
+.journey-curve-import-status[data-error="true"] {
+  color: #a33b2f;
+}
+
+.journey-curve-import-controls {
+  align-items: end;
+  margin: 10px 0;
+}
+
+.journey-curve-import-controls label {
+  display: grid;
+  gap: 5px;
+  min-width: 180px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.journey-curve-import-check {
+  display: inline-flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-width: auto !important;
+}
+
+.journey-curve-import-preview-wrap {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  margin: 14px 0;
+  border: 1px dashed rgba(23, 37, 52, 0.18);
+  border-radius: 12px;
+  background: repeating-conic-gradient(#f4f7f8 0% 25%, #ffffff 0% 50%) 50% / 24px 24px;
+}
+
+.journey-curve-import-preview {
+  position: relative;
+  width: min(100%, 360px);
+  aspect-ratio: var(--source-aspect, 1);
+  overflow: hidden;
+  border: 1px solid rgba(23, 37, 52, 0.2);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.journey-curve-import-preview img,
+.journey-curve-import-preview svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.journey-curve-import-preview img {
+  object-fit: fill;
+}
+
+.journey-curve-import-preview-line {
+  fill: none;
+  stroke: rgba(22, 143, 144, 0.9);
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.journey-curve-import-preview-start {
+  fill: #22c55e;
+  stroke: #ffffff;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.journey-curve-import-preview-end {
+  fill: #ef4444;
+  stroke: #ffffff;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.journey-curve-import-actions {
+  margin-top: 12px;
+}
+
+.journey-curve-import-details {
+  margin-top: 12px;
+  color: rgba(23, 37, 52, 0.72);
+  font-size: 12px;
+}
+
+.journey-curve-import-details dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 10px 0 0;
+}
+
 @media (max-width: 900px) {
   .timeline-home[data-editor-mode="edit"] {
     padding-right: 0;

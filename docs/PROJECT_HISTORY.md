@@ -1,5 +1,37 @@
 # Project History
 
+## 2026-07-10 - Add Journey curve image and JSON import
+
+### Goal
+
+* Work on `Feature/journey-curve-import-v1`.
+* Let admins import an AI-generated dashed route image or Journey curve JSON
+  into the Journey editor.
+* Convert imported route geometry into normal Journey stroke points.
+
+### Actual changes
+
+* Added an editor-only `导入曲线` button and compact import dialog.
+* Added local PNG, WebP, JPG/JPEG raster conversion in the browser.
+* Added Journey curve JSON parsing for source-pixel and normalized point data.
+* Added source preview, extracted centerline overlay, start/end markers,
+  mapping mode controls, direction reversal, and diagnostics.
+* Added add, replace, and one-level in-memory `撤销导入` behavior.
+* Reused normal Journey stroke data, smoothing, node reattachment, route
+  rendering, erasing, selection, save, and publish-bundle paths.
+* Added `journey-curve-import-core.js` as a pure geometry module with Node
+  tests in `scripts/test-journey-curve-import.cjs`.
+* Added `docs/13_JOURNEY_CURVE_IMPORT.md` with AI image generation guidance.
+
+### Safety boundaries
+
+* No backend code, database schema, migrations, Auth/RBAC policy, deployment
+  script, server config, public save API, local database data, uploads, logs,
+  backups, `.env`, `.venv`, runtime files, or secrets were changed.
+* Source images are preview-only and are not persisted in the Journey canvas.
+* Import preview does not mutate canvas data.
+* Successful import marks the canvas dirty but does not automatically save.
+
 ## 2026-07-10 - Add Journey focus drawing zoom mode
 
 ### Goal
