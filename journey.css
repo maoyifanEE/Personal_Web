@@ -2092,6 +2092,17 @@ select {
   outline: 0;
 }
 
+.timeline-home[data-editor-mode="edit"] .journey-sketch-canvas {
+  transform: scale(var(--editor-zoom, 1));
+  transform-origin: top center;
+  transition: transform 160ms ease;
+}
+
+.timeline-home[data-focus-mode="true"] .timeline-floating-controls,
+.timeline-home[data-focus-mode="true"] .journey-back-link {
+  display: none;
+}
+
 .journey-sketch-background,
 .journey-sketch-stickers,
 .journey-sketch-strokes,
@@ -2487,6 +2498,57 @@ select {
   color: #ffffff;
   border-color: var(--ink);
   background: var(--ink);
+}
+
+.journey-focus-controls {
+  position: fixed;
+  z-index: 100;
+  left: 50%;
+  bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: min(680px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.96);
+  box-shadow: 0 18px 54px rgba(23, 37, 52, 0.16);
+  transform: translateX(-50%);
+  backdrop-filter: blur(16px);
+}
+
+.journey-focus-controls__status {
+  padding: 0 6px;
+  color: rgba(23, 37, 52, 0.7);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.journey-focus-controls button {
+  min-height: 32px;
+  padding: 6px 10px;
+  cursor: pointer;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 999px;
+  color: var(--ink);
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.journey-focus-controls button[aria-pressed="true"] {
+  color: #ffffff;
+  border-color: var(--ink);
+  background: var(--ink);
+}
+
+.journey-focus-controls button:focus-visible {
+  outline: 3px solid rgba(22, 143, 144, 0.32);
+  outline-offset: 3px;
 }
 
 .journey-sketch-toolbar button:focus-visible,
@@ -2990,6 +3052,17 @@ select {
 
   .journey-sketch-setting {
     align-items: stretch;
+  }
+
+  .journey-focus-controls {
+    bottom: 10px;
+    width: calc(100vw - 16px);
+    border-radius: 16px;
+  }
+
+  .journey-focus-controls__status {
+    flex-basis: 100%;
+    text-align: center;
   }
 }
 

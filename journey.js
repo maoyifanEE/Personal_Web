@@ -162,8 +162,12 @@ let rawDrawPoints = [];
 let startSnap = null;
 let currentPointer = null;
 let lastGeometryTestResult = null;
+let editorFocusMode = false;
+let editorZoom = 1;
 let journeyCanvasSyncChannel = null;
 const JOURNEY_INSTANCE_ID = makeId("journey-tab");
+const EDITOR_ZOOM_MIN = 0.15;
+const EDITOR_ZOOM_MAX = 1;
 let journeyAuthState = {
   authenticated: false,
   roles: [],
@@ -1470,6 +1474,66 @@ function cssPercentToCanvasPoint(xPercent, yPercent) {
   };
 }
 
+function normalizeEditorZoom(value) {
+  return clamp(normalizeNumber(value, 1), EDITOR_ZOOM_MIN, EDITOR_ZOOM_MAX);
+}
+
+function setEditorZoom(value, reason = "manual") {
+  const nextZoom = normalizeEditorZoom(value);
+  editorZoom = nextZoom;
+  logJourney("Updated Journey editor visual zoom.", {
+    reason,
+    zoom: editorZoom,
+    focusMode: editorFocusMode
+  });
+  render();
+}
+
+function enterEditorFocusMode() {
+  if (!guardJourneyMutation("enterEditorFocusMode")) {
+    return;
+  }
+  editorFocusMode = true;
+  editorZoom = normalizeEditorZoom(editorZoom);
+  closeEventPopover();
+  logJourney("Entered Journey focus drawing mode.", {
+    activeTool: state.editor.activeTool,
+    zoom: editorZoom
+  });
+  render();
+}
+
+function exitEditorFocusMode(reason = "button") {
+  if (!editorFocusMode && editorZoom === 1) {
+    return;
+  }
+  editorFocusMode = false;
+  editorZoom = 1;
+  logJourney("Exited Journey focus drawing mode.", { reason });
+  render();
+}
+
+function applyFullMapZoom() {
+  if (!editorFocusMode) {
+    editorFocusMode = true;
+  }
+  const availableWidth = Math.max(1, window.innerWidth - 24);
+  const availableHeight = Math.max(1, window.innerHeight - 96);
+  const scaleX = availableWidth / CANVAS_WIDTH;
+  const scaleY = availableHeight / Math.max(1, state.canvas.height);
+  const nextZoom = normalizeEditorZoom(Math.min(scaleX, scaleY));
+  editorZoom = nextZoom;
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  logJourney("Applied Journey full-map editor zoom.", {
+    availableWidth,
+    availableHeight,
+    canvasWidth: CANVAS_WIDTH,
+    canvasHeight: state.canvas.height,
+    zoom: editorZoom
+  });
+  render();
+}
+
 function strokePathD(points) {
   if (!points.length) {
     return "";
@@ -1485,10 +1549,17 @@ function render() {
     state.mode = "preview";
     logJourney("Blocked edit mode because current user cannot edit journey.");
   }
+  if (state.mode !== "edit" && (editorFocusMode || editorZoom !== 1)) {
+    editorFocusMode = false;
+    editorZoom = 1;
+    logJourney("Reset Journey editor focus zoom outside edit mode.");
+  }
   root.dataset.view = state.view;
   root.dataset.editorMode = state.mode;
   root.dataset.activeTool = state.editor.activeTool;
   root.dataset.canEdit = String(canEditJourney());
+  root.dataset.focusMode = String(editorFocusMode && state.mode === "edit" && canEditJourney());
+  root.style.setProperty("--editor-zoom", String(editorZoom));
   document.querySelectorAll("[data-view-button]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.viewButton === state.view));
   });
@@ -1503,6 +1574,7 @@ function render() {
   canvas.className = "journey-sketch-canvas";
   canvas.style.setProperty("--canvas-height", `${state.canvas.height}px`);
   canvas.style.setProperty("--canvas-width", `${CANVAS_WIDTH}`);
+  canvas.style.setProperty("--editor-zoom", String(editorZoom));
   canvas.addEventListener("pointerdown", handleCanvasPointerDown);
   canvas.addEventListener("pointermove", handleCanvasPointerMove);
   canvas.addEventListener("pointerup", handleCanvasPointerUp);
@@ -1719,12 +1791,37 @@ function renderInteractionLayer() {
   return layer;
 }
 
+function renderFocusControls() {
+  const controls = document.createElement("section");
+  controls.className = "journey-focus-controls";
+  controls.setAttribute("aria-label", "Journey focus drawing controls");
+  controls.innerHTML = `
+    <span class="journey-focus-controls__status">专注绘制 · ${Math.round(editorZoom * 100)}%</span>
+    <button type="button" data-focus-zoom="0.25" aria-pressed="${editorZoom === 0.25}">25%</button>
+    <button type="button" data-focus-zoom="0.5" aria-pressed="${editorZoom === 0.5}">50%</button>
+    <button type="button" data-focus-zoom="0.75" aria-pressed="${editorZoom === 0.75}">75%</button>
+    <button type="button" data-focus-zoom="1" aria-pressed="${editorZoom === 1}">100%</button>
+    <button type="button" data-focus-action="full-map">显示全图</button>
+    <button type="button" data-focus-action="exit">退出专注</button>
+  `;
+  controls.querySelectorAll("[data-focus-zoom]").forEach((button) => {
+    button.addEventListener("click", () => setEditorZoom(Number(button.dataset.focusZoom), "focus-control"));
+  });
+  controls.querySelector("[data-focus-action='full-map']")?.addEventListener("click", applyFullMapZoom);
+  controls.querySelector("[data-focus-action='exit']")?.addEventListener("click", () => exitEditorFocusMode("button"));
+  return controls;
+}
+
 function renderEditorPanel() {
   if (!editorRoot) {
     return;
   }
   editorRoot.innerHTML = "";
   if (state.mode !== "edit" || !canEditJourney()) {
+    return;
+  }
+  if (editorFocusMode) {
+    editorRoot.append(renderFocusControls());
     return;
   }
   const toolbar = document.createElement("section");
@@ -1734,6 +1831,7 @@ function renderEditorPanel() {
       <button type="button" data-tool="draw" aria-pressed="${state.editor.activeTool === "draw"}">手绘</button>
       <button type="button" data-tool="erase" aria-pressed="${state.editor.activeTool === "erase"}">橡皮擦</button>
       <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">选择/编辑</button>
+      <button type="button" data-action="enter-focus">专注绘制</button>
       <button type="button" data-action="upload-sticker">上传贴纸</button>
       <button type="button" data-action="save-canvas" ${remoteCanvasMeta.saving ? "disabled" : ""}>
         ${remoteCanvasMeta.saving ? "保存中..." : "保存画布"}
@@ -2112,11 +2210,13 @@ function handleToolbarAction(action) {
   }
   const stickerFileInput = document.querySelector("[data-file-input='sticker']");
   const actions = {
+    "enter-focus": enterEditorFocusMode,
     "upload-sticker": () => stickerFileInput?.click(),
     "save-canvas": saveRemoteCanvasState,
     "export-publish-bundle": exportPublishBundle,
     clear: clearCanvasState,
     exit: () => {
+      exitEditorFocusMode("editor-exit");
       state.mode = "preview";
       render();
     }
@@ -2527,6 +2627,11 @@ window.addEventListener("pointerup", () => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && editorFocusMode) {
+    event.preventDefault();
+    exitEditorFocusMode("escape");
+    return;
+  }
   if (state.mode !== "edit" || !["Delete", "Backspace"].includes(event.key) || !guardJourneyMutation("deleteKey")) {
     return;
   }
@@ -3167,6 +3272,9 @@ function installGlobalControls() {
       return;
     }
     state.mode = state.mode === "edit" ? "preview" : "edit";
+    if (state.mode !== "edit") {
+      exitEditorFocusMode("editor-toggle");
+    }
     render();
   });
   document.addEventListener("click", (event) => {
@@ -3242,6 +3350,7 @@ window.__journeySketchDebug = {
   runGeometryTests,
   getState: () => clone(state),
   getLastGeometryTestResult: () => clone(lastGeometryTestResult),
+  getEditorViewportState: () => ({ focusMode: editorFocusMode, zoom: editorZoom }),
   getLayerRects,
   testPointerMapping: (clientX, clientY) => clientPointToCanvasPoint({ clientX, clientY })
 };
