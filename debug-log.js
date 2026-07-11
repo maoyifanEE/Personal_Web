@@ -41,6 +41,23 @@
       )
     );
 
+  const validateCurrentDebugRuntime = async () => {
+    if (
+      !window.PersonalWebDebug?.ready ||
+      !window.PersonalWebDebug?.collectBrowserBundlePayload ||
+      !window.PersonalWebDebug?.validateDebugBundlePayload
+    ) {
+      throw new Error("调试日志模块版本过时或尚未初始化，请强制刷新页面后重试。");
+    }
+    await window.PersonalWebDebug.ready();
+    const payload = await window.PersonalWebDebug.collectBrowserBundlePayload("debug-log-preflight");
+    const validation = window.PersonalWebDebug.validateDebugBundlePayload(payload);
+    if (!validation.ok) {
+      throw new Error(`调试日志模块版本过时或尚未初始化，请强制刷新页面后重试：${validation.errors.join(", ")}`);
+    }
+    return payload;
+  };
+
   const initializeFullBundleAccess = async () => {
     setBundleExportVisible(false);
     if (!window.PersonalWebDebug?.isLocalDevelopmentHost?.()) {
@@ -76,29 +93,55 @@
     }
   };
 
+  const render = async () => {
+    if (!window.PersonalWebDebug) {
+      setStatus("调试日志模块未加载。", true);
+      return;
+    }
+    await window.PersonalWebDebug.ready();
+    const [entries, retention] = await Promise.all([
+      window.PersonalWebDebug.getLogsAsync({ limit: 500 }),
+      window.PersonalWebDebug.getRetentionInfo()
+    ]);
+    if (output) {
+      output.textContent = JSON.stringify(
+        {
+          retention,
+          showing: `Showing latest ${entries.length} of ${retention.entryCount} retained entries`,
+          entries
+        },
+        null,
+        2
+      );
+    }
+    setStatus(
+      [
+        `保留 ${retention.entryCount} 条日志，当前显示最新 ${entries.length} 条。`,
+        `保留周期：${retention.retentionDays} 天。`,
+        `存储：${retention.storageBackend}${retention.degraded ? "（降级）" : ""}。`,
+        `最早：${retention.oldestTimestamp || "无"}。`,
+        `最新：${retention.newestTimestamp || "无"}。`
+      ].join(" ")
+    );
+    window.PersonalWebDebug.info("debug_page.rendered", {
+      entryCount: retention.entryCount,
+      renderedCount: entries.length,
+      storageBackend: retention.storageBackend,
+      degraded: retention.degraded
+    });
+  };
+
   const exportFullDebugBundle = async () => {
     if (!canExportFullBundle) {
       setStatus("需要管理员登录后才能导出完整调试包。", true);
       window.PersonalWebDebug?.warn?.("debug_page.bundle_export.blocked_not_admin");
       return;
     }
+    await validateCurrentDebugRuntime();
     await window.PersonalWebDebug.exportFullDebugBundle({
       source: "debug-log",
       setStatus
     });
-  };
-
-  const render = () => {
-    if (!window.PersonalWebDebug) {
-      setStatus("调试日志模块未加载。", true);
-      return;
-    }
-    const entries = window.PersonalWebDebug.entries();
-    if (output) {
-      output.textContent = JSON.stringify(entries.slice(-120), null, 2);
-    }
-    setStatus(`已读取 ${entries.length} 条本地日志，当前显示最近 ${Math.min(entries.length, 120)} 条。`);
-    window.PersonalWebDebug.log("info", "debug_page.rendered", { entryCount: entries.length });
   };
 
   document.addEventListener("click", async (event) => {
@@ -108,11 +151,11 @@
     }
     try {
       if (action === "refresh") {
-        render();
+        await render();
       } else if (action === "export") {
-        window.PersonalWebDebug.exportLogs();
+        await window.PersonalWebDebug.exportLogs();
       } else if (action === "export-text") {
-        window.PersonalWebDebug.exportTextSummary();
+        await window.PersonalWebDebug.exportTextSummary();
       } else if (action === "export-bundle") {
         await exportFullDebugBundle();
       } else if (action === "send") {
@@ -120,12 +163,12 @@
         const result = await window.PersonalWebDebug.sendToBackend({ source: "debug-log-page" });
         setStatus(`已发送到本地后端：${result.entryCount} 条。`);
       } else if (action === "clear") {
-        window.PersonalWebDebug.clear();
-        render();
+        await window.PersonalWebDebug.clear();
+        await render();
       }
     } catch (error) {
       setStatus(`操作失败：${error.message}`, true);
-      window.PersonalWebDebug.log("warn", "debug_page.action_failed", {
+      window.PersonalWebDebug.warn("debug_page.action_failed", {
         action,
         category: error.category || "unknown",
         error: error.message

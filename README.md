@@ -281,8 +281,12 @@ for important frontend, backend, and local tooling source files.
 Run this command from the repository root:
 
 ```bash
-python -m http.server 4173
+python scripts/local_static_server.py --host 127.0.0.1 --port 4173 --root .
 ```
+
+The local static server sends `no-store` headers for HTML, JavaScript, CSS,
+JSON, and source maps so development pages do not keep stale browser runtimes.
+This is local-only behavior and does not change production caching.
 
 Then open these URLs as needed:
 
@@ -354,7 +358,7 @@ The launcher:
 * runs Alembic migrations
 * runs the development auth seed script
 * starts the backend at `http://127.0.0.1:8000`
-* starts the static frontend at `http://127.0.0.1:4173`
+* starts the local no-store static frontend at `http://127.0.0.1:4173`
 * opens the guest-reset homepage by default
 
 Create a movable Windows shortcut:
@@ -456,7 +460,7 @@ python -m app.scripts.seed_dev_auth_users
 In another terminal:
 
 ```powershell
-.\backend\.venv\Scripts\python.exe -m http.server 4173 --bind 127.0.0.1
+.\backend\.venv\Scripts\python.exe .\scripts\local_static_server.py --host 127.0.0.1 --port 4173 --root .
 ```
 
 Then open:

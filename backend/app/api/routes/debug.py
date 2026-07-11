@@ -10,13 +10,13 @@ from app.api.dependencies import require_csrf_token, require_permission
 from app.core.config import Settings, get_settings
 from app.core.diagnostics import sanitize_for_diagnostics, write_jsonl_event
 from app.models.auth import AppUser
-from app.services.debug_bundle_service import create_debug_bundle
+from app.services.debug_bundle_service import create_debug_bundle, validate_browser_payload_metadata
 
 router = APIRouter(prefix="/debug")
-MAX_CLIENT_LOG_ENTRIES = 2_000
-MAX_CLIENT_LOG_JSON_CHARS = 1_200_000
-MAX_CLIENT_LOG_ENTRY_JSON_CHARS = 20_000
-MAX_EXPORT_BUNDLE_JSON_CHARS = 1_500_000
+MAX_CLIENT_LOG_ENTRIES = 100_000
+MAX_CLIENT_LOG_JSON_CHARS = 25 * 1024 * 1024
+MAX_CLIENT_LOG_ENTRY_JSON_CHARS = 50 * 1024
+MAX_EXPORT_BUNDLE_JSON_CHARS = 50 * 1024 * 1024
 
 
 def require_dev_debug(settings: Settings = Depends(get_settings)) -> Settings:
@@ -40,11 +40,27 @@ def validate_debug_payload(payload: dict[str, Any], *, max_json_chars: int) -> i
         raise HTTPException(status_code=400, detail="entries must be a list when provided")
     entry_count = len(entries or [])
     if entry_count > MAX_CLIENT_LOG_ENTRIES:
-        write_jsonl_event("backend", "debug.bundle_export.payload_too_large", {"entryCount": entry_count})
+        write_jsonl_event(
+            "backend",
+            "debug.bundle_export.payload_too_large",
+            {
+                "entryCount": entry_count,
+                "entryLimit": MAX_CLIENT_LOG_ENTRIES,
+                "reason": "entry_count",
+            },
+        )
         raise HTTPException(status_code=413, detail="Too many debug entries")
     payload_size = len(json.dumps(payload, ensure_ascii=False))
     if payload_size > max_json_chars:
-        write_jsonl_event("backend", "debug.bundle_export.payload_too_large", {"payloadSize": payload_size})
+        write_jsonl_event(
+            "backend",
+            "debug.bundle_export.payload_too_large",
+            {
+                "payloadSize": payload_size,
+                "payloadLimit": max_json_chars,
+                "reason": "payload_size",
+            },
+        )
         raise HTTPException(status_code=413, detail="Debug payload is too large")
     for index, entry in enumerate(entries or []):
         entry_size = len(json.dumps(entry, ensure_ascii=False))
@@ -52,7 +68,12 @@ def validate_debug_payload(payload: dict[str, Any], *, max_json_chars: int) -> i
             write_jsonl_event(
                 "backend",
                 "debug.bundle_export.payload_too_large",
-                {"entryIndex": index, "entrySize": entry_size},
+                {
+                    "entryIndex": index,
+                    "entrySize": entry_size,
+                    "entryLimit": MAX_CLIENT_LOG_ENTRY_JSON_CHARS,
+                    "reason": "entry_size",
+                },
             )
             raise HTTPException(status_code=413, detail=f"Debug entry {index} is too large")
     return entry_count
@@ -110,6 +131,29 @@ async def export_debug_bundle(
     )
     try:
         entry_count = validate_debug_payload(payload, max_json_chars=MAX_EXPORT_BUNDLE_JSON_CHARS)
+        metadata_omissions = validate_browser_payload_metadata(payload)
+        if metadata_omissions:
+            write_jsonl_event(
+                "backend",
+                "debug.bundle_export.invalid_browser_schema",
+                {
+                    "omissions": metadata_omissions,
+                    "schemaVersion": payload.get("schemaVersion"),
+                    "loggerVersion": payload.get("loggerVersion"),
+                    "entryCount": payload.get("entryCount"),
+                    "storageBackend": payload.get("storageBackend"),
+                },
+            )
+            if any("missing" in item or "legacy" in item for item in metadata_omissions):
+                write_jsonl_event(
+                    "backend",
+                    "debug.bundle_export.incomplete_browser_metadata",
+                    {"omissions": metadata_omissions},
+                )
+            raise HTTPException(
+                status_code=409,
+                detail="Browser debug logger is stale; reload the page before exporting.",
+            )
         write_jsonl_event(
             "backend",
             "debug.bundle_export.client_logs_received",
@@ -133,6 +177,13 @@ async def export_debug_bundle(
         )
     except HTTPException:
         raise
+    except ValueError as error:
+        write_jsonl_event(
+            "backend",
+            "debug.bundle_export.too_large",
+            {"error": str(error), "actorUserId": actor.id},
+        )
+        raise HTTPException(status_code=413, detail=str(error)) from error
     except Exception as error:
         write_jsonl_event("backend", "debug.bundle_export.exception", {"error": str(error)})
         raise HTTPException(status_code=500, detail="Failed to create debug bundle") from error

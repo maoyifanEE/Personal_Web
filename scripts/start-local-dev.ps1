@@ -83,6 +83,18 @@ function Test-UrlReady {
   }
 }
 
+function Test-FrontendNoStore {
+  param([string]$Uri)
+
+  try {
+    $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -Method Head -TimeoutSec 2
+    $cacheControl = [string]$response.Headers["Cache-Control"]
+    return $cacheControl -match "no-store"
+  } catch {
+    return $false
+  }
+}
+
 function Wait-ForUrl {
   param(
     [string]$Name,
@@ -156,7 +168,7 @@ function Start-FrontendWindow {
 `$Host.UI.RawUI.WindowTitle = 'Personal_Web Frontend 4173'
 Write-Host '[Personal_Web frontend] Working directory: $RepoRoot'
 Write-Host '[Personal_Web frontend] Homepage: http://127.0.0.1:4173/'
-& '$BackendPython' -m http.server 4173 --bind 127.0.0.1
+& '$BackendPython' (Join-Path '$RepoRoot' 'scripts\local_static_server.py') --host 127.0.0.1 --port 4173 --root '$RepoRoot'
 Write-Host '[Personal_Web frontend] Process exited. Review messages above.'
 "@
 
@@ -279,6 +291,11 @@ if (-not $backendReady) {
 $frontendListener = Get-PortListener -Port 4173
 if ($frontendListener) {
   if (Test-UrlReady -Uri $homepageUrl) {
+    if (-not (Test-FrontendNoStore -Uri $baseHomepageUrl)) {
+      Write-Host "Port 4173 is serving a frontend without local no-store headers."
+      Write-Host "Run .\scripts\stop-local-dev.ps1, then start again."
+      throw "Frontend port 4173 is using a stale local static server"
+    }
     Write-Info "Reusing existing frontend on port 4173 ($(Describe-PortOwner -Port 4173))."
   } else {
     Write-Host "Port 4173 is already in use by $(Describe-PortOwner -Port 4173), but homepage is not responding."

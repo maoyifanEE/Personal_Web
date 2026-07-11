@@ -1,5 +1,94 @@
 # Project History
 
+## 2026-07-11 - Fix Journey sticker delete button
+
+### Goal
+
+* Work on `BugFix/journey-sticker-delete-button-v1`.
+* Make the selected-sticker red delete control use the same deletion path as
+  the keyboard Delete and Backspace shortcuts.
+* Continue the bugfix after manual testing confirmed the action-map-only fix was
+  insufficient.
+
+### Actual changes
+
+* Registered the selected-sticker `delete` action in the Journey sticker action
+  handler for sidebar/action-map compatibility.
+* Confirmed the actual on-canvas failure was earlier in the pointer chain: the
+  delete button `pointerdown` could bubble to the sticker wrapper, start a drag,
+  capture the pointer, and rerender the selected sticker before `click`.
+* Marked sticker overlay controls with `data-sticker-control="true"` and made
+  the sticker wrapper ignore control-originated pointerdown events.
+* Added delete-control pointerdown/click logs and explicit delete requested,
+  blocked, and succeeded logs.
+* Kept `deleteSelectedSticker()` as the single authoritative canvas sticker
+  deletion function.
+
+### Safety boundaries
+
+* No backend, database, media API, canvas schema, Auth/RBAC, deployment, or
+  uploaded media deletion behavior was changed.
+* Deleting a sticker still only removes it from the current canvas draft and
+  does not automatically save the canvas.
+
+## 2026-07-11 - Expand local seven-day diagnostics
+
+### Goal
+
+* Work on `BugFix/journey-sticker-delete-button-v1`.
+* Keep local-development diagnostics for the most recent seven days and prefer
+  recording too much useful event evidence over silently missing important
+  interactions.
+
+### Actual changes
+
+* Added an IndexedDB-backed browser diagnostic store with localStorage migration
+  and fallback.
+* Added seven-day browser retention, emergency oldest-first trimming with an
+  explicit warning event, and async full retained-log export.
+* Added local-development-only capture for safe control pointerdown/click,
+  input metadata, form submit, page lifecycle, browser errors, unhandled
+  rejections, resource errors, and fetch start/complete/failure summaries.
+* Updated the debug log page to show retained entry count, oldest/newest
+  timestamps, storage backend, degraded state, and the latest 500 retained
+  entries.
+* Expanded backend local debug payload limits for development diagnostics.
+* Added `.local_logs` seven-day retention for backend, frontend, launcher, and
+  debug-bundle diagnostics.
+* Updated debug bundle generation with seven-day retention metadata, safe log
+  inventory, complete/omissions fields, and an explicit total log-size limit.
+* Added a browser debug payload schema/logger version handshake so stale cached
+  Hub or debug-page scripts cannot export legacy bundles as complete.
+* Added frontend validation before bundle export and backend rejection for
+  missing or stale browser retention metadata.
+* Added debug logger script cache-busting on all pages that load the local
+  diagnostics runtime.
+* Added focused frontend and backend diagnostics tests.
+* Verified a Hub export generated a complete v4 debug bundle with matching
+  browser entry counts, non-null retention metadata, and no omissions.
+* Confirmed `debug-log.html` could export a valid v4 seven-day bundle while a
+  stale cached `hub.html` could still load the legacy runtime and receive HTTP
+  409 from the backend.
+* Replaced the local frontend `python -m http.server` launcher path with a
+  standard-library local static server that sends no-store headers for local
+  HTML, JavaScript, CSS, JSON, and source-map files.
+* Kept deterministic logger query versions and verified fresh Hub and
+  debug-log page ZIP exports after restarting the local launcher.
+* Kept backend rejection for legacy browser payloads.
+
+### Safety boundaries
+
+* Verbose event capture is enabled only on `127.0.0.1` and `localhost`.
+* Passwords, tokens, cookies, CSRF values, authorization headers, database URLs,
+  request/response bodies, Data URLs, file contents, and media bytes remain
+  redacted or omitted.
+* No deployment, database migration, Auth/RBAC policy, media deletion behavior,
+  saved canvas schema, or production visitor logging policy was changed.
+* No production caching, Nginx, Certbot, systemd, or public-server behavior was
+  changed.
+* Legacy browser payloads with null retention metadata are now rejected or marked
+  incomplete instead of being labeled as complete debug bundles.
+
 ## 2026-07-11 - Add collapsible Journey editor sidebar
 
 ### Goal

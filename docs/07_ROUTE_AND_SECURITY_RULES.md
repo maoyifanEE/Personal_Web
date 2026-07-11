@@ -192,8 +192,12 @@ python -m app.scripts.seed_dev_auth_users
 Manual frontend startup from the repository root:
 
 ```powershell
-.\backend\.venv\Scripts\python.exe -m http.server 4173 --bind 127.0.0.1
+.\backend\.venv\Scripts\python.exe .\scripts\local_static_server.py --host 127.0.0.1 --port 4173 --root .
 ```
+
+The local static server sends no-store headers for local HTML, JavaScript, CSS,
+JSON, and source-map files so source changes do not leave stale browser
+runtimes during development. This does not change production caching.
 
 Homepage URL:
 
