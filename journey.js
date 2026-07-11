@@ -1943,10 +1943,11 @@ function renderStickerLayer() {
         const del = document.createElement("button");
         del.type = "button";
         del.className = "journey-sticker-delete";
+        del.dataset.stickerAction = "delete";
         del.textContent = "删除";
         del.addEventListener("click", (event) => {
           event.stopPropagation();
-          deleteSelectedSticker();
+          handleSelectedStickerAction(del.dataset.stickerAction);
         });
         wrap.append(del);
       }
@@ -3045,7 +3046,8 @@ function handleSelectedStickerAction(action) {
     backward: moveSelectedStickerBackward,
     "to-front": moveSelectedStickerToFront,
     "to-back": moveSelectedStickerToBack,
-    "cover-canvas": coverSelectedStickerCanvas
+    "cover-canvas": coverSelectedStickerCanvas,
+    delete: deleteSelectedSticker
   };
   actions[action]?.();
 }

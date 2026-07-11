@@ -1,5 +1,28 @@
 # Project History
 
+## 2026-07-11 - Fix Journey sticker delete button
+
+### Goal
+
+* Work on `BugFix/journey-sticker-delete-button-v1`.
+* Make the selected-sticker red delete control use the same deletion path as
+  the keyboard Delete and Backspace shortcuts.
+
+### Actual changes
+
+* Registered the selected-sticker `delete` action in the Journey sticker action
+  handler.
+* Routed the red selected-sticker delete button through that action handler.
+* Kept `deleteSelectedSticker()` as the single authoritative canvas sticker
+  deletion function.
+
+### Safety boundaries
+
+* No backend, database, media API, canvas schema, Auth/RBAC, deployment, or
+  uploaded media deletion behavior was changed.
+* Deleting a sticker still only removes it from the current canvas draft and
+  does not automatically save the canvas.
+
 ## 2026-07-11 - Add collapsible Journey editor sidebar
 
 ### Goal
