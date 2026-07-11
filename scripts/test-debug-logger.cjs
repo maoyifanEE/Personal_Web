@@ -84,7 +84,56 @@ function testEventSummary() {
   console.log("DEBUG_LOGGER_EVENT_SUMMARY_TEST_PASS");
 }
 
+function validPayload(overrides = {}) {
+  const entries = overrides.entries ?? [
+    {
+      id: "entry-1",
+      timestamp: "2026-07-11T00:00:00.000Z",
+      event: "ui.control.click"
+    }
+  ];
+  return {
+    schemaVersion: core.DEBUG_PAYLOAD_SCHEMA_VERSION,
+    loggerVersion: core.DEBUG_LOGGER_VERSION,
+    retentionDays: core.RETENTION_DAYS,
+    cutoffTimestamp: "2026-07-04T00:00:00.000Z",
+    entryCount: entries.length,
+    oldestTimestamp: entries.length ? entries[0].timestamp : null,
+    newestTimestamp: entries.length ? entries[entries.length - 1].timestamp : null,
+    storageBackend: "indexeddb",
+    degraded: false,
+    complete: true,
+    omissions: [],
+    entries,
+    ...overrides
+  };
+}
+
+function expectInvalid(payload, field) {
+  const validation = core.validateDebugBundlePayload(payload);
+  assert.equal(validation.ok, false);
+  assert.ok(validation.errors.includes(field), `Expected ${field} in ${validation.errors.join(",")}`);
+}
+
+function testPayloadValidation() {
+  assert.equal(core.validateDebugBundlePayload(validPayload()).ok, true);
+  expectInvalid({ ...validPayload(), schemaVersion: undefined }, "schemaVersion");
+  expectInvalid({ entries: new Array(120).fill({}) }, "schemaVersion");
+  expectInvalid({ ...validPayload(), storageBackend: null }, "storageBackend");
+  expectInvalid({ ...validPayload(), cutoffTimestamp: null }, "cutoffTimestamp");
+  expectInvalid({ ...validPayload(), entryCount: 2 }, "entryCount_mismatch");
+  expectInvalid({ ...validPayload(), oldestTimestamp: null }, "oldestTimestamp");
+  expectInvalid({ ...validPayload(), newestTimestamp: null }, "newestTimestamp");
+  assert.equal(core.validateDebugBundlePayload(validPayload({ entries: [] })).ok, true);
+  assert.equal(core.validateDebugBundlePayload(validPayload({ storageBackend: "indexeddb" })).ok, true);
+  assert.equal(core.validateDebugBundlePayload(validPayload({ storageBackend: "localStorage", degraded: true })).ok, true);
+  expectInvalid({ ...validPayload(), loggerVersion: "old" }, "loggerVersion");
+  console.log("DEBUG_PAYLOAD_SCHEMA_TEST_PASS");
+  console.log("DEBUG_PAYLOAD_VALIDATION_TEST_PASS");
+}
+
 testRetention();
 testSanitization();
 testEventSummary();
+testPayloadValidation();
 console.log("DEBUG_LOGGER_TEST_PASS");

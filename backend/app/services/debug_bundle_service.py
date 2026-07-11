@@ -21,6 +21,8 @@ from app.core.diagnostics import (
 
 MAX_TOTAL_LOG_BYTES = 250 * 1024 * 1024
 ALLOWED_LOG_DIRS = ("backend", "frontend", "launcher", "debug-bundles")
+DEBUG_PAYLOAD_SCHEMA_VERSION = "personal-web-debug-payload-v2"
+DEBUG_LOGGER_VERSION = "2026-07-11-debug-v4"
 SKIPPED_PARTS = {
     ".env",
     ".venv",
@@ -148,12 +150,13 @@ def git_summary() -> dict[str, str]:
     }
 
 
-def write_json(zip_file: ZipFile, name: str, data: Any) -> None:
-    """Write sanitized JSON to a zip member."""
+def write_json(zip_file: ZipFile, name: str, data: Any, *, sanitize: bool = True) -> None:
+    """Write JSON to a zip member."""
 
+    payload = sanitize_for_diagnostics(data) if sanitize else data
     zip_file.writestr(
         name,
-        json.dumps(sanitize_for_diagnostics(data), ensure_ascii=False, indent=2),
+        json.dumps(payload, ensure_ascii=False, indent=2),
     )
 
 
@@ -161,6 +164,41 @@ def write_text(zip_file: ZipFile, name: str, text: str) -> None:
     """Write text to a zip member."""
 
     zip_file.writestr(name, text)
+
+
+def validate_browser_payload_metadata(client_payload: dict[str, Any]) -> list[str]:
+    """Return browser payload metadata validation omissions."""
+
+    omissions: list[str] = []
+    entries = client_payload.get("entries")
+    if client_payload.get("schemaVersion") != DEBUG_PAYLOAD_SCHEMA_VERSION:
+        omissions.append("browser_payload_legacy_or_missing_metadata")
+    if client_payload.get("loggerVersion") != DEBUG_LOGGER_VERSION:
+        omissions.append("browser_logger_version_stale_or_missing")
+    if client_payload.get("retentionDays") != LOCAL_LOG_RETENTION_DAYS:
+        omissions.append("browser_retention_days_invalid")
+    if not client_payload.get("cutoffTimestamp"):
+        omissions.append("browser_retention_cutoff_missing")
+    if not isinstance(client_payload.get("entryCount"), int):
+        omissions.append("browser_entry_count_missing")
+    if not isinstance(entries, list):
+        omissions.append("browser_entries_missing")
+    elif client_payload.get("entryCount") != len(entries):
+        omissions.append("browser_entry_count_mismatch")
+    if client_payload.get("storageBackend") not in {"indexeddb", "localStorage"}:
+        omissions.append("browser_storage_backend_missing")
+    if not isinstance(client_payload.get("degraded"), bool):
+        omissions.append("browser_degraded_flag_missing")
+    if not isinstance(client_payload.get("complete"), bool):
+        omissions.append("browser_complete_flag_missing")
+    if not isinstance(client_payload.get("omissions"), list):
+        omissions.append("browser_omissions_missing")
+    if isinstance(entries, list) and entries:
+        if not client_payload.get("oldestTimestamp"):
+            omissions.append("browser_oldest_timestamp_missing")
+        if not client_payload.get("newestTimestamp"):
+            omissions.append("browser_newest_timestamp_missing")
+    return omissions
 
 
 def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
@@ -172,10 +210,17 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
     timestamp = utc_timestamp()
     filename = f"personal-web-debug-{timestamp}.local-debug.zip"
     zip_path = bundle_root / filename
-    safe_client_payload = sanitize_for_diagnostics(client_payload)
+    metadata_omissions = validate_browser_payload_metadata(client_payload)
     inventory, log_files = safe_log_inventory()
-    browser_entries = safe_client_payload.get("entries") or []
+    raw_browser_entries = client_payload.get("entries") if isinstance(client_payload.get("entries"), list) else []
+    browser_entries = [sanitize_for_diagnostics(entry) for entry in raw_browser_entries]
+    safe_client_payload = sanitize_for_diagnostics(
+        {key: value for key, value in client_payload.items() if key != "entries"}
+    )
+    safe_client_payload["entries"] = browser_entries
     browser_metadata = {
+        "schemaVersion": safe_client_payload.get("schemaVersion"),
+        "loggerVersion": safe_client_payload.get("loggerVersion"),
         "retentionDays": safe_client_payload.get("retentionDays", LOCAL_LOG_RETENTION_DAYS),
         "cutoffTimestamp": safe_client_payload.get("cutoffTimestamp"),
         "entryCount": safe_client_payload.get("entryCount", len(browser_entries)),
@@ -185,10 +230,24 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
         "degraded": safe_client_payload.get("degraded", False),
         "omissions": safe_client_payload.get("omissions") or [],
     }
-    bundle_omissions = list(browser_metadata["omissions"])
-    complete = not browser_metadata["degraded"] and not bundle_omissions
+    bundle_omissions = [*metadata_omissions, *browser_metadata["omissions"]]
+    complete = (
+        not bundle_omissions
+        and safe_client_payload.get("schemaVersion") == DEBUG_PAYLOAD_SCHEMA_VERSION
+        and safe_client_payload.get("loggerVersion") == DEBUG_LOGGER_VERSION
+        and browser_metadata["retentionDays"] == LOCAL_LOG_RETENTION_DAYS
+        and bool(browser_metadata["cutoffTimestamp"])
+        and browser_metadata["storageBackend"] in {"indexeddb", "localStorage"}
+        and browser_metadata["degraded"] is False
+        and safe_client_payload.get("complete") is True
+        and len(browser_entries) == browser_metadata["entryCount"]
+    )
 
     summary = {
+        "schemaVersion": DEBUG_PAYLOAD_SCHEMA_VERSION,
+        "loggerVersion": DEBUG_LOGGER_VERSION,
+        "browserPayloadSchemaVersion": safe_client_payload.get("schemaVersion"),
+        "browserPayloadLoggerVersion": safe_client_payload.get("loggerVersion"),
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "filename": filename,
         "complete": complete,
@@ -224,7 +283,7 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
     }
 
     with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zip_file:
-        write_json(zip_file, "browser/client-payload.json", safe_client_payload)
+        write_json(zip_file, "browser/client-payload.json", safe_client_payload, sanitize=False)
         write_json(zip_file, "browser/retention-metadata.json", browser_metadata)
         write_json(zip_file, "summary.json", summary)
         write_json(zip_file, "environment-summary.json", environment_summary())

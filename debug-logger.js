@@ -1,5 +1,19 @@
 (function () {
   const core = window.PersonalWebDebugCore;
+  if (!core) {
+    console.warn("[PersonalWebDebug] debug.logger.core_missing", {
+      path: window.location.pathname + window.location.search
+    });
+    window.PersonalWebDebug = {
+      unavailableReason: "debug_logger_core_missing",
+      ready: () => Promise.reject(new Error("Debug logger core is missing.")),
+      isLocalDevelopmentHost: () => ["127.0.0.1", "localhost"].includes(window.location.hostname),
+      info: (...args) => console.info("[PersonalWebDebug]", ...args),
+      warn: (...args) => console.warn("[PersonalWebDebug]", ...args),
+      error: (...args) => console.error("[PersonalWebDebug]", ...args)
+    };
+    return;
+  }
   const LEGACY_STORAGE_KEY = "personalWebDebugLogV1";
   const FALLBACK_STORAGE_KEY = "personalWebDebugLogV2Fallback";
   const SESSION_KEY = "personalWebDebugSessionIdV1";
@@ -335,6 +349,8 @@
     const entries = core.pruneEntriesByAge(await getAllIndexedDbEntries());
     entries.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
     return {
+      schemaVersion: core.DEBUG_PAYLOAD_SCHEMA_VERSION,
+      loggerVersion: core.DEBUG_LOGGER_VERSION,
       retentionDays: core.RETENTION_DAYS,
       cutoffTimestamp: core.cutoffTimestamp(),
       entryCount: entries.length,
@@ -454,17 +470,21 @@
   const collectBrowserBundlePayload = async (source = page) => {
     await readyPromise;
     await pruneExpiredLogs({ force: true });
-    const entries = await getLogsAsync();
+    const entries = (await getLogsAsync()).map((entry) => sanitize(entry));
     const retention = await getRetentionInfo();
-    return sanitize({
+    const oldestTimestamp = entries[0]?.timestamp || null;
+    const newestTimestamp = entries[entries.length - 1]?.timestamp || null;
+    return {
+      schemaVersion: core.DEBUG_PAYLOAD_SCHEMA_VERSION,
+      loggerVersion: core.DEBUG_LOGGER_VERSION,
       sessionId,
       page: source,
       location: window.location.href,
       retentionDays: retention.retentionDays,
       cutoffTimestamp: retention.cutoffTimestamp,
       entryCount: entries.length,
-      oldestTimestamp: retention.oldestTimestamp,
-      newestTimestamp: retention.newestTimestamp,
+      oldestTimestamp,
+      newestTimestamp,
       storageBackend: retention.storageBackend,
       degraded: retention.degraded,
       omissions: retention.omissions,
@@ -485,7 +505,7 @@
           journeyData: localStorageItemSummary("journeyData")
         }
       }
-    });
+    };
   };
 
   const sendToBackend = async (extra = {}) => {
@@ -550,6 +570,25 @@
 
     const apiBaseUrl = window.PersonalWebAuth?.apiBaseUrl || "http://127.0.0.1:8000/api";
     const payload = await collectBrowserBundlePayload(source);
+    const validation = core.validateDebugBundlePayload(payload);
+    if (!validation.ok) {
+      warn("debug.bundle_export.invalid_browser_payload", {
+        source,
+        errors: validation.errors,
+        schemaVersion: payload?.schemaVersion,
+        loggerVersion: payload?.loggerVersion,
+        storageBackend: payload?.storageBackend,
+        retentionDays: payload?.retentionDays
+      });
+      updateStatus(
+        `调试日志模块版本过时或尚未初始化，请强制刷新页面后重试：${validation.errors.join(", ")}`,
+        true
+      );
+      throw makeExportError(
+        `Debug logger payload is invalid or stale: ${validation.errors.join(", ")}`,
+        "invalid_browser_payload"
+      );
+    }
     const requestPath = "/debug/export-bundle";
     let response;
     try {
@@ -813,6 +852,9 @@
     sendToBackend,
     isLocalDevelopmentHost,
     collectBrowserBundlePayload,
+    validateDebugBundlePayload: core.validateDebugBundlePayload,
+    schemaVersion: core.DEBUG_PAYLOAD_SCHEMA_VERSION,
+    loggerVersion: core.DEBUG_LOGGER_VERSION,
     sessionId,
     entries: getLogs,
     clear: clearLogs
@@ -821,6 +863,8 @@
   installInteractionCapture();
   wrapFetch();
   info("debug.logger.ready", {
+    schemaVersion: core.DEBUG_PAYLOAD_SCHEMA_VERSION,
+    loggerVersion: core.DEBUG_LOGGER_VERSION,
     storageBackend,
     retentionDays: core.RETENTION_DAYS,
     maxEmergencyEntries: MAX_EMERGENCY_ENTRIES,

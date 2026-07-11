@@ -66,26 +66,19 @@ def test_bundle_inventory() -> None:
       debug_bundle_service.LOCAL_LOG_ROOT = root
       diagnostics.LOCAL_LOG_ROOT = root
       try:
-        payload = {
-          "retentionDays": 7,
-          "cutoffTimestamp": (now - timedelta(days=7)).isoformat(),
-          "entryCount": 1,
-          "oldestTimestamp": now.isoformat(),
-          "newestTimestamp": now.isoformat(),
-          "storageBackend": "indexeddb",
-          "degraded": False,
-          "omissions": [],
-          "entries": [{"timestamp": now.isoformat(), "event": "test"}],
-        }
+        payload = valid_browser_payload(now)
         zip_path, _filename = debug_bundle_service.create_debug_bundle(payload)
         with ZipFile(zip_path) as bundle:
           names = set(bundle.namelist())
           summary = json.loads(bundle.read("summary.json"))
+          metadata = json.loads(bundle.read("browser/retention-metadata.json"))
           inventory = json.loads(bundle.read("log-inventory.json"))
         assert "logs/backend/backend.jsonl" in names
         assert "logs/frontend/frontend.jsonl" in names
         assert "logs/launcher/launcher.jsonl" in names
         assert summary["complete"] is True
+        assert summary["schemaVersion"] == debug_bundle_service.DEBUG_PAYLOAD_SCHEMA_VERSION
+        assert metadata["schemaVersion"] == debug_bundle_service.DEBUG_PAYLOAD_SCHEMA_VERSION
         assert summary["browserEntriesIncluded"] == 1
         assert "logs/backend/old.jsonl" not in names
         assert summary["retentionCleanup"]["deletedFiles"] >= 1
@@ -94,6 +87,80 @@ def test_bundle_inventory() -> None:
       finally:
         debug_bundle_service.LOCAL_LOG_ROOT = original_root
         diagnostics.LOCAL_LOG_ROOT = original_diag_root
+
+
+def valid_browser_payload(now: datetime | None = None, **overrides: object) -> dict[str, object]:
+    current = now or datetime.now(timezone.utc)
+    entries = overrides.pop(
+        "entries",
+        [{"timestamp": current.isoformat(), "event": "ui.control.click"}],
+    )
+    payload: dict[str, object] = {
+        "schemaVersion": debug_bundle_service.DEBUG_PAYLOAD_SCHEMA_VERSION,
+        "loggerVersion": debug_bundle_service.DEBUG_LOGGER_VERSION,
+        "retentionDays": 7,
+        "cutoffTimestamp": (current - timedelta(days=7)).isoformat(),
+        "entryCount": len(entries),  # type: ignore[arg-type]
+        "oldestTimestamp": entries[0]["timestamp"] if entries else None,  # type: ignore[index]
+        "newestTimestamp": entries[-1]["timestamp"] if entries else None,  # type: ignore[index]
+        "storageBackend": "indexeddb",
+        "degraded": False,
+        "omissions": [],
+        "complete": True,
+        "entries": entries,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_browser_payload_metadata_validation() -> None:
+    assert debug_bundle_service.validate_browser_payload_metadata(valid_browser_payload()) == []
+    assert "browser_payload_legacy_or_missing_metadata" in debug_bundle_service.validate_browser_payload_metadata(
+        {"entries": [{} for _ in range(120)]}
+    )
+    assert "browser_storage_backend_missing" in debug_bundle_service.validate_browser_payload_metadata(
+        valid_browser_payload(storageBackend=None)
+    )
+    assert "browser_retention_cutoff_missing" in debug_bundle_service.validate_browser_payload_metadata(
+        valid_browser_payload(cutoffTimestamp=None)
+    )
+    assert "browser_entry_count_mismatch" in debug_bundle_service.validate_browser_payload_metadata(
+        valid_browser_payload(entryCount=2)
+    )
+    incomplete = valid_browser_payload(storageBackend=None)
+    many_entries = [
+        {
+            "timestamp": (datetime.now(timezone.utc) + timedelta(seconds=index)).isoformat(),
+            "event": "ui.control.click",
+        }
+        for index in range(130)
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / ".local_logs"
+        original_root = debug_bundle_service.LOCAL_LOG_ROOT
+        original_diag_root = diagnostics.LOCAL_LOG_ROOT
+        debug_bundle_service.LOCAL_LOG_ROOT = root
+        diagnostics.LOCAL_LOG_ROOT = root
+        try:
+            zip_path, _filename = debug_bundle_service.create_debug_bundle(incomplete)
+            with ZipFile(zip_path) as bundle:
+                summary = json.loads(bundle.read("summary.json"))
+            assert summary["complete"] is False
+            assert "browser_storage_backend_missing" in summary["omissions"]
+
+            complete_zip_path, _filename = debug_bundle_service.create_debug_bundle(
+                valid_browser_payload(entries=many_entries)
+            )
+            with ZipFile(complete_zip_path) as bundle:
+                complete_summary = json.loads(bundle.read("summary.json"))
+                complete_payload = json.loads(bundle.read("browser/client-payload.json"))
+            assert complete_summary["complete"] is True
+            assert complete_summary["browserEntriesIncluded"] == 130
+            assert len(complete_payload["entries"]) == 130
+        finally:
+            debug_bundle_service.LOCAL_LOG_ROOT = original_root
+            diagnostics.LOCAL_LOG_ROOT = original_diag_root
+    print("BACKEND_BROWSER_PAYLOAD_SCHEMA_TEST_PASS")
 
 
 def test_payload_limits() -> None:
@@ -114,5 +181,6 @@ def test_payload_limits() -> None:
 if __name__ == "__main__":
     test_retention()
     test_bundle_inventory()
+    test_browser_payload_metadata_validation()
     test_payload_limits()
     print("BACKEND_DIAGNOSTICS_TEST_PASS")

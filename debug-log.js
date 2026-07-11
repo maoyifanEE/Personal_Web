@@ -41,6 +41,23 @@
       )
     );
 
+  const validateCurrentDebugRuntime = async () => {
+    if (
+      !window.PersonalWebDebug?.ready ||
+      !window.PersonalWebDebug?.collectBrowserBundlePayload ||
+      !window.PersonalWebDebug?.validateDebugBundlePayload
+    ) {
+      throw new Error("调试日志模块版本过时或尚未初始化，请强制刷新页面后重试。");
+    }
+    await window.PersonalWebDebug.ready();
+    const payload = await window.PersonalWebDebug.collectBrowserBundlePayload("debug-log-preflight");
+    const validation = window.PersonalWebDebug.validateDebugBundlePayload(payload);
+    if (!validation.ok) {
+      throw new Error(`调试日志模块版本过时或尚未初始化，请强制刷新页面后重试：${validation.errors.join(", ")}`);
+    }
+    return payload;
+  };
+
   const initializeFullBundleAccess = async () => {
     setBundleExportVisible(false);
     if (!window.PersonalWebDebug?.isLocalDevelopmentHost?.()) {
@@ -120,6 +137,7 @@
       window.PersonalWebDebug?.warn?.("debug_page.bundle_export.blocked_not_admin");
       return;
     }
+    await validateCurrentDebugRuntime();
     await window.PersonalWebDebug.exportFullDebugBundle({
       source: "debug-log",
       setStatus

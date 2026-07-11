@@ -57,6 +57,23 @@
       )
     );
 
+  const validateCurrentDebugRuntime = async () => {
+    if (
+      !window.PersonalWebDebug?.ready ||
+      !window.PersonalWebDebug?.collectBrowserBundlePayload ||
+      !window.PersonalWebDebug?.validateDebugBundlePayload
+    ) {
+      throw new Error("调试日志模块版本过时或尚未初始化，请强制刷新页面后重试。");
+    }
+    await window.PersonalWebDebug.ready();
+    const payload = await window.PersonalWebDebug.collectBrowserBundlePayload("hub-preflight");
+    const validation = window.PersonalWebDebug.validateDebugBundlePayload(payload);
+    if (!validation.ok) {
+      throw new Error(`调试日志模块版本过时或尚未初始化，请强制刷新页面后重试：${validation.errors.join(", ")}`);
+    }
+    return payload;
+  };
+
   const initializeLocalDebugCard = (state) => {
     if (!localDebugCard) {
       return;
@@ -164,6 +181,7 @@
       if (!window.PersonalWebDebug?.exportFullDebugBundle) {
         throw new Error("Debug export helper is unavailable.");
       }
+      await validateCurrentDebugRuntime();
       await window.PersonalWebDebug.exportFullDebugBundle({
         source: "hub",
         setStatus: setDebugStatus

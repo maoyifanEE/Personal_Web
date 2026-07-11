@@ -10,7 +10,7 @@ from app.api.dependencies import require_csrf_token, require_permission
 from app.core.config import Settings, get_settings
 from app.core.diagnostics import sanitize_for_diagnostics, write_jsonl_event
 from app.models.auth import AppUser
-from app.services.debug_bundle_service import create_debug_bundle
+from app.services.debug_bundle_service import create_debug_bundle, validate_browser_payload_metadata
 
 router = APIRouter(prefix="/debug")
 MAX_CLIENT_LOG_ENTRIES = 100_000
@@ -131,6 +131,29 @@ async def export_debug_bundle(
     )
     try:
         entry_count = validate_debug_payload(payload, max_json_chars=MAX_EXPORT_BUNDLE_JSON_CHARS)
+        metadata_omissions = validate_browser_payload_metadata(payload)
+        if metadata_omissions:
+            write_jsonl_event(
+                "backend",
+                "debug.bundle_export.invalid_browser_schema",
+                {
+                    "omissions": metadata_omissions,
+                    "schemaVersion": payload.get("schemaVersion"),
+                    "loggerVersion": payload.get("loggerVersion"),
+                    "entryCount": payload.get("entryCount"),
+                    "storageBackend": payload.get("storageBackend"),
+                },
+            )
+            if any("missing" in item or "legacy" in item for item in metadata_omissions):
+                write_jsonl_event(
+                    "backend",
+                    "debug.bundle_export.incomplete_browser_metadata",
+                    {"omissions": metadata_omissions},
+                )
+            raise HTTPException(
+                status_code=409,
+                detail="Browser debug logger is stale; reload the page before exporting.",
+            )
         write_jsonl_event(
             "backend",
             "debug.bundle_export.client_logs_received",

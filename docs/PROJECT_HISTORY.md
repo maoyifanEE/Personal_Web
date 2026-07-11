@@ -57,7 +57,15 @@
   debug-bundle diagnostics.
 * Updated debug bundle generation with seven-day retention metadata, safe log
   inventory, complete/omissions fields, and an explicit total log-size limit.
+* Added a browser debug payload schema/logger version handshake so stale cached
+  Hub or debug-page scripts cannot export legacy bundles as complete.
+* Added frontend validation before bundle export and backend rejection for
+  missing or stale browser retention metadata.
+* Added debug logger script cache-busting on all pages that load the local
+  diagnostics runtime.
 * Added focused frontend and backend diagnostics tests.
+* Verified a Hub export generated a complete v4 debug bundle with matching
+  browser entry counts, non-null retention metadata, and no omissions.
 
 ### Safety boundaries
 
@@ -67,6 +75,8 @@
   redacted or omitted.
 * No deployment, database migration, Auth/RBAC policy, media deletion behavior,
   saved canvas schema, or production visitor logging policy was changed.
+* Legacy browser payloads with null retention metadata are now rejected or marked
+  incomplete instead of being labeled as complete debug bundles.
 
 ## 2026-07-11 - Add collapsible Journey editor sidebar
 

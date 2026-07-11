@@ -1,6 +1,8 @@
 (function (global) {
   const RETENTION_DAYS = 7;
   const RETENTION_MS = RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const DEBUG_PAYLOAD_SCHEMA_VERSION = "personal-web-debug-payload-v2";
+  const DEBUG_LOGGER_VERSION = "2026-07-11-debug-v4";
   const REDACTED = "[REDACTED]";
   const DATA_URL_REDACTED = "[DATA_URL_REDACTED]";
   const BODY_REDACTED = "[BODY_REDACTED]";
@@ -180,9 +182,61 @@
       )
     );
 
+  const validateDebugBundlePayload = (payload) => {
+    const errors = [];
+    const entries = Array.isArray(payload?.entries) ? payload.entries : null;
+    if (!payload || typeof payload !== "object") {
+      errors.push("payload_missing");
+    }
+    if (payload?.schemaVersion !== DEBUG_PAYLOAD_SCHEMA_VERSION) {
+      errors.push("schemaVersion");
+    }
+    if (payload?.loggerVersion !== DEBUG_LOGGER_VERSION) {
+      errors.push("loggerVersion");
+    }
+    if (payload?.retentionDays !== RETENTION_DAYS) {
+      errors.push("retentionDays");
+    }
+    if (!payload?.cutoffTimestamp) {
+      errors.push("cutoffTimestamp");
+    }
+    if (typeof payload?.entryCount !== "number") {
+      errors.push("entryCount");
+    }
+    if (!["indexeddb", "localStorage"].includes(payload?.storageBackend)) {
+      errors.push("storageBackend");
+    }
+    if (typeof payload?.complete !== "boolean") {
+      errors.push("complete");
+    }
+    if (typeof payload?.degraded !== "boolean") {
+      errors.push("degraded");
+    }
+    if (!Array.isArray(payload?.omissions)) {
+      errors.push("omissions");
+    }
+    if (!entries) {
+      errors.push("entries");
+    } else if (payload?.entryCount !== entries.length) {
+      errors.push("entryCount_mismatch");
+    }
+    if (entries && entries.length > 0 && !payload?.oldestTimestamp) {
+      errors.push("oldestTimestamp");
+    }
+    if (entries && entries.length > 0 && !payload?.newestTimestamp) {
+      errors.push("newestTimestamp");
+    }
+    return {
+      ok: errors.length === 0,
+      errors
+    };
+  };
+
   const api = {
     RETENTION_DAYS,
     RETENTION_MS,
+    DEBUG_PAYLOAD_SCHEMA_VERSION,
+    DEBUG_LOGGER_VERSION,
     REDACTED,
     DATA_URL_REDACTED,
     BODY_REDACTED,
@@ -195,7 +249,8 @@
     sanitize,
     safeUrlParts,
     summarizeTarget,
-    isInteractiveTarget
+    isInteractiveTarget,
+    validateDebugBundlePayload
   };
 
   if (typeof module !== "undefined" && module.exports) {
