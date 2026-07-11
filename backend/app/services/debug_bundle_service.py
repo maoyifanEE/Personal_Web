@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import platform
 from pathlib import Path
@@ -11,10 +11,16 @@ import sys
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from app.core.diagnostics import LOCAL_LOG_ROOT, PROJECT_ROOT, sanitize_for_diagnostics
+from app.core.diagnostics import (
+    LOCAL_LOG_RETENTION_DAYS,
+    LOCAL_LOG_ROOT,
+    PROJECT_ROOT,
+    prune_local_diagnostics,
+    sanitize_for_diagnostics,
+)
 
-MAX_COPIED_LOG_BYTES = 5 * 1024 * 1024
-ALLOWED_LOG_DIRS = ("backend", "frontend", "launcher")
+MAX_TOTAL_LOG_BYTES = 250 * 1024 * 1024
+ALLOWED_LOG_DIRS = ("backend", "frontend", "launcher", "debug-bundles")
 SKIPPED_PARTS = {
     ".env",
     ".venv",
@@ -64,29 +70,57 @@ def run_git_command(args: list[str]) -> str:
     return output
 
 
-def safe_log_files() -> list[Path]:
-    """Return local log files that are safe to include in a debug bundle."""
+def safe_log_inventory() -> tuple[list[dict[str, Any]], list[Path]]:
+    """Return safe retained local log inventory and files for a debug bundle."""
 
     if not LOCAL_LOG_ROOT.exists():
-        return []
+        return [], []
 
-    files: list[Path] = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=LOCAL_LOG_RETENTION_DAYS)
+    inventory: list[dict[str, Any]] = []
+    included: list[Path] = []
+    total_bytes = 0
     for dirname in ALLOWED_LOG_DIRS:
         directory = LOCAL_LOG_ROOT / dirname
         if not directory.exists():
             continue
         for path in directory.rglob("*"):
+            item = {
+                "relativePath": path.relative_to(LOCAL_LOG_ROOT).as_posix(),
+                "included": False,
+                "size": 0,
+                "modifiedTimestamp": None,
+                "exclusionReason": None,
+            }
             if not path.is_file():
                 continue
             relative_parts = set(path.relative_to(LOCAL_LOG_ROOT).parts)
             if relative_parts.intersection(SKIPPED_PARTS):
+                item["exclusionReason"] = "skipped_path_part"
+                inventory.append(item)
                 continue
             if path.suffix.lower() in SKIPPED_SUFFIXES:
+                item["exclusionReason"] = "skipped_suffix"
+                inventory.append(item)
                 continue
-            if path.stat().st_size > MAX_COPIED_LOG_BYTES:
+            stat = path.stat()
+            modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+            item["size"] = stat.st_size
+            item["modifiedTimestamp"] = modified.isoformat()
+            if modified < cutoff:
+                item["exclusionReason"] = "older_than_retention"
+                inventory.append(item)
                 continue
-            files.append(path)
-    return files
+            total_bytes += stat.st_size
+            item["included"] = True
+            inventory.append(item)
+            included.append(path)
+
+    if total_bytes > MAX_TOTAL_LOG_BYTES:
+        raise ValueError(
+            f"Retained diagnostic logs exceed bundle limit: {total_bytes} > {MAX_TOTAL_LOG_BYTES}"
+        )
+    return inventory, included
 
 
 def environment_summary() -> dict[str, Any]:
@@ -132,19 +166,45 @@ def write_text(zip_file: ZipFile, name: str, text: str) -> None:
 def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
     """Create a local debug zip and return `(path, filename)`."""
 
+    retention_result = prune_local_diagnostics(emit_event=False)
     bundle_root = LOCAL_LOG_ROOT / "debug-bundles"
     bundle_root.mkdir(parents=True, exist_ok=True)
     timestamp = utc_timestamp()
     filename = f"personal-web-debug-{timestamp}.local-debug.zip"
     zip_path = bundle_root / filename
     safe_client_payload = sanitize_for_diagnostics(client_payload)
+    inventory, log_files = safe_log_inventory()
+    browser_entries = safe_client_payload.get("entries") or []
+    browser_metadata = {
+        "retentionDays": safe_client_payload.get("retentionDays", LOCAL_LOG_RETENTION_DAYS),
+        "cutoffTimestamp": safe_client_payload.get("cutoffTimestamp"),
+        "entryCount": safe_client_payload.get("entryCount", len(browser_entries)),
+        "oldestTimestamp": safe_client_payload.get("oldestTimestamp"),
+        "newestTimestamp": safe_client_payload.get("newestTimestamp"),
+        "storageBackend": safe_client_payload.get("storageBackend"),
+        "degraded": safe_client_payload.get("degraded", False),
+        "omissions": safe_client_payload.get("omissions") or [],
+    }
+    bundle_omissions = list(browser_metadata["omissions"])
+    complete = not browser_metadata["degraded"] and not bundle_omissions
 
     summary = {
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "filename": filename,
+        "complete": complete,
+        "browserEntriesIncluded": len(browser_entries),
+        "backendLogFilesIncluded": len([item for item in inventory if item["included"] and item["relativePath"].startswith("backend/")]),
+        "frontendLogFilesIncluded": len([item for item in inventory if item["included"] and item["relativePath"].startswith("frontend/")]),
+        "launcherLogFilesIncluded": len([item for item in inventory if item["included"] and item["relativePath"].startswith("launcher/")]),
+        "retentionCutoff": browser_metadata["cutoffTimestamp"],
+        "retentionDays": browser_metadata["retentionDays"],
+        "omissions": bundle_omissions,
+        "logInventory": inventory,
+        "retentionCleanup": retention_result,
+        "totalLogLimitBytes": MAX_TOTAL_LOG_BYTES,
         "included": [
             "browser debug payload from debug-log page",
-            "backend/frontend/launcher JSONL logs when present",
+            "all safe retained backend/frontend/launcher JSONL logs when present",
             "git summary",
             "environment summary without .env contents",
             "safe file inventory",
@@ -157,7 +217,6 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
             "uploads",
             "backups",
             "previous debug bundles",
-            "large binary files",
             "browser profiles",
             "raw Data URLs",
             "cookies/tokens/passwords/secrets",
@@ -166,6 +225,7 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
 
     with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as zip_file:
         write_json(zip_file, "browser/client-payload.json", safe_client_payload)
+        write_json(zip_file, "browser/retention-metadata.json", browser_metadata)
         write_json(zip_file, "summary.json", summary)
         write_json(zip_file, "environment-summary.json", environment_summary())
         write_json(zip_file, "git-state.json", git_summary())
@@ -184,14 +244,16 @@ def create_debug_bundle(client_payload: dict[str, Any]) -> tuple[Path, str]:
             ),
         )
 
-        inventory = []
+        tracked_inventory = []
         for tracked_path in run_git_command(["ls-files"]).splitlines():
             if tracked_path.startswith((".local_logs/", "backend/.venv/")):
                 continue
-            inventory.append(tracked_path)
-        write_json(zip_file, "safe-file-inventory.json", inventory)
+            tracked_inventory.append(tracked_path)
+        write_json(zip_file, "safe-file-inventory.json", tracked_inventory)
 
-        for log_path in safe_log_files():
+        write_json(zip_file, "log-inventory.json", inventory)
+
+        for log_path in log_files:
             relative = log_path.relative_to(LOCAL_LOG_ROOT).as_posix()
             zip_file.write(log_path, f"logs/{relative}")
 
