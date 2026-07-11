@@ -55,6 +55,8 @@ Current Journey sketch canvas v1 behavior:
 * Freehand drawing with smoothed strokes.
 * Endpoint snap and merge behavior.
 * Eraser split logic.
+* Curve import from local PNG/WebP/JPG dashed route images or Journey curve JSON.
+* Imported curves become normal strokes and are not saved until `保存画布`.
 * Right-click node creation.
 * Node dragging along a stroke component.
 * Sticker upload, drag, resize, rotate, and delete.
@@ -183,6 +185,9 @@ Personal_Web/
     |-- 08_PROJECT_STRUCTURE_STANDARD.md
     |-- 09_BACKEND_DATABASE_PLAN.md
     |-- 10_BACKEND_DATABASE_ARCHITECTURE.md
+    |-- 11_HOMEPAGE_JOURNEY_FLOW_SPEC.md
+    |-- 12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md
+    |-- 13_JOURNEY_CURVE_IMPORT.md
     `-- PROJECT_HISTORY.md
 ```
 
@@ -197,6 +202,7 @@ Personal_Web/
 * `docs/10_BACKEND_DATABASE_ARCHITECTURE.md`: target backend/database architecture and implementation status.
 * `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md`: homepage, login, Hub, Journey canvas, and diagnostics flow specification.
 * `docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md`: Homepage/Journey public publish-bundle and allowlist deployment plan.
+* `docs/13_JOURNEY_CURVE_IMPORT.md`: Journey curve image/JSON import workflow and AI image guidance.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 ## Local Diagnostics

@@ -6,6 +6,10 @@ const REMOTE_CANVAS_PATH = "/homepage/canvas";
 const REMOTE_CANVAS_RESET_PATH = "/homepage/canvas/reset";
 const PUBLISH_BUNDLE_EXPORT_PATH = "/homepage/publish-bundle/export";
 const HOMEPAGE_MEDIA_PATH = "/homepage/media";
+const CURVE_IMPORT_FILE_LIMIT_BYTES = 10 * 1024 * 1024;
+const CURVE_IMPORT_MAX_DECODED_SIDE = 4096;
+const CURVE_IMPORT_MAX_PROCESSING_SIDE = 2048;
+const CURVE_IMPORT_MAX_PROCESSING_PIXELS = 1200000;
 const CANVAS_WIDTH = 1000;
 const DEFAULT_CANVAS_HEIGHT = 2400;
 const MIN_CANVAS_HEIGHT = 800;
@@ -164,6 +168,8 @@ let currentPointer = null;
 let lastGeometryTestResult = null;
 let editorFocusMode = false;
 let editorZoom = 1;
+let curveImportState = null;
+let curveImportUndoSnapshot = null;
 let journeyCanvasSyncChannel = null;
 const JOURNEY_INSTANCE_ID = makeId("journey-tab");
 const EDITOR_ZOOM_MIN = 0.15;
@@ -1067,6 +1073,16 @@ function smoothDrawnPoints(rawPoints, spacing = 6, smoothIterations = 2) {
   return resamplePolyline(smoothed, Math.max(3, spacing * 0.75));
 }
 
+function finalizeStrokePoints(rawPoints, options = {}) {
+  const spacing = normalizeNumber(options.spacing, state.editor.smoothSpacing);
+  const smoothIterations = normalizeNumber(options.smoothIterations, state.editor.smoothIterations);
+  const points = removeNearDuplicatePoints(rawPoints, 1);
+  if (points.length < MIN_STROKE_POINTS) {
+    return [];
+  }
+  return smoothDrawnPoints(points, spacing, smoothIterations);
+}
+
 const appendWithoutDuplicate = (target, source) => {
   source.forEach((point) => {
     if (!target.length || distance(target[target.length - 1], point) > 0.5) {
@@ -1123,7 +1139,7 @@ function addOrMergeStroke(rawPoints, startEndpointSnap, endEndpointSnap) {
   }
 
   if (!startEndpointSnap && !endEndpointSnap) {
-    points = smoothDrawnPoints(points, state.editor.smoothSpacing, state.editor.smoothIterations);
+    points = finalizeStrokePoints(points);
     const stroke = {
       id: makeId("stroke"),
       points,
@@ -1153,7 +1169,9 @@ function addOrMergeStroke(rawPoints, startEndpointSnap, endEndpointSnap) {
 
   const outerFirst = merged[0] ? { ...merged[0] } : null;
   const outerLast = merged[merged.length - 1] ? { ...merged[merged.length - 1] } : null;
-  let smoothMerged = smoothDrawnPoints(merged, state.editor.smoothSpacing, Math.max(1, state.editor.smoothIterations + 1));
+  let smoothMerged = finalizeStrokePoints(merged, {
+    smoothIterations: Math.max(1, state.editor.smoothIterations + 1)
+  });
   if (outerFirst && smoothMerged.length) {
     smoothMerged[0] = outerFirst;
   }
@@ -1867,6 +1885,576 @@ function renderFocusControls() {
   return controls;
 }
 
+function curveImportCore() {
+  return window.JourneyCurveImportCore || null;
+}
+
+function resetCurveImportState() {
+  if (curveImportState?.objectUrl) {
+    URL.revokeObjectURL(curveImportState.objectUrl);
+  }
+  curveImportState = {
+    open: false,
+    busy: false,
+    fileName: "",
+    fileType: "",
+    file: null,
+    objectUrl: "",
+    source: null,
+    result: null,
+    error: "",
+    reverse: false,
+    fitMode: "stretch",
+    sensitivity: 45
+  };
+}
+
+function openCurveImportDialog() {
+  if (!guardJourneyMutation("openCurveImportDialog")) {
+    return;
+  }
+  if (!curveImportState) {
+    resetCurveImportState();
+  }
+  curveImportState.open = true;
+  render();
+}
+
+function closeCurveImportDialog() {
+  if (curveImportState?.objectUrl) {
+    URL.revokeObjectURL(curveImportState.objectUrl);
+  }
+  curveImportState = null;
+  render();
+}
+
+function setCurveImportError(message) {
+  if (!curveImportState) {
+    resetCurveImportState();
+  }
+  curveImportState.error = message;
+  curveImportState.busy = false;
+  curveImportState.result = null;
+  render();
+}
+
+function validateCurveImportFile(file) {
+  if (!file) {
+    throw new Error("请选择 PNG、WebP、JPG 或 JSON 文件。");
+  }
+  if (file.size > CURVE_IMPORT_FILE_LIMIT_BYTES) {
+    throw new Error("文件超过 10 MB，请选择更小的曲线文件。");
+  }
+  const name = file.name || "";
+  const extension = name.toLowerCase().split(".").pop() || "";
+  const imageTypes = new Set(["png", "webp", "jpg", "jpeg"]);
+  const isJson = extension === "json" || file.type === "application/json";
+  const isRaster = imageTypes.has(extension) || ["image/png", "image/webp", "image/jpeg"].includes(file.type);
+  if (!isJson && !isRaster) {
+    throw new Error("暂不支持该文件类型，请选择 PNG、WebP、JPG 或 JSON。");
+  }
+  return isJson ? "json" : "raster";
+}
+
+function decodeImageElement(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("图片解码失败，请换一张图片重试。"));
+    image.decoding = "async";
+    image.src = url;
+  });
+}
+
+async function decodeCurveImportImage(file) {
+  const objectUrl = URL.createObjectURL(file);
+  let bitmap = null;
+  try {
+    if (window.createImageBitmap) {
+      bitmap = await createImageBitmap(file);
+      return {
+        objectUrl,
+        width: bitmap.width,
+        height: bitmap.height,
+        drawTo(context, width, height) {
+          context.drawImage(bitmap, 0, 0, width, height);
+        },
+        close() {
+          bitmap?.close?.();
+        }
+      };
+    }
+    const image = await decodeImageElement(objectUrl);
+    return {
+      objectUrl,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      drawTo(context, width, height) {
+        context.drawImage(image, 0, 0, width, height);
+      },
+      close() {}
+    };
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl);
+    bitmap?.close?.();
+    throw error;
+  }
+}
+
+function processingScaleForImage(width, height) {
+  const sideScale = Math.min(1, CURVE_IMPORT_MAX_PROCESSING_SIDE / Math.max(width, height));
+  const pixelScale = Math.min(1, Math.sqrt(CURVE_IMPORT_MAX_PROCESSING_PIXELS / Math.max(1, width * height)));
+  return Math.min(sideScale, pixelScale);
+}
+
+async function parseCurveImportRaster(file) {
+  const core = curveImportCore();
+  if (!core) {
+    throw new Error("曲线导入模块未加载，请刷新页面后重试。");
+  }
+  const decoded = await decodeCurveImportImage(file);
+  try {
+    if (
+      decoded.width <= 0 ||
+      decoded.height <= 0 ||
+      decoded.width > CURVE_IMPORT_MAX_DECODED_SIDE ||
+      decoded.height > CURVE_IMPORT_MAX_DECODED_SIDE
+    ) {
+      throw new Error("图片尺寸超出限制，请使用最长边不超过 4096 像素的图片。");
+    }
+    const scale = processingScaleForImage(decoded.width, decoded.height);
+    const processWidth = Math.max(1, Math.round(decoded.width * scale));
+    const processHeight = Math.max(1, Math.round(decoded.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = processWidth;
+    canvas.height = processHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      throw new Error("浏览器无法读取图片像素。");
+    }
+    context.clearRect(0, 0, processWidth, processHeight);
+    decoded.drawTo(context, processWidth, processHeight);
+    const imageData = context.getImageData(0, 0, processWidth, processHeight);
+    const mask = core.buildForegroundMask(imageData, {
+      colorThreshold: curveImportState.sensitivity
+    });
+    const traced = core.traceMaskToRoute(mask, {
+      minArea: 2,
+      maxComponents: 2000
+    });
+    const sourcePoints = traced.points.map((point) => ({
+      x: point.x / scale,
+      y: point.y / scale
+    }));
+    return {
+      kind: "raster",
+      objectUrl: decoded.objectUrl,
+      source: {
+        width: decoded.width,
+        height: decoded.height
+      },
+      process: {
+        width: processWidth,
+        height: processHeight,
+        scale
+      },
+      points: sourcePoints,
+      stats: {
+        componentCount: traced.components.length,
+        usedCount: traced.usedCount,
+        pointCount: sourcePoints.length,
+        confidence: traced.confidence,
+        mode: mask.mode,
+        foregroundCount: mask.foregroundCount,
+        markerDetected: Boolean(traced.marker)
+      }
+    };
+  } catch (error) {
+    URL.revokeObjectURL(decoded.objectUrl);
+    throw error;
+  } finally {
+    decoded.close();
+  }
+}
+
+async function parseCurveImportJson(file) {
+  const core = curveImportCore();
+  if (!core) {
+    throw new Error("曲线导入模块未加载，请刷新页面后重试。");
+  }
+  const parsed = core.parseCurveJsonText(await file.text());
+  const points = parsed.coordinateSpace === "normalized"
+    ? parsed.points.map((point) => ({
+      x: point.x * parsed.source.width,
+      y: point.y * parsed.source.height
+    }))
+    : parsed.points;
+  return {
+    kind: "json",
+    objectUrl: "",
+    source: parsed.source,
+    points,
+    stats: {
+      componentCount: 0,
+      usedCount: points.length,
+      pointCount: points.length,
+      confidence: 1,
+      mode: "json",
+      foregroundCount: 0,
+      markerDetected: false
+    }
+  };
+}
+
+async function handleCurveImportFileInput(input) {
+  if (!guardJourneyMutation("curveImportFileInput")) {
+    input.value = "";
+    return;
+  }
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    if (!curveImportState) {
+      resetCurveImportState();
+    }
+    const fileType = validateCurveImportFile(file);
+    if (curveImportState.objectUrl) {
+      URL.revokeObjectURL(curveImportState.objectUrl);
+    }
+    Object.assign(curveImportState, {
+      busy: true,
+      error: "",
+      result: null,
+      fileName: file.name || "unnamed",
+      fileType,
+      file,
+      objectUrl: "",
+      open: true
+    });
+    render();
+    const result = fileType === "json"
+      ? await parseCurveImportJson(file)
+      : await parseCurveImportRaster(file);
+    curveImportState.objectUrl = result.objectUrl || "";
+    curveImportState.source = result.source;
+    curveImportState.result = result;
+    curveImportState.busy = false;
+    curveImportState.error = "";
+    logJourney("Parsed curve import file.", {
+      fileType,
+      pointCount: result.points.length,
+      source: result.source,
+      stats: result.stats
+    });
+    render();
+  } catch (error) {
+    setCurveImportError(error.message || "曲线导入失败，请检查文件。");
+    logJourney("Curve import parsing failed.", {
+      fileName: file.name,
+      error: error.message
+    });
+  } finally {
+    input.value = "";
+  }
+}
+
+async function reparseCurveImportFile() {
+  if (!curveImportState?.file) {
+    showMessage("请先选择曲线文件。", true);
+    return;
+  }
+  await handleCurveImportFileInput({
+    files: [curveImportState.file],
+    value: "",
+    dataset: { fileInput: "curve-import" }
+  });
+}
+
+function currentCurveImportSourcePoints() {
+  const points = curveImportState?.result?.points || [];
+  return curveImportState?.reverse ? points.slice().reverse() : points.slice();
+}
+
+function currentCurveImportMappedPoints() {
+  const core = curveImportCore();
+  if (!core || !curveImportState?.result || !curveImportState.source) {
+    return [];
+  }
+  return core.mapCurvePoints(currentCurveImportSourcePoints(), curveImportState.source, {
+    width: CANVAS_WIDTH,
+    height: state.canvas.height
+  }, curveImportState.fitMode);
+}
+
+function createCurveImportStroke() {
+  const core = curveImportCore();
+  if (!core) {
+    throw new Error("曲线导入模块未加载，请刷新页面后重试。");
+  }
+  const mapped = currentCurveImportMappedPoints();
+  const finalized = finalizeStrokePoints(mapped);
+  if (finalized.length < MIN_STROKE_POINTS) {
+    throw new Error("导入曲线点数不足，无法生成路线。");
+  }
+  const stroke = sanitizeStroke(core.buildImportedStroke(finalized, {
+    id: makeId("stroke"),
+    width: state.editor.lineWidth,
+    now: nowIso()
+  }));
+  if (!stroke) {
+    throw new Error("导入曲线无法生成有效路线。");
+  }
+  return stroke;
+}
+
+function createCurveImportUndoSnapshot() {
+  return {
+    strokes: clone(state.canvas.strokes),
+    nodes: clone(state.canvas.nodes),
+    selectedStrokeId: state.editor.selectedStrokeId,
+    selectedNodeId: state.editor.selectedNodeId,
+    selectedStickerId: state.editor.selectedStickerId
+  };
+}
+
+function applyCurveImport(mode) {
+  if (!guardJourneyMutation(`applyCurveImport:${mode}`)) {
+    return;
+  }
+  if (!curveImportState?.result) {
+    showMessage("请先选择并解析曲线文件。", true);
+    return;
+  }
+  if (mode === "replace") {
+    const confirmed = window.confirm(
+      "这会替换当前所有路线，但不会删除节点和贴纸。节点将重新吸附到导入后的路线。该操作尚未保存，可使用“撤销导入”恢复。"
+    );
+    if (!confirmed) {
+      return;
+    }
+  }
+  try {
+    const stroke = createCurveImportStroke();
+    curveImportUndoSnapshot = createCurveImportUndoSnapshot();
+    if (mode === "replace") {
+      state.canvas.strokes = [stroke];
+    } else {
+      state.canvas.strokes.push(stroke);
+    }
+    state.editor.selectedStrokeId = stroke.id;
+    state.editor.selectedNodeId = null;
+    state.editor.selectedStickerId = null;
+    reattachAllNodes();
+    markDirty("curve imported");
+    showMessage("曲线已导入到当前草稿，尚未保存。确认效果后请点击“保存画布”。");
+    render();
+  } catch (error) {
+    showMessage(error.message || "曲线导入失败。", true);
+    logJourney("Curve import apply failed.", { error: error.message });
+  }
+}
+
+function undoCurveImport() {
+  if (!guardJourneyMutation("undoCurveImport")) {
+    return;
+  }
+  if (!curveImportUndoSnapshot) {
+    showMessage("没有可撤销的导入。", true);
+    return;
+  }
+  state.canvas.strokes = clone(curveImportUndoSnapshot.strokes);
+  state.canvas.nodes = clone(curveImportUndoSnapshot.nodes);
+  state.editor.selectedStrokeId = curveImportUndoSnapshot.selectedStrokeId;
+  state.editor.selectedNodeId = curveImportUndoSnapshot.selectedNodeId;
+  state.editor.selectedStickerId = curveImportUndoSnapshot.selectedStickerId;
+  curveImportUndoSnapshot = null;
+  markDirty("curve import undone");
+  showMessage("已撤销本次导入，尚未保存。");
+  render();
+}
+
+function renderCurveImportPreview(container) {
+  const result = curveImportState?.result;
+  if (!result || !curveImportState.source) {
+    return;
+  }
+  const points = currentCurveImportSourcePoints();
+  const source = curveImportState.source;
+  const preview = document.createElement("div");
+  preview.className = "journey-curve-import-preview";
+  preview.style.setProperty("--source-aspect", String(source.width / source.height));
+  if (curveImportState.objectUrl) {
+    const image = document.createElement("img");
+    image.src = curveImportState.objectUrl;
+    image.alt = "";
+    preview.append(image);
+  }
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 ${source.width} ${source.height}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+  polyline.setAttribute("points", points.map((point) => `${point.x},${point.y}`).join(" "));
+  polyline.setAttribute("class", "journey-curve-import-preview-line");
+  svg.append(polyline);
+  if (points.length) {
+    const start = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    start.setAttribute("cx", String(points[0].x));
+    start.setAttribute("cy", String(points[0].y));
+    start.setAttribute("r", String(Math.max(source.width, source.height) * 0.012));
+    start.setAttribute("class", "journey-curve-import-preview-start");
+    svg.append(start);
+    const end = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    const endPoint = points[points.length - 1];
+    end.setAttribute("cx", String(endPoint.x));
+    end.setAttribute("cy", String(endPoint.y));
+    end.setAttribute("r", String(Math.max(source.width, source.height) * 0.012));
+    end.setAttribute("class", "journey-curve-import-preview-end");
+    svg.append(end);
+  }
+  preview.append(svg);
+  container.append(preview);
+}
+
+function renderCurveImportDialog() {
+  if (!curveImportState?.open || state.mode !== "edit" || !canEditJourney()) {
+    return null;
+  }
+  const overlay = document.createElement("section");
+  overlay.className = "journey-curve-import-modal";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "journey-curve-import-title");
+
+  const panel = document.createElement("div");
+  panel.className = "journey-curve-import-panel";
+  overlay.append(panel);
+
+  const header = document.createElement("div");
+  header.className = "journey-curve-import-header";
+  const title = document.createElement("h2");
+  title.id = "journey-curve-import-title";
+  title.textContent = "导入曲线";
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.textContent = "取消";
+  closeButton.addEventListener("click", closeCurveImportDialog);
+  header.append(title, closeButton);
+
+  const fileLabel = document.createElement("label");
+  fileLabel.className = "journey-curve-import-file";
+  fileLabel.textContent = "选择 PNG / WebP / JPG / JSON";
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/png,image/webp,image/jpeg,.json,application/json";
+  fileInput.addEventListener("change", () => handleCurveImportFileInput(fileInput));
+  fileLabel.append(fileInput);
+
+  const meta = document.createElement("dl");
+  meta.className = "journey-curve-import-meta";
+  const sourceText = curveImportState.source
+    ? `${Math.round(curveImportState.source.width)} × ${Math.round(curveImportState.source.height)}`
+    : "未选择";
+  const aspectWarning = curveImportState.source &&
+    Math.abs((curveImportState.source.width / curveImportState.source.height) - (CANVAS_WIDTH / state.canvas.height)) > 0.02
+    ? "源图片与当前画布比例不同。完整映射会产生拉伸；可改用保持比例并居中。"
+    : "";
+  meta.innerHTML = `
+    <div><dt>文件</dt><dd data-import-file-name></dd></div>
+    <div><dt>源文件</dt><dd>${escapeHtml(sourceText)}</dd></div>
+    <div><dt>当前画布</dt><dd>${CANVAS_WIDTH} × ${state.canvas.height}</dd></div>
+  `;
+  meta.querySelector("[data-import-file-name]").textContent = curveImportState.fileName || "未选择";
+
+  const controls = document.createElement("div");
+  controls.className = "journey-curve-import-controls";
+  controls.innerHTML = `
+    <label>
+      <span>映射方式</span>
+      <select data-curve-import-fit>
+        <option value="stretch" ${curveImportState.fitMode === "stretch" ? "selected" : ""}>完整映射到画布</option>
+        <option value="contain" ${curveImportState.fitMode === "contain" ? "selected" : ""}>保持比例并居中</option>
+      </select>
+    </label>
+    <label>
+      <span>识别灵敏度</span>
+      <input type="range" min="20" max="90" step="1" value="${curveImportState.sensitivity}" data-curve-import-sensitivity ${curveImportState.fileType === "json" ? "disabled" : ""}>
+      <strong>${curveImportState.sensitivity}</strong>
+    </label>
+    <label class="journey-curve-import-check">
+      <input type="checkbox" data-curve-import-reverse ${curveImportState.reverse ? "checked" : ""}>
+      反转方向
+    </label>
+    <button type="button" data-curve-import-reparse ${curveImportState.file ? "" : "disabled"}>重新解析</button>
+  `;
+  controls.querySelector("[data-curve-import-fit]").addEventListener("change", (event) => {
+    curveImportState.fitMode = event.target.value;
+    render();
+  });
+  controls.querySelector("[data-curve-import-reverse]").addEventListener("change", (event) => {
+    curveImportState.reverse = event.target.checked;
+    render();
+  });
+  controls.querySelector("[data-curve-import-sensitivity]").addEventListener("change", () => {
+    curveImportState.sensitivity = Number(controls.querySelector("[data-curve-import-sensitivity]").value);
+    render();
+  });
+  controls.querySelector("[data-curve-import-reparse]").addEventListener("click", reparseCurveImportFile);
+
+  const previewWrap = document.createElement("div");
+  previewWrap.className = "journey-curve-import-preview-wrap";
+  renderCurveImportPreview(previewWrap);
+
+  const status = document.createElement("p");
+  status.className = "journey-curve-import-status";
+  status.dataset.error = String(Boolean(curveImportState.error));
+  if (curveImportState.busy) {
+    status.textContent = "正在本地解析曲线...";
+  } else if (curveImportState.error) {
+    status.textContent = curveImportState.error;
+  } else if (curveImportState.result) {
+    const stats = curveImportState.result.stats;
+    status.textContent = `已生成中心线：${stats.pointCount} 点，片段 ${stats.componentCount}，置信度 ${Math.round(stats.confidence * 100)}%。`;
+  } else {
+    status.textContent = "请选择文件。预览不会修改画布。";
+  }
+
+  const warning = document.createElement("p");
+  warning.className = "journey-curve-import-warning";
+  warning.textContent = aspectWarning;
+  warning.hidden = !aspectWarning;
+
+  const actions = document.createElement("div");
+  actions.className = "journey-curve-import-actions";
+  actions.innerHTML = `
+    <button type="button" data-curve-import-action="add" ${curveImportState.result ? "" : "disabled"}>新增到画布</button>
+    <button type="button" data-curve-import-action="replace" ${curveImportState.result ? "" : "disabled"}>替换现有曲线</button>
+    <button type="button" data-curve-import-action="undo" ${curveImportUndoSnapshot ? "" : "disabled"}>撤销导入</button>
+    <button type="button" data-curve-import-action="cancel">取消</button>
+  `;
+  actions.querySelector("[data-curve-import-action='add']").addEventListener("click", () => applyCurveImport("add"));
+  actions.querySelector("[data-curve-import-action='replace']").addEventListener("click", () => applyCurveImport("replace"));
+  actions.querySelector("[data-curve-import-action='undo']").addEventListener("click", undoCurveImport);
+  actions.querySelector("[data-curve-import-action='cancel']").addEventListener("click", closeCurveImportDialog);
+
+  const details = document.createElement("details");
+  details.className = "journey-curve-import-details";
+  const stats = curveImportState.result?.stats;
+  details.innerHTML = `
+    <summary>诊断信息</summary>
+    <dl>
+      <div><dt>处理模式</dt><dd>${escapeHtml(stats?.mode || "-")}</dd></div>
+      <div><dt>前景像素</dt><dd>${escapeHtml(String(stats?.foregroundCount || 0))}</dd></div>
+      <div><dt>起点标记</dt><dd>${stats?.markerDetected ? "已检测" : "未检测"}</dd></div>
+      <div><dt>已用片段</dt><dd>${escapeHtml(String(stats?.usedCount || 0))}</dd></div>
+    </dl>
+  `;
+
+  panel.append(header, fileLabel, meta, warning, controls, previewWrap, status, actions, details);
+  return overlay;
+}
+
 function renderEditorPanel() {
   if (!editorRoot) {
     return;
@@ -1887,6 +2475,7 @@ function renderEditorPanel() {
       <button type="button" data-tool="erase" aria-pressed="${state.editor.activeTool === "erase"}">橡皮擦</button>
       <button type="button" data-tool="select" aria-pressed="${state.editor.activeTool === "select"}">选择/编辑</button>
       <button type="button" data-action="enter-focus">专注绘制</button>
+      <button type="button" data-action="import-curve">导入曲线</button>
       <button type="button" data-action="upload-sticker">上传贴纸</button>
       <button type="button" data-action="save-canvas" ${remoteCanvasMeta.saving ? "disabled" : ""}>
         ${remoteCanvasMeta.saving ? "保存中..." : "保存画布"}
@@ -1960,6 +2549,10 @@ function renderEditorPanel() {
     input.addEventListener("change", () => handleFileInput(input));
   });
   editorRoot.append(toolbar);
+  const importDialog = renderCurveImportDialog();
+  if (importDialog) {
+    editorRoot.append(importDialog);
+  }
   renderSelectedNodeEditor();
 }
 
@@ -2266,6 +2859,7 @@ function handleToolbarAction(action) {
   const stickerFileInput = document.querySelector("[data-file-input='sticker']");
   const actions = {
     "enter-focus": enterEditorFocusMode,
+    "import-curve": openCurveImportDialog,
     "upload-sticker": () => stickerFileInput?.click(),
     "save-canvas": saveRemoteCanvasState,
     "export-publish-bundle": exportPublishBundle,
