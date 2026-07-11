@@ -12,6 +12,29 @@ const debugLog = (event, details = {}, level = "info") => {
 const isLocalDevelopmentHost = () =>
   window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
 
+const getHomepageRuntimePolicy = () => {
+  const hostname = window.location.hostname || "";
+  const isLocal = isLocalDevelopmentHost();
+  return {
+    hostname,
+    isLocal,
+    mode: isLocal ? "local" : "public",
+    userEntranceEnabled: isLocal,
+    messagePrototypeEnabled: isLocal
+  };
+};
+
+const FEATURE_NOTICE_COPY = {
+  "user-entry": {
+    title: "用户入口暂未开放",
+    message: "用户中心正在建设中，目前仅开放访客浏览。"
+  },
+  message: {
+    title: "留言功能正在建设中",
+    message: "目前留言不会被保存。后续开放后，你可以在这里给我留言。"
+  }
+};
+
 const cleanLocalStartUrl = (url) => {
   url.searchParams.delete("devLogout");
   url.searchParams.delete("localStart");
@@ -119,10 +142,97 @@ const resetLocalDevelopmentSession = async () => {
   return true;
 };
 
-const initializeCoverEntrances = async () => {
+const setStatusBadgeVisibility = (selector, visible) => {
+  const badge = document.querySelector(selector);
+  if (badge) {
+    badge.hidden = !visible;
+  }
+};
+
+const preparePublicButtonLikeLink = (element) => {
+  element.removeAttribute("href");
+  element.setAttribute("role", "button");
+  element.setAttribute("tabindex", "0");
+};
+
+const initializeFeatureAvailabilityDialog = (policy) => {
+  const dialog = document.getElementById("feature-availability-dialog");
+  if (!dialog) {
+    debugLog("homepage.feature_notice.missing", {}, "warn");
+    return null;
+  }
+
+  const panel = dialog.querySelector(".feature-availability-dialog__panel");
+  const title = dialog.querySelector("[data-feature-notice-title]");
+  const message = dialog.querySelector("[data-feature-notice-message]");
+  const closeControls = dialog.querySelectorAll("[data-feature-notice-close]");
+  let lastFocusedElement = null;
+  let activeFeature = null;
+
+  const closeNotice = (closeReason = "button") => {
+    if (dialog.hidden) {
+      return;
+    }
+
+    dialog.hidden = true;
+    document.body.classList.remove("feature-notice-open");
+    debugLog("homepage.feature_notice.closed", {
+      feature: activeFeature,
+      closeReason
+    });
+
+    const focusTarget = lastFocusedElement;
+    activeFeature = null;
+    lastFocusedElement = null;
+    if (focusTarget && typeof focusTarget.focus === "function") {
+      focusTarget.focus();
+    }
+  };
+
+  closeControls.forEach((control) => {
+    control.addEventListener("click", () => {
+      const closeReason = control.classList.contains("feature-availability-dialog__overlay")
+        ? "backdrop"
+        : "button";
+      closeNotice(closeReason);
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !dialog.hidden) {
+      closeNotice("escape");
+    }
+  });
+
+  return (feature) => {
+    const copy = FEATURE_NOTICE_COPY[feature];
+    if (!copy || !title || !message) {
+      debugLog("homepage.feature_notice.copy_missing", { feature }, "warn");
+      return;
+    }
+
+    activeFeature = feature;
+    lastFocusedElement = document.activeElement;
+    title.textContent = copy.title;
+    message.textContent = copy.message;
+    dialog.hidden = false;
+    document.body.classList.add("feature-notice-open");
+    window.requestAnimationFrame(() => panel?.focus());
+    debugLog("homepage.feature_notice.opened", {
+      feature,
+      mode: policy.mode,
+      hostname: policy.hostname
+    });
+  };
+};
+
+const initializeCoverEntrances = async (policy, openFeatureNotice) => {
   const visitorEntrance = document.querySelector("[data-visitor-entrance]");
   const userEntrance = document.querySelector("[data-user-entrance]");
-  const localSessionReset = await resetLocalDevelopmentSession();
+  const localSessionReset = policy.isLocal ? await resetLocalDevelopmentSession() : false;
+
+  setStatusBadgeVisibility("[data-user-unavailable-badge]", !policy.userEntranceEnabled);
+  setStatusBadgeVisibility("[data-message-unavailable-badge]", !policy.messagePrototypeEnabled);
 
   if (visitorEntrance) {
     visitorEntrance.setAttribute("href", "./journey.html?view=public");
@@ -135,6 +245,30 @@ const initializeCoverEntrances = async () => {
 
   if (!userEntrance) {
     debugLog("homepage.user_entrance.missing", {}, "warn");
+    return;
+  }
+
+  if (!policy.userEntranceEnabled) {
+    preparePublicButtonLikeLink(userEntrance);
+    userEntrance.addEventListener("click", (event) => {
+      event.preventDefault();
+      debugLog("homepage.user_entrance.unavailable_clicked", {
+        mode: policy.mode,
+        hostname: policy.hostname
+      });
+      openFeatureNotice?.("user-entry");
+    });
+    userEntrance.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      userEntrance.click();
+    });
+    debugLog("homepage.user_entrance.public_unavailable", {
+      mode: policy.mode,
+      hostname: policy.hostname
+    });
     return;
   }
 
@@ -169,16 +303,25 @@ const initializeCoverEntrances = async () => {
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const policy = getHomepageRuntimePolicy();
+  debugLog("homepage.runtime_mode.resolved", {
+    mode: policy.mode,
+    hostname: policy.hostname,
+    userEntranceEnabled: policy.userEntranceEnabled,
+    messagePrototypeEnabled: policy.messagePrototypeEnabled
+  });
+  const openFeatureNotice = initializeFeatureAvailabilityDialog(policy);
   debugLog("homepage.ready", {
     visitorEntry: document.querySelector("[data-visitor-entrance]")?.getAttribute("href") || null,
     userEntry: document.querySelector("[data-user-entrance]")?.getAttribute("href") || null,
     clickAnywhereNavigation: false
   });
-  await initializeCoverEntrances();
+  await initializeCoverEntrances(policy, openFeatureNotice);
   await initializeLocalDebugLink();
+  initializeVisitorMessagePrototype(policy, openFeatureNotice);
 });
 
-const initializeVisitorMessagePrototype = () => {
+const initializeVisitorMessagePrototype = (policy, openFeatureNotice) => {
   const modal = document.getElementById("visitor-message-modal");
   const openButton = document.querySelector("[data-message-open]");
   const form = document.querySelector("[data-message-form]");
@@ -186,6 +329,24 @@ const initializeVisitorMessagePrototype = () => {
 
   if (!modal || !openButton || !form || !status) {
     debugLog("visitor_message.prototype.missing_elements", {}, "warn");
+    return;
+  }
+
+  if (!policy.messagePrototypeEnabled) {
+    form.hidden = true;
+    modal.hidden = true;
+    openButton.setAttribute("aria-controls", "feature-availability-dialog");
+    openButton.addEventListener("click", () => {
+      debugLog("homepage.message.unavailable_clicked", {
+        mode: policy.mode,
+        hostname: policy.hostname
+      });
+      openFeatureNotice?.("message");
+    });
+    debugLog("visitor_message.prototype.public_disabled", {
+      mode: policy.mode,
+      hostname: policy.hostname
+    });
     return;
   }
 
@@ -264,5 +425,3 @@ const initializeVisitorMessagePrototype = () => {
     backend: "not used"
   });
 };
-
-document.addEventListener("DOMContentLoaded", initializeVisitorMessagePrototype);

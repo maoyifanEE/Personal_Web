@@ -1,5 +1,35 @@
 # Project History
 
+## 2026-07-11 - Add public coming-soon homepage entries
+
+### Goal
+
+* Work on `Feature/homepage-public-coming-soon-v1`.
+* Keep local homepage entrances functional for development.
+* Make public/non-local homepage user and message entries visible but
+  unavailable until their production workflows are ready.
+
+### Actual changes
+
+* Added hostname-based homepage runtime policy:
+  `localhost` and `127.0.0.1` are local; every other host is public-safe.
+* Kept the visitor entrance active for `journey.html?view=public` in both local
+  and public modes.
+* Kept local user entrance auth resolution and local visitor-message prototype
+  behavior.
+* In public mode, the user entrance shows `暂未开放` and opens an accessible
+  construction notice instead of resolving auth state or linking to private
+  pages.
+* In public mode, the message entrance shows `建设中` and opens the same
+  reusable notice dialog instead of exposing the local prototype form.
+
+### Safety boundaries
+
+* No Auth/RBAC, backend, database, migration, Journey canvas, publish bundle,
+  Nginx, deployment, or server configuration behavior was changed.
+* Public homepage UI gating is documented as user experience only, not as a
+  security boundary.
+
 ## 2026-07-11 - Fix Journey sticker delete button
 
 ### Goal

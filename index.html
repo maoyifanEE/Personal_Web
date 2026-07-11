@@ -28,13 +28,18 @@
         href="./login.html"
         aria-label="Open user entrance"
         data-user-entrance
-      >用户入口</a>
+      >
+        <span class="visible-entrance__label">用户入口</span>
+        <span class="entrance-status-badge" data-user-unavailable-badge hidden>暂未开放</span>
+      </a>
       <a
         class="visitor-entrance visible-entrance visible-entrance--visitor"
         href="./journey.html?view=public"
         aria-label="Open visitor entrance"
         data-visitor-entrance
-      >访客入口</a>
+      >
+        <span class="visible-entrance__label">访客入口</span>
+      </a>
       <p
         class="local-start-status"
         data-local-start-status
@@ -50,7 +55,10 @@
         data-message-open
         aria-haspopup="dialog"
         aria-controls="visitor-message-modal"
-      >留言</button>
+      >
+        <span class="floating-tool-button__label">留言</span>
+        <span class="entrance-status-badge" data-message-unavailable-badge hidden>建设中</span>
+      </button>
     </div>
 
     <div
@@ -92,6 +100,28 @@
           </p>
           <button class="visitor-message-submit" type="submit">提交留言（原型）</button>
         </form>
+      </section>
+    </div>
+    <div
+      class="feature-availability-dialog"
+      id="feature-availability-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="feature-availability-title"
+      aria-describedby="feature-availability-message"
+      hidden
+    >
+      <div class="feature-availability-dialog__overlay" data-feature-notice-close></div>
+      <section class="feature-availability-dialog__panel" tabindex="-1">
+        <button
+          class="feature-availability-dialog__close"
+          type="button"
+          data-feature-notice-close
+          aria-label="关闭提示"
+        >&times;</button>
+        <p class="feature-availability-dialog__eyebrow">Coming soon</p>
+        <h2 id="feature-availability-title" data-feature-notice-title></h2>
+        <p id="feature-availability-message" data-feature-notice-message></p>
       </section>
     </div>
     <a
