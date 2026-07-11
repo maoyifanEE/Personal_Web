@@ -48,6 +48,17 @@ class HomepageCanvasResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class HomepageCanvasPublicResponse(BaseModel):
+    canvas_key: str
+    schema_version: str
+    canvas_data: dict[str, Any]
+    revision: int
+    updated_at: datetime | None
+    exists: bool
+
+    model_config = {"populate_by_name": True}
+
+
 class HomepageMediaResponse(BaseModel):
     id: int
     media_type: str = Field(alias="mediaType")

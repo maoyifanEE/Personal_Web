@@ -1,5 +1,34 @@
 # Project History
 
+## 2026-07-11 - Prepare public Homepage deployment
+
+### Goal
+
+* Work on `Feature/homepage-public-deployment-v1`.
+* Fix confirmed blockers before the first public Homepage/Journey deployment.
+* Prepare reviewed deployment templates and verification checks without
+  deploying to the server.
+
+### Actual changes
+
+* Made `auth.js` resolve the API base by explicit override, then local host,
+  then same-origin `/api` for every non-local hostname.
+* Added a public canvas response schema for `GET /api/homepage/canvas` that
+  omits the internal `updated_by_user_id` field.
+* Made public read-only Journey skip auth-state resolution unless `?edit=1` is
+  explicitly requested.
+* Added reviewed production templates for Nginx, systemd, and environment
+  configuration.
+* Expanded the remote public check script with positive public checks and
+  negative private-route denial checks.
+* Documented Ubuntu/Linux dry-run and import commands for publish bundles.
+
+### Safety boundaries
+
+* No deployment, SSH, production server edit, database migration, Auth/RBAC
+  permission change, Journey canvas mutation, message API connection, real
+  import, production user, or real secret was added.
+
 ## 2026-07-11 - Add public coming-soon homepage entries
 
 ### Goal

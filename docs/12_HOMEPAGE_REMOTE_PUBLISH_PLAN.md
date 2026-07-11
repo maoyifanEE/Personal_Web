@@ -35,6 +35,10 @@ Homepage entrance behavior for the first public release:
 * The public homepage must not submit visitor messages or call `/api/messages`.
 * Local development behavior can remain fully functional on `localhost` and
   `127.0.0.1`.
+* Public browsers must use the same-origin API base (`/api`) instead of the
+  local development backend at `127.0.0.1:8000`.
+* Public canvas responses must not expose the internal `updated_by_user_id`
+  field.
 
 Other application files can remain in the repository and on disk. Security must
 not rely on visitors ignoring those files. The deployment must use an explicit
@@ -248,6 +252,42 @@ The import script:
 
 Import backups are written under `.local_backups/`, which is ignored by Git.
 
+### Ubuntu/Linux Import Commands
+
+On the production Ubuntu server, run the underlying Python helper directly from
+the repository root. Do not run a real import until the dry-run succeeds and the
+bundle has been reviewed.
+
+Dry-run:
+
+```bash
+cd /var/www/personal_web
+source backend/.venv/bin/activate
+python scripts/homepage_publish_bundle.py import --bundle-path /path/to/homepage-publish-bundle --dry-run
+```
+
+Real import after review:
+
+```bash
+cd /var/www/personal_web
+source backend/.venv/bin/activate
+python scripts/homepage_publish_bundle.py import --bundle-path /path/to/homepage-publish-bundle
+```
+
+Normal production import should not use `--force`. A Git, Alembic, hash, or path
+failure means the operator must stop and inspect the mismatch before trying
+again.
+
+The real import prints `backupPath=<path>` in the import report. Backups are
+written under:
+
+```text
+.local_backups/homepage-import-backup-YYYYMMDD-HHMMSS/
+```
+
+Keep those backups on the server or in a server backup location. Do not commit
+them to GitHub.
+
 The import behavior depends on `homepageItemsScope`:
 
 * `excluded`: Journey-only. No `homepage_items` rows are upserted. Existing
@@ -301,7 +341,9 @@ Public API routes may include:
 
 * `GET /api/homepage/canvas`
 * `GET /api/homepage/media/{id}/file`
-* Optionally `GET /api/homepage/public` if the public homepage uses it.
+
+`GET /api/homepage/public` is not part of the phase-1 allowlist because the
+current public homepage does not require homepage item rows.
 
 Routes and endpoints that must not be public in v1:
 
@@ -315,6 +357,22 @@ Routes and endpoints that must not be public in v1:
 * Unrelated app APIs.
 * `login.html`, `hub.html`, and private app pages unless production auth is
   intentionally hardened later.
+
+The example Nginx template for this phase lives at:
+
+```text
+deploy/nginx/personal-web-public.conf.example
+```
+
+The example backend service and environment templates live at:
+
+```text
+deploy/systemd/personal-web-backend.service.example
+deploy/production.env.example
+```
+
+These templates are not deployment. They are reviewed starting points for the
+later server task.
 
 ## Server Architecture
 
@@ -346,6 +404,10 @@ data/uploads/homepage/
 
 This folder is runtime data. It must not be committed to GitHub.
 
+The FastAPI process should bind only to `127.0.0.1:8000`. Nginx is the public
+HTTPS boundary and must proxy only the explicitly allowed read-only API routes.
+Everything else should return 403 or 404.
+
 ## Security Requirements
 
 For this phase:
@@ -360,6 +422,10 @@ For this phase:
 * No users, roles, or permissions are stored in the bundle.
 * Uploaded media remains public only through existing public media rules.
 * Admin, write, debug, reset, and dev endpoints stay out of the public allowlist.
+* The real production environment file belongs outside GitHub, for example
+  `/etc/personal-web/personal-web.env`.
+* The real environment file must not use wildcard CORS, development seed
+  credentials, or the default session secret.
 
 ## Public Health Check
 
@@ -371,12 +437,21 @@ The public display health script is:
 
 It checks:
 
+* HTTPS homepage.
 * `GET /journey.html?view=public`
 * `GET /api/homepage/canvas`
-* Canvas data presence.
+* Canvas schema, revision, and `exists` fields.
+* Absence of `updated_by_user_id` in public canvas JSON.
 * One referenced media file when the canvas contains media stickers.
+* Rejection of private static routes.
+* Rejection of private, write, debug, auth, dev, message, media-admin, item, and
+  unknown API routes.
 
-It does not test admin endpoints.
+Optional HTTP redirect check:
+
+```powershell
+.\scripts\check-remote-homepage-public.ps1 -BaseUrl https://DOMAIN -HttpBaseUrl http://DOMAIN
+```
 
 ## Future One-Click Publish
 

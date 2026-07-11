@@ -1,7 +1,26 @@
 (function () {
-  const defaultApiBase = "http://127.0.0.1:8000/api";
-  const configuredBase = window.PERSONAL_WEB_API_BASE_URL;
-  const apiBaseUrl = (configuredBase || defaultApiBase).replace(/\/$/, "");
+  const resolveApiBaseUrl = ({
+    configuredBase = "",
+    hostname = "",
+    origin = ""
+  } = {}) => {
+    const configured = String(configuredBase || "").trim();
+    if (configured) {
+      return configured.replace(/\/$/, "");
+    }
+
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      return "http://127.0.0.1:8000/api";
+    }
+
+    return `${origin || window.location.origin}/api`.replace(/\/$/, "");
+  };
+
+  const apiBaseUrl = resolveApiBaseUrl({
+    configuredBase: window.PERSONAL_WEB_API_BASE_URL,
+    hostname: window.location.hostname,
+    origin: window.location.origin
+  });
   let cachedState = null;
   let cachedCsrfToken = null;
 
@@ -288,6 +307,7 @@
     login,
     logout,
     requireAdmin,
-    requireAuthenticatedUser
+    requireAuthenticatedUser,
+    resolveApiBaseUrl
   };
 })();
