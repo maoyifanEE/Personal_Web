@@ -66,6 +66,15 @@
 * Added focused frontend and backend diagnostics tests.
 * Verified a Hub export generated a complete v4 debug bundle with matching
   browser entry counts, non-null retention metadata, and no omissions.
+* Confirmed `debug-log.html` could export a valid v4 seven-day bundle while a
+  stale cached `hub.html` could still load the legacy runtime and receive HTTP
+  409 from the backend.
+* Replaced the local frontend `python -m http.server` launcher path with a
+  standard-library local static server that sends no-store headers for local
+  HTML, JavaScript, CSS, JSON, and source-map files.
+* Kept deterministic logger query versions and verified fresh Hub and
+  debug-log page ZIP exports after restarting the local launcher.
+* Kept backend rejection for legacy browser payloads.
 
 ### Safety boundaries
 
@@ -75,6 +84,8 @@
   redacted or omitted.
 * No deployment, database migration, Auth/RBAC policy, media deletion behavior,
   saved canvas schema, or production visitor logging policy was changed.
+* No production caching, Nginx, Certbot, systemd, or public-server behavior was
+  changed.
 * Legacy browser payloads with null retention metadata are now rejected or marked
   incomplete instead of being labeled as complete debug bundles.
 

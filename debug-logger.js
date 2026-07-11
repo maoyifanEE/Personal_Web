@@ -552,6 +552,10 @@
     return exportError;
   };
 
+  const staleRuntimeMessage =
+    "\u5f53\u524d\u9875\u9762\u4f7f\u7528\u4e86\u65e7\u7248\u8c03\u8bd5\u65e5\u5fd7\u6a21\u5757\u3002" +
+    "\u8bf7\u5237\u65b0\u9875\u9762\uff0c\u6216\u5173\u95ed\u540e\u91cd\u65b0\u6253\u5f00\u672c\u5730\u7f51\u7ad9\uff0c\u518d\u6b21\u5bfc\u51fa\u3002";
+
   const exportFullDebugBundle = async ({ source = page, setStatus } = {}) => {
     const updateStatus = (message, isError = false) => {
       if (typeof setStatus === "function") {
@@ -580,10 +584,7 @@
         storageBackend: payload?.storageBackend,
         retentionDays: payload?.retentionDays
       });
-      updateStatus(
-        `调试日志模块版本过时或尚未初始化，请强制刷新页面后重试：${validation.errors.join(", ")}`,
-        true
-      );
+      updateStatus(`${staleRuntimeMessage} (${validation.errors.join(", ")})`, true);
       throw makeExportError(
         `Debug logger payload is invalid or stale: ${validation.errors.join(", ")}`,
         "invalid_browser_payload"
@@ -615,12 +616,29 @@
     }
 
     if (!response.ok) {
+      let responseDetail = "";
+      try {
+        const body = await response.clone().json();
+        responseDetail = String(body?.detail || "");
+      } catch (parseError) {
+        responseDetail = "";
+      }
+      const isStaleRuntime =
+        response.status === 409 && /stale|legacy|browser debug logger/i.test(responseDetail);
       warn("debug.bundle_export.failure", {
         source,
-        status: response.status
+        status: response.status,
+        category: isStaleRuntime ? "stale_browser_payload" : "backend_rejected",
+        backendReason: responseDetail || "unavailable"
       });
-      updateStatus(`完整调试包导出失败：${response.status}`, true);
-      throw makeExportError(`Debug bundle export failed: ${response.status}`, "backend_rejected");
+      updateStatus(
+        isStaleRuntime ? staleRuntimeMessage : `完整调试包导出失败：${response.status}`,
+        true
+      );
+      throw makeExportError(
+        `Debug bundle export failed: ${response.status}`,
+        isStaleRuntime ? "stale_browser_payload" : "backend_rejected"
+      );
     }
 
     const blob = await response.blob();
