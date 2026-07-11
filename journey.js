@@ -56,6 +56,21 @@ const logJourney = (message, detail = {}) => {
   console.info(`[journey-sketch] ${message}`, detail);
 };
 
+const journeyEventTargetSummary = (target) => ({
+  targetTag: target?.tagName?.toLowerCase() || "",
+  targetClass: typeof target?.className === "string" ? target.className : "",
+  stickerId: target?.closest?.("[data-sticker-id]")?.dataset?.stickerId || null
+});
+
+const journeyHitTestSummary = (event) => {
+  const hit = document.elementFromPoint(event.clientX, event.clientY);
+  return {
+    hitTestTopTag: hit?.tagName?.toLowerCase() || "",
+    hitTestTopClass: typeof hit?.className === "string" ? hit.className : "",
+    hitTestTopStickerId: hit?.closest?.("[data-sticker-id]")?.dataset?.stickerId || null
+  };
+};
+
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 const nowIso = () => new Date().toISOString();
 const makeId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1923,7 +1938,17 @@ function renderStickerLayer() {
       wrap.style.setProperty("--sticker-aspect-ratio", String(sticker.aspectRatio || 1));
       wrap.style.zIndex = String(sticker.zIndex);
       wrap.style.transform = `translate(-50%, -50%) rotate(${sticker.rotation}deg)`;
-      wrap.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "move"));
+      wrap.addEventListener("pointerdown", (event) => {
+        if (event.target.closest("[data-sticker-control='true']")) {
+          logJourney("sticker.control.pointerdown_ignored_by_wrapper", {
+            stickerId: sticker.id,
+            controlClass: event.target?.className || "",
+            controlAction: event.target?.dataset?.stickerAction || null
+          });
+          return;
+        }
+        startStickerDrag(event, sticker.id, "move");
+      });
       const image = document.createElement("img");
       image.src = stickerImageSrc(sticker, { useAdminPreview: canEditJourney() && state.mode === "edit" });
       image.alt = "";
@@ -1933,21 +1958,43 @@ function renderStickerLayer() {
         ["nw", "ne", "sw", "se"].forEach((corner) => {
           const handle = document.createElement("span");
           handle.className = `journey-sticker-resize journey-sticker-resize--${corner}`;
+          handle.dataset.stickerControl = "true";
           handle.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "resize"));
           wrap.append(handle);
         });
         const rotate = document.createElement("span");
         rotate.className = "journey-sticker-rotate";
+        rotate.dataset.stickerControl = "true";
         rotate.addEventListener("pointerdown", (event) => startStickerDrag(event, sticker.id, "rotate"));
         wrap.append(rotate);
         const del = document.createElement("button");
         del.type = "button";
         del.className = "journey-sticker-delete";
+        del.dataset.stickerControl = "true";
         del.dataset.stickerAction = "delete";
         del.textContent = "删除";
-        del.addEventListener("click", (event) => {
+        del.addEventListener("pointerdown", (event) => {
+          logJourney("sticker.delete_control.pointerdown", {
+            stickerId: sticker.id,
+            selectedStickerId: state.editor.selectedStickerId,
+            ...journeyEventTargetSummary(event.target),
+            pointerType: event.pointerType,
+            button: event.button,
+            ...journeyHitTestSummary(event)
+          });
+          event.preventDefault();
           event.stopPropagation();
-          handleSelectedStickerAction(del.dataset.stickerAction);
+        });
+        del.addEventListener("click", (event) => {
+          logJourney("sticker.delete_control.click", {
+            stickerId: sticker.id,
+            selectedStickerId: state.editor.selectedStickerId,
+            defaultPrevented: event.defaultPrevented,
+            eventPhase: event.eventPhase,
+            ...journeyEventTargetSummary(event.target)
+          });
+          event.stopPropagation();
+          deleteSelectedSticker();
         });
         wrap.append(del);
       }
@@ -3031,6 +3078,12 @@ function handleToolbarAction(action) {
 }
 
 function handleSelectedStickerAction(action) {
+  logJourney("sticker.action.requested", {
+    action,
+    selectedStickerId: state.editor.selectedStickerId,
+    activeTool: state.editor.activeTool,
+    editMode: state.mode
+  });
   if (!guardJourneyMutation(`stickerAction:${action}`)) {
     return;
   }
@@ -3821,17 +3874,59 @@ function deleteSelectedNode() {
 }
 
 function deleteSelectedSticker() {
-  if (!guardJourneyMutation("deleteSelectedSticker")) {
+  const stickerCountBefore = state.canvas.stickers.length;
+  const selectedStickerId = state.editor.selectedStickerId;
+  const mutationAllowed = guardJourneyMutation("deleteSelectedSticker");
+  logJourney("sticker.delete.requested", {
+    selectedStickerId,
+    stickerCountBefore,
+    activeTool: state.editor.activeTool,
+    mutationAllowed
+  });
+  if (!mutationAllowed) {
+    logJourney("sticker.delete.blocked", {
+      reason: "not_authorized",
+      selectedStickerId,
+      stickerCount: stickerCountBefore
+    });
     return;
   }
-  if (!state.editor.selectedStickerId) {
+  if (state.editor.activeTool !== "select") {
+    logJourney("sticker.delete.blocked", {
+      reason: "not_select_mode",
+      selectedStickerId,
+      stickerCount: stickerCountBefore
+    });
     return;
   }
-  logJourney("Deleting selected sticker.", { stickerId: state.editor.selectedStickerId });
-  state.canvas.stickers = state.canvas.stickers.filter((sticker) => sticker.id !== state.editor.selectedStickerId);
+  if (!selectedStickerId) {
+    logJourney("sticker.delete.blocked", {
+      reason: "no_selected_sticker",
+      selectedStickerId,
+      stickerCount: stickerCountBefore
+    });
+    return;
+  }
+  if (!state.canvas.stickers.some((sticker) => sticker.id === selectedStickerId)) {
+    logJourney("sticker.delete.blocked", {
+      reason: "selected_sticker_not_found",
+      selectedStickerId,
+      stickerCount: stickerCountBefore
+    });
+    return;
+  }
+  logJourney("Deleting selected sticker.", { stickerId: selectedStickerId });
+  state.canvas.stickers = state.canvas.stickers.filter((sticker) => sticker.id !== selectedStickerId);
   state.editor.selectedStickerId = null;
   markDirty("sticker deleted");
   render();
+  logJourney("sticker.delete.succeeded", {
+    deletedStickerId: selectedStickerId,
+    stickerCountBefore,
+    stickerCountAfter: state.canvas.stickers.length,
+    selectedStickerIdAfter: state.editor.selectedStickerId,
+    dirtyStateAfter: state.dirty
+  });
   showMessage("贴纸已删除。");
 }
 
