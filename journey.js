@@ -10,6 +10,8 @@ const CURVE_IMPORT_FILE_LIMIT_BYTES = 10 * 1024 * 1024;
 const CURVE_IMPORT_MAX_DECODED_SIDE = 4096;
 const CURVE_IMPORT_MAX_PROCESSING_SIDE = 2048;
 const CURVE_IMPORT_MAX_PROCESSING_PIXELS = 1200000;
+const EDITOR_SIDEBAR_BREAKPOINT_PX = 900;
+const EDITOR_SIDEBAR_ID = "journey-editor-sidebar";
 const CANVAS_WIDTH = 1000;
 const DEFAULT_CANVAS_HEIGHT = 2400;
 const MIN_CANVAS_HEIGHT = 800;
@@ -168,6 +170,9 @@ let currentPointer = null;
 let lastGeometryTestResult = null;
 let editorFocusMode = false;
 let editorZoom = 1;
+let editorSidebarCollapsed = false;
+let editorSidebarDrawerOpen = false;
+let editorSidebarInitializedForEdit = false;
 let curveImportState = null;
 let curveImportUndoSnapshot = null;
 let journeyCanvasSyncChannel = null;
@@ -1589,6 +1594,99 @@ function scheduleFocusCanvasStageSizeSync() {
   });
 }
 
+function isNarrowEditorViewport() {
+  return window.innerWidth <= EDITOR_SIDEBAR_BREAKPOINT_PX;
+}
+
+function resetEditorSidebarSessionIfNeeded() {
+  if (state.mode === "edit" && canEditJourney()) {
+    return;
+  }
+  editorSidebarDrawerOpen = false;
+  editorSidebarInitializedForEdit = false;
+}
+
+function ensureEditorSidebarInitialState() {
+  if (state.mode !== "edit" || !canEditJourney() || editorSidebarInitializedForEdit) {
+    return;
+  }
+  editorSidebarCollapsed = isNarrowEditorViewport();
+  editorSidebarDrawerOpen = false;
+  editorSidebarInitializedForEdit = true;
+  logJourney("Initialized Journey editor sidebar state.", {
+    collapsed: editorSidebarCollapsed,
+    narrowViewport: isNarrowEditorViewport()
+  });
+}
+
+function applyEditorSidebarLayoutState() {
+  if (!root || !editorRoot) {
+    return;
+  }
+  const editMode = state.mode === "edit" && canEditJourney();
+  const focusMode = editorFocusMode && editMode;
+  const narrow = isNarrowEditorViewport();
+  if (!editMode || focusMode) {
+    editorSidebarDrawerOpen = false;
+  } else if (!narrow) {
+    editorSidebarDrawerOpen = false;
+  } else if (!editorSidebarCollapsed) {
+    editorSidebarDrawerOpen = true;
+  }
+  root.dataset.editorSidebarCollapsed = String(Boolean(editMode && editorSidebarCollapsed));
+  root.dataset.editorSidebarDrawerOpen = String(Boolean(editMode && editorSidebarDrawerOpen));
+  editorRoot.classList.toggle("is-collapsed", Boolean(editMode && editorSidebarCollapsed));
+  editorRoot.classList.toggle("is-drawer-open", Boolean(editMode && editorSidebarDrawerOpen));
+
+  const sidebar = editorRoot.querySelector(`#${EDITOR_SIDEBAR_ID}`);
+  const rail = editorRoot.querySelector("[data-editor-sidebar-rail]");
+  const backdrop = editorRoot.querySelector("[data-editor-sidebar-backdrop]");
+  const collapseButton = editorRoot.querySelector("[data-editor-sidebar-collapse]");
+  const expandButton = editorRoot.querySelector("[data-editor-sidebar-expand]");
+  const sidebarHidden = !editMode || focusMode || editorSidebarCollapsed;
+  const railHidden = !editMode || focusMode || !editorSidebarCollapsed;
+  if (sidebar) {
+    sidebar.hidden = sidebarHidden;
+  }
+  if (rail) {
+    rail.hidden = railHidden;
+  }
+  if (backdrop) {
+    backdrop.hidden = !(editMode && !focusMode && narrow && editorSidebarDrawerOpen);
+  }
+  if (collapseButton) {
+    collapseButton.setAttribute("aria-expanded", String(!sidebarHidden));
+  }
+  if (expandButton) {
+    expandButton.setAttribute("aria-expanded", String(!editorSidebarCollapsed));
+  }
+}
+
+function setEditorSidebarCollapsed(collapsed, reason = "toggle") {
+  if (state.mode !== "edit" || !canEditJourney()) {
+    return;
+  }
+  const nextCollapsed = Boolean(collapsed);
+  editorSidebarCollapsed = nextCollapsed;
+  editorSidebarDrawerOpen = isNarrowEditorViewport() && !nextCollapsed;
+  applyEditorSidebarLayoutState();
+  logJourney("Updated Journey editor sidebar visibility.", {
+    collapsed: editorSidebarCollapsed,
+    drawerOpen: editorSidebarDrawerOpen,
+    reason
+  });
+}
+
+function closeEditorSidebarDrawer(reason = "close") {
+  if (!editorSidebarDrawerOpen) {
+    return;
+  }
+  editorSidebarCollapsed = true;
+  editorSidebarDrawerOpen = false;
+  applyEditorSidebarLayoutState();
+  logJourney("Closed Journey editor sidebar drawer.", { reason });
+}
+
 function strokePathD(points) {
   if (!points.length) {
     return "";
@@ -1609,11 +1707,15 @@ function render() {
     editorZoom = 1;
     logJourney("Reset Journey editor focus zoom outside edit mode.");
   }
+  resetEditorSidebarSessionIfNeeded();
+  ensureEditorSidebarInitialState();
   root.dataset.view = state.view;
   root.dataset.editorMode = state.mode;
   root.dataset.activeTool = state.editor.activeTool;
   root.dataset.canEdit = String(canEditJourney());
   root.dataset.focusMode = String(editorFocusMode && state.mode === "edit" && canEditJourney());
+  root.dataset.editorSidebarCollapsed = String(editorSidebarCollapsed && state.mode === "edit" && canEditJourney());
+  root.dataset.editorSidebarDrawerOpen = String(editorSidebarDrawerOpen && state.mode === "edit" && canEditJourney());
   root.style.setProperty("--editor-zoom", String(editorZoom));
   document.querySelectorAll("[data-view-button]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.viewButton === state.view));
@@ -2461,12 +2563,62 @@ function renderEditorPanel() {
   }
   editorRoot.innerHTML = "";
   if (state.mode !== "edit" || !canEditJourney()) {
+    applyEditorSidebarLayoutState();
     return;
   }
   if (editorFocusMode) {
     editorRoot.append(renderFocusControls());
+    applyEditorSidebarLayoutState();
     return;
   }
+  ensureEditorSidebarInitialState();
+
+  const backdrop = document.createElement("button");
+  backdrop.type = "button";
+  backdrop.className = "journey-editor-sidebar-backdrop";
+  backdrop.dataset.editorSidebarBackdrop = "true";
+  backdrop.setAttribute("aria-label", "关闭编辑栏");
+  backdrop.addEventListener("click", () => closeEditorSidebarDrawer("backdrop"));
+
+  const rail = document.createElement("aside");
+  rail.className = "journey-editor-sidebar-rail";
+  rail.dataset.editorSidebarRail = "true";
+  const expandButton = document.createElement("button");
+  expandButton.type = "button";
+  expandButton.className = "journey-editor-sidebar-expand";
+  expandButton.dataset.editorSidebarExpand = "true";
+  expandButton.setAttribute("aria-controls", EDITOR_SIDEBAR_ID);
+  expandButton.setAttribute("aria-expanded", String(!editorSidebarCollapsed));
+  expandButton.textContent = "展开编辑栏";
+  expandButton.addEventListener("click", () => setEditorSidebarCollapsed(false, "expand-button"));
+  rail.append(expandButton);
+
+  const sidebar = document.createElement("aside");
+  sidebar.id = EDITOR_SIDEBAR_ID;
+  sidebar.className = "journey-editor-sidebar";
+  sidebar.setAttribute("aria-label", "Journey editor sidebar");
+
+  const sidebarHeader = document.createElement("div");
+  sidebarHeader.className = "journey-editor-sidebar__header";
+  sidebarHeader.innerHTML = `
+    <div>
+      <p class="journey-editor-sidebar__eyebrow">Journey editor</p>
+      <h2>编辑栏</h2>
+    </div>
+  `;
+  const collapseButton = document.createElement("button");
+  collapseButton.type = "button";
+  collapseButton.className = "journey-editor-sidebar-collapse";
+  collapseButton.dataset.editorSidebarCollapse = "true";
+  collapseButton.setAttribute("aria-controls", EDITOR_SIDEBAR_ID);
+  collapseButton.setAttribute("aria-expanded", "true");
+  collapseButton.textContent = "收起编辑栏";
+  collapseButton.addEventListener("click", () => setEditorSidebarCollapsed(true, "collapse-button"));
+  sidebarHeader.append(collapseButton);
+
+  const sidebarBody = document.createElement("div");
+  sidebarBody.className = "journey-editor-sidebar__body";
+
   const toolbar = document.createElement("section");
   toolbar.className = "journey-sketch-toolbar";
   toolbar.innerHTML = `
@@ -2548,12 +2700,15 @@ function renderEditorPanel() {
   toolbar.querySelectorAll("[data-file-input]").forEach((input) => {
     input.addEventListener("change", () => handleFileInput(input));
   });
-  editorRoot.append(toolbar);
+  sidebarBody.append(toolbar);
+  sidebar.append(sidebarHeader, sidebarBody);
+  editorRoot.append(backdrop, rail, sidebar);
   const importDialog = renderCurveImportDialog();
   if (importDialog) {
     editorRoot.append(importDialog);
   }
-  renderSelectedNodeEditor();
+  renderSelectedNodeEditor(sidebarBody);
+  applyEditorSidebarLayoutState();
 }
 
 function bindSelectedNodeEditor(panel) {
@@ -2582,11 +2737,12 @@ function bindSelectedNodeEditor(panel) {
   panel.querySelector("[data-node-action='delete']")?.addEventListener("click", deleteSelectedNode);
 }
 
-function renderSelectedNodeEditor() {
+function renderSelectedNodeEditor(container = editorRoot) {
   if (
     state.mode !== "edit" ||
     state.editor.activeTool !== "select" ||
-    !selectedNode()
+    !selectedNode() ||
+    !container
   ) {
     return;
   }
@@ -2595,7 +2751,7 @@ function renderSelectedNodeEditor() {
   panel.setAttribute("aria-label", "Selected journey node editor");
   panel.innerHTML = renderSelectedNodePanelV2();
   bindSelectedNodeEditor(panel);
-  editorRoot.append(panel);
+  container.append(panel);
 }
 
 function renderSelectedStickerActions() {
@@ -3277,12 +3433,18 @@ window.addEventListener("pointerup", () => {
 
 window.addEventListener("resize", () => {
   scheduleFocusCanvasStageSizeSync();
+  applyEditorSidebarLayoutState();
 });
 
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && editorFocusMode) {
     event.preventDefault();
     exitEditorFocusMode("escape");
+    return;
+  }
+  if (event.key === "Escape" && editorSidebarDrawerOpen) {
+    event.preventDefault();
+    closeEditorSidebarDrawer("escape");
     return;
   }
   if (state.mode !== "edit" || !["Delete", "Backspace"].includes(event.key) || !guardJourneyMutation("deleteKey")) {
