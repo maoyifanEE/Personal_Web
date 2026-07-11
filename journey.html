@@ -26,27 +26,31 @@
 
       <h1 class="sr-only" id="page-title">Journey sketch canvas</h1>
 
-      <section class="journey-map" aria-label="Journey canvas workspace">
-        <div class="timeline-floating-controls">
-          <div
-            class="timeline-view-switch"
-            role="group"
-            aria-label="Timeline view switch"
-          >
-            <button type="button" data-view-button="overview" aria-pressed="true">
-              Overview
-            </button>
-            <button type="button" data-view-button="details" aria-pressed="false">
-              Details
+      <div class="journey-editor-layout" data-editor-layout>
+        <section class="journey-map journey-editor-workspace" aria-label="Journey canvas workspace">
+          <div class="timeline-floating-controls">
+            <div
+              class="timeline-view-switch"
+              role="group"
+              aria-label="Timeline view switch"
+            >
+              <button type="button" data-view-button="overview" aria-pressed="true">
+                Overview
+              </button>
+              <button type="button" data-view-button="details" aria-pressed="false">
+                Details
+              </button>
+            </div>
+
+            <button type="button" class="editor-toggle" data-editor-toggle hidden>
+              Edit journey
             </button>
           </div>
+          <div class="journey-areas" id="journey-areas"></div>
+        </section>
 
-          <button type="button" class="editor-toggle" data-editor-toggle hidden>
-            Edit journey
-          </button>
-        </div>
-        <div class="journey-areas" id="journey-areas"></div>
-      </section>
+        <div class="context-editor-root" id="context-editor-root" aria-live="polite"></div>
+      </div>
     </main>
 
     <div
@@ -56,8 +60,6 @@
       aria-labelledby="timeline-popover-title"
       hidden
     ></div>
-
-    <div class="context-editor-root" id="context-editor-root" aria-live="polite"></div>
 
     <footer class="site-footer" aria-label="Site filing information">
       <a

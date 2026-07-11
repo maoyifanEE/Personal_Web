@@ -1,5 +1,34 @@
 # Project History
 
+## 2026-07-11 - Add collapsible Journey editor sidebar
+
+### Goal
+
+* Work on `Feature/journey-editor-sidebar-collapse-v1`.
+* Move the Journey editor controls out of the canvas overlay path.
+* Let admins collapse and expand the right editor sidebar without changing
+  canvas data.
+
+### Actual changes
+
+* Changed the right editor panel from a fixed overlay to a docked right column.
+* Added one-click `收起编辑栏` and `展开编辑栏` controls.
+* Added a narrow-screen right drawer with backdrop and Escape-close behavior.
+* Kept focus drawing mode authoritative: the sidebar and rail are hidden while
+  focus mode is active and restore to their previous expanded/collapsed state
+  afterward.
+* Kept the existing Journey controls, selected-node panel, sticker controls,
+  and curve-import dialog available from the sidebar.
+
+### Safety boundaries
+
+* Sidebar state is transient editor UI state only.
+* No canvas schema, saved Journey JSON, PostgreSQL data, publish bundle,
+  backend API, Auth/RBAC policy, database migration, or public Journey behavior
+  was changed.
+* No route, node, sticker, curve-import, drawing, eraser, or focus-mode
+  geometry algorithm was changed.
+
 ## 2026-07-10 - Add Journey curve image and JSON import
 
 ### Goal
