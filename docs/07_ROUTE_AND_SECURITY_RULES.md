@@ -49,6 +49,17 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Homepage entrance buttons are not authorization.
 * Homepage entrance buttons are not access control.
 * Homepage entrance buttons are not private data protection.
+* On `localhost` and `127.0.0.1`, the homepage user entrance remains a
+  local-development route into `login.html` or `hub.html` depending on the
+  current local auth state.
+* On every non-local hostname, the homepage user entrance remains visible but
+  shows a `暂未开放` status badge and opens an informational notice instead of
+  navigating to private pages.
+* On `localhost` and `127.0.0.1`, the homepage visitor message prototype remains
+  available as a static, non-persistent local prototype.
+* On every non-local hostname, the homepage message entrance remains visible but
+  shows a `建设中` status badge and opens an informational notice only.
+* Public homepage UI gating is not a production security boundary.
 * `login.html` is now wired to the local backend Auth/RBAC v1 login API.
 * Local login creates a database-backed session and an HttpOnly browser cookie.
 * Local login is for development only and is not production deployment.
@@ -88,6 +99,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * RBAC schema and frontend hiding do not make static pages production-secure by themselves.
 * Local code changes and merges do not mean public server deployment.
 * Server/public deployment happens only after explicit user instruction.
+* A future production Nginx allowlist must still deny direct public access to
+  private, admin, debug, development, and write routes before public launch.
 
 ## Current Data Rule
 

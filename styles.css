@@ -32,6 +32,11 @@ body {
     linear-gradient(180deg, #ffffff 0%, var(--page-bg) 52%, #eef7f8 100%);
 }
 
+body.visitor-message-open,
+body.feature-notice-open {
+  overflow: hidden;
+}
+
 .hero {
   position: relative;
   min-height: 100vh;
@@ -84,6 +89,7 @@ h1 span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 7px;
   min-height: 40px;
   padding: 9px 14px;
   border: 1px solid rgba(21, 156, 165, 0.22);
@@ -123,6 +129,25 @@ h1 span {
 .visible-entrance:focus-visible {
   outline: 3px solid rgba(21, 156, 165, 0.18);
   outline-offset: 3px;
+}
+
+.visible-entrance__label,
+.floating-tool-button__label {
+  white-space: nowrap;
+}
+
+.entrance-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: rgba(24, 42, 58, 0.76);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .local-start-status {
@@ -588,6 +613,11 @@ h1 span {
     font-size: 13px;
   }
 
+  .entrance-status-badge {
+    padding: 2px 6px;
+    font-size: 10px;
+  }
+
   .visible-entrance--visitor {
     left: 16px;
     bottom: 56px;
@@ -667,6 +697,10 @@ h1 span {
 }
 
 .floating-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   min-width: 56px;
   min-height: 44px;
   padding: 10px 14px;
@@ -686,6 +720,77 @@ h1 span {
   background: var(--teal);
   outline: none;
   transform: translateY(-1px);
+}
+
+.feature-availability-dialog[hidden] {
+  display: none;
+}
+
+.feature-availability-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 22;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.feature-availability-dialog__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(24, 42, 58, 0.34);
+  backdrop-filter: blur(4px);
+}
+
+.feature-availability-dialog__panel {
+  position: relative;
+  width: min(100%, 440px);
+  max-height: min(620px, calc(100vh - 40px));
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid rgba(24, 42, 58, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 80px rgba(24, 42, 58, 0.22);
+}
+
+.feature-availability-dialog__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(24, 42, 58, 0.12);
+  border-radius: 50%;
+  color: var(--ink);
+  background: rgba(246, 251, 252, 0.82);
+  cursor: pointer;
+  font: inherit;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.feature-availability-dialog__eyebrow {
+  margin: 0 0 8px;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.feature-availability-dialog h2 {
+  margin: 0 42px 12px 0;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.feature-availability-dialog p {
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.feature-availability-dialog p:last-child {
+  margin-bottom: 0;
 }
 
 .visitor-message-modal[hidden] {

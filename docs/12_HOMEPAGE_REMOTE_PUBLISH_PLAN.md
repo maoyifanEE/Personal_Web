@@ -16,10 +16,25 @@ The phase-1 public target is narrow:
 * Visitors can open the public Journey display.
 * Visitors can load the published canvas JSON.
 * Visitors can load public media files referenced by that published canvas.
+* The public homepage can show future-feature entries, but those entries must
+  open construction notices instead of private or unfinished workflows.
 * Admin editing stays local for now.
 * No public registration is added.
 * No normal user portal is added.
 * Health, tasks, messages, subscriptions, and future tools are not productionized.
+
+Homepage entrance behavior for the first public release:
+
+* The visitor entrance stays active and opens `journey.html?view=public`.
+* The user entrance stays visible, shows `暂未开放`, and does not navigate to
+  `login.html`, `hub.html`, or any private page.
+* The message entrance stays visible, shows `建设中`, and does not expose the
+  local prototype form.
+* The public homepage must not call auth-state APIs just to resolve user-entry
+  navigation.
+* The public homepage must not submit visitor messages or call `/api/messages`.
+* Local development behavior can remain fully functional on `localhost` and
+  `127.0.0.1`.
 
 Other application files can remain in the repository and on disk. Security must
 not rely on visitors ignoring those files. The deployment must use an explicit
