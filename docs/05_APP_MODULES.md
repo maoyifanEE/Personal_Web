@@ -19,7 +19,7 @@ It also prevents placeholder pages from being mistaken for production systems.
 | Task List | 任务清单 | `apps/tasks/index.html` | Static/local prototype | Browser-local if used | Not wired | Future sync needs backend/auth. |
 | Health Management | 健康管理 | `apps/health/index.html` | Static/local prototype | Browser-local if used | Not wired | Sensitive; no real data. |
 | Special Subscription | 特别订阅 | `apps/special-subscription/index.html` | Blank placeholder | None | Not wired | No real subscription logic. |
-| Visitor Messages | 留言 / 留言管理 | `apps/messages/index.html` | Static prototype | None | Local foundation only | Static frontend does not save. |
+| Visitor Messages | 留言 / 留言管理 | `apps/messages/index.html` | Backend-backed V1 | PostgreSQL | Wired to message APIs | Public create plus protected admin management. |
 
 | Admin Users | 用户管理 | `apps/admin-users/index.html` | Local Auth/RBAC v1 admin preview | Backend session only | Wired to local admin users API | Development only; not production admin. |
 
@@ -69,13 +69,13 @@ It also prevents placeholder pages from being mistaken for production systems.
 * Chinese display name: 留言 / 留言管理
 * English/internal name: Visitor Messages / Message Management
 * Path: `apps/messages/index.html`
-* Current status: static/front-end prototype
-* Backend status: local visitor message backend foundation exists, but static frontend is not wired to it
-* Database status: local `visitor_messages` table exists for backend testing only
+* Current status: backend-backed Visitor Messages V1
+* Backend status: public create route and protected admin routes are wired
+* Database status: `visitor_messages` stores submitted messages and admin lifecycle metadata
 * Cloud sync status: not implemented
-* Storage: none in current static frontend; no localStorage message persistence
+* Storage: PostgreSQL through the backend API; no frontend localStorage message persistence
 * Data sensitivity: visitor-submitted message data is private user-submitted data
-* Current limitation: visitor submissions from the static homepage modal are not saved
+* Current limitation: deployment and abuse controls must still be verified per environment
 * Notes: real production persistence requires backend deployment, authentication, admin authorization, and rate limiting
 
 ### Admin Users

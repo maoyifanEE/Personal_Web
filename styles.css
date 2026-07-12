@@ -898,6 +898,14 @@ h1 span {
   resize: vertical;
 }
 
+.visitor-message-honeypot {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
 .visitor-message-form input:focus,
 .visitor-message-form textarea:focus {
   border-color: rgba(21, 156, 165, 0.48);
@@ -914,7 +922,7 @@ h1 span {
   color: #9f2d2d;
 }
 
-.visitor-message-status.is-prototype-success {
+.visitor-message-status.is-success {
   color: #2f6f45;
 }
 

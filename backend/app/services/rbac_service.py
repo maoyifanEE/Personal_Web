@@ -15,6 +15,11 @@ AUTH_V1_PERMISSIONS = {
     "apps:access": ("apps", "access", "Access authenticated private app shells."),
     "users:manage": ("users", "manage", "Manage local development users."),
     "admin:access": ("admin", "access", "Access admin-only local development features."),
+    "visitor_messages:read": ("visitor_messages", "read", "Read visitor messages in admin tools."),
+    "visitor_messages:manage": ("visitor_messages", "manage", "Update, archive, restore, or soft-delete visitor messages."),
+    "audit_logs:read": ("audit_logs", "read", "Read audit logs in admin tools."),
+    "admin:data:read": ("admin_data", "read", "Read admin data center summaries and records."),
+    "admin:data:manage": ("admin_data", "manage", "Manage admin data center records."),
 }
 
 ROLE_PERMISSION_MAP = {

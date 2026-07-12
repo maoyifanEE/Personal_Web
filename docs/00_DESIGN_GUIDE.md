@@ -231,8 +231,12 @@ Visitor message data must not be stored in GitHub.
 
 Visitor message data must not be hard-coded into static HTML, CSS, JavaScript, JSON, or Markdown files.
 
-The current visitor message UI is a front-end prototype only.
+The current visitor message UI is wired to the backend Visitor Messages V1 API.
 
-Real visitor message submission requires backend, database, authentication for administrators, and authorization checks.
+Public visitor message submission persists through the backend database.
 
-The static prototype must not use localStorage, sessionStorage, or cookies as fake message persistence.
+Administrator reading and management require backend authentication, role checks,
+message permissions, and CSRF protection for mutations.
+
+The visitor message frontend must not use localStorage, sessionStorage, cookies,
+static JSON, or GitHub files as message persistence.

@@ -141,9 +141,10 @@ The public cover page may include a subtle bottom-right floating toolbar.
 
 The floating toolbar should not dominate the cover page.
 
-The `留言` button opens a modal front-end prototype.
+The `留言` button opens the Visitor Messages V1 submission modal.
 
-The modal should clearly state that real submission requires backend and database support.
+The modal should clearly state that contact information is visible only to admins
+and that visitors should not submit sensitive secrets.
 
 The modal should remain keyboard accessible.
 

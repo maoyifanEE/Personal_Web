@@ -23,10 +23,11 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Child app prototype | `apps/tasks/index.html` | Task List prototype | Direct URL access possible |
 | Child app prototype | `apps/health/index.html` | Health Management prototype | Direct URL access possible |
 | Child app placeholder | `apps/special-subscription/index.html` | Special Subscription placeholder | Direct URL access possible |
-| Admin UI prototype | `apps/messages/index.html` | Message Management prototype | Direct URL access possible |
+| Admin UI | `apps/messages/index.html` | Visitor message management | Requires admin role and `visitor_messages:read` through backend APIs |
 | Admin UI | `apps/homepage-admin/index.html` | Local homepage media and display item management | Requires local admin or `homepage:edit` in frontend and backend APIs |
 | Backend health | `/api/health` | Local backend health endpoint | Public status only |
-| Backend message create | `/api/messages` | Local visitor message create endpoint | No auth yet |
+| Backend message create | `/api/messages` | Public visitor message create endpoint | Public create only; generic accepted response |
+| Backend message admin | `/api/admin/messages/*` | Visitor message admin API | Requires admin role, message permissions, and CSRF for mutations |
 | Backend dev tools | `/api/dev/*` | Local development data tools | Disabled outside development |
 | Backend admin summary | `/api/admin/data/summary` | Local admin data foundation endpoint | Disabled outside development |
 | Backend auth | `/api/auth/*` | Local Auth/RBAC v1 login, logout, me, CSRF | Development only |
@@ -55,10 +56,9 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * On every non-local hostname, the homepage user entrance remains visible but
   shows a `暂未开放` status badge and opens an informational notice instead of
   navigating to private pages.
-* On `localhost` and `127.0.0.1`, the homepage visitor message prototype remains
-  available as a static, non-persistent local prototype.
-* On every non-local hostname, the homepage message entrance remains visible but
-  shows a `建设中` status badge and opens an informational notice only.
+* The homepage visitor message button is enabled in local and public modes.
+* Visitor message submission uses the backend `/api/messages` route and never
+  stores messages in browser persistence.
 * Public homepage UI gating is not a production security boundary.
 * Public homepage and Journey API requests use same-origin `/api` on non-local
   hosts so public browsers never call a visitor machine's `127.0.0.1:8000`.
@@ -172,27 +172,33 @@ Real private data must wait for the future security model.
 
 ## Visitor Message Route Boundary
 
-The visitor message modal on `index.html` is a front-end prototype only.
+The visitor message modal on `index.html` is wired to the backend public create route.
 
-Submitting the visitor message form does not persist data in the current project.
+Submitting the visitor message form persists through `POST /api/messages`.
 
-The local backend `POST /api/messages` endpoint exists for backend testing only.
+The public create response is intentionally generic: `{ "accepted": true }`.
 
-The existing static frontend visitor message modal is not wired to that endpoint.
+It must not return internal message IDs or expose admin lifecycle metadata.
 
-`apps/messages/index.html` is an admin message management UI prototype only.
+The hidden honeypot field is never stored. If it is filled, the backend returns
+the generic accepted response without creating a row.
 
-It is not a real protected admin page yet.
+`apps/messages/index.html` is a protected admin message management UI.
 
-Direct URL access is possible until backend authentication and authorization exist.
+Admin message list, detail, update, soft-delete, and restore routes live under
+`/api/admin/messages`.
 
-Production visitor message submission must not be enabled until review is complete.
+Admin routes require:
 
-Required review areas include rate limiting, abuse controls, logging policy, privacy, and production deployment.
+* an authenticated session
+* the `admin` role
+* `visitor_messages:read` for read routes
+* `visitor_messages:manage` for mutation routes
+* CSRF validation for mutation routes
 
-Admin message reading, status changes, and soft delete must require real authentication and authorization before production use.
+Visitor message delete is soft delete only.
 
-The current static frontend must not be described as persisting visitor messages.
+Permanent purge is not implemented.
 
 ## Local Auth Development Startup
 

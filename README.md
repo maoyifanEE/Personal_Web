@@ -37,7 +37,7 @@ The repository must not contain real private data, secrets, production database 
 | `apps/tasks/index.html` | Task List prototype | Static/local prototype |
 | `apps/health/index.html` | Health Management prototype | Static/local prototype |
 | `apps/special-subscription/index.html` | Special Subscription placeholder | Blank placeholder |
-| `apps/messages/index.html` | Visitor Message Management prototype | Static/front-end prototype |
+| `apps/messages/index.html` | Visitor Message Management | Admin-only backend-backed V1 |
 | `apps/admin-users/index.html` | Admin user management | Local Auth/RBAC v1 admin-only backend API preview |
 | `apps/homepage-admin/index.html` | Homepage content management | Local `homepage:edit` media and display item admin UI |
 
@@ -522,16 +522,20 @@ Documentation fixes should not change website behavior.
 Application behavior should be verified separately when application files are changed.
 
 
-## Visitor Message Prototype
+## Visitor Messages V1
 
 The public cover page includes a bottom-right floating `留言` tool.
 
-This tool opens a front-end modal prototype for visitor messages.
+This tool submits visitor messages through `POST /api/messages`.
 
-The current prototype validates nickname and message content only.
+Public submission returns only a generic accepted response and does not expose
+internal database IDs.
 
-Visitor messages are not saved in this static phase.
+The message form does not use localStorage, sessionStorage, cookies, static JSON,
+or GitHub files for message persistence.
 
-The admin message page at `apps/messages/index.html` is also a front-end prototype only.
+The admin message page at `apps/messages/index.html` reads the protected
+`/api/admin/messages` backend routes.
 
-Real message submission and management require future backend, database, authentication, and administrator authorization.
+Admin list, detail, status, highlight, soft-delete, and restore actions require
+administrator login plus `visitor_messages` permissions.

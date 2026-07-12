@@ -27,7 +27,7 @@ Current boundaries:
 * `index.html` is a public static homepage.
 * `login.html` is a local-development login entry when the backend is running.
 * `hub.html` is a static shell that can display local auth state.
-* `apps/messages/index.html` is a static admin message management prototype only.
+* `apps/messages/index.html` is the Visitor Messages V1 admin management page.
 * Task, health, and special subscription pages are static or local prototypes.
 * Journey is still a prototype page, but its canvas JSON can now use local backend persistence.
 * A local FastAPI backend skeleton exists for development testing.

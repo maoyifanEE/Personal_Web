@@ -1,5 +1,35 @@
 # Project History
 
+## 2026-07-12 - Implement database-backed visitor messages
+
+### Goal
+
+* Work on `Feature/visitor-messages-v1`.
+* Replace the visitor message prototype with a database-backed public submission
+  and protected admin management flow.
+
+### Actual changes
+
+* Public homepage `留言` form now submits to `POST /api/messages`.
+* Public create returns only `{ "accepted": true }` and does not expose internal
+  message IDs.
+* Added honeypot handling, fingerprint-based rate limiting, and no raw IP
+  storage.
+* Added visitor message highlight and submitter fingerprint migration fields.
+* Moved message list, detail, update, soft-delete, and restore behavior to
+  `/api/admin/messages`.
+* Protected admin routes with the `admin` role, `visitor_messages:*`
+  permissions, and CSRF on mutations.
+* Replaced the static message admin prototype with a backend-backed admin UI.
+* Updated Hub visibility so the message admin entry appears only to authorized
+  admins.
+
+### Safety boundaries
+
+* No deployment, SSH, production server edit, destructive database cleanup,
+  permanent purge route, raw IP storage, message localStorage persistence, or
+  Auth/RBAC policy weakening was added.
+
 ## 2026-07-11 - Prepare public Homepage deployment
 
 ### Goal

@@ -26,7 +26,7 @@ It is not production-secure yet.
 * `apps/tasks/index.html`: task prototype.
 * `apps/health/index.html`: health prototype.
 * `apps/special-subscription/index.html`: special subscription placeholder.
-* `apps/messages/index.html`: visitor message management prototype.
+* `apps/messages/index.html`: backend-backed visitor message management.
 * `apps/admin-users/index.html`: local admin user management preview.
 
 ## 4. Current Confirmed Direction

@@ -28,11 +28,10 @@ Homepage entrance behavior for the first public release:
 * The visitor entrance stays active and opens `journey.html?view=public`.
 * The user entrance stays visible, shows `暂未开放`, and does not navigate to
   `login.html`, `hub.html`, or any private page.
-* The message entrance stays visible, shows `建设中`, and does not expose the
-  local prototype form.
+* The message entrance stays visible and opens the Visitor Messages V1 form.
 * The public homepage must not call auth-state APIs just to resolve user-entry
   navigation.
-* The public homepage must not submit visitor messages or call `/api/messages`.
+* The public homepage submits visitor messages only through `POST /api/messages`.
 * Local development behavior can remain fully functional on `localhost` and
   `127.0.0.1`.
 * Public browsers must use the same-origin API base (`/api`) instead of the

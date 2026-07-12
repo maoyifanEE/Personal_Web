@@ -90,7 +90,7 @@ Implemented for local development only:
 * `visitor_messages` table.
 * `audit_logs` table.
 * Development-only seed, reset, export, and admin summary endpoints.
-* Local development `POST /api/messages` endpoint for backend testing.
+* Public `POST /api/messages` endpoint for visitor message submission.
 * Local development `GET /api/homepage/canvas` endpoint for shared Journey canvas reading.
 * Local development admin-only `PUT /api/homepage/canvas` endpoint for shared Journey canvas saving.
 * Local development admin-only `POST /api/homepage/canvas/reset` endpoint for shared Journey canvas reset.
@@ -278,18 +278,24 @@ Future production work may add:
 * replied_at
 * anti-spam metadata if future requirements allow
 
-The current frontend visitor message modal is not wired to this backend yet.
+The frontend visitor message modal is wired to this backend in Visitor Messages V1.
 
 ## Visitor Message API Status
 
-The local development backend now implements:
+The backend now implements:
 
 * `POST /api/messages`
-* `GET /api/messages`
-* `PATCH /api/messages/{message_id}/status`
-* `POST /api/messages/{message_id}/soft-delete`
+* `GET /api/admin/messages`
+* `GET /api/admin/messages/summary`
+* `GET /api/admin/messages/{message_id}`
+* `PATCH /api/admin/messages/{message_id}`
+* `DELETE /api/admin/messages/{message_id}`
+* `POST /api/admin/messages/{message_id}/restore`
 
-These endpoints are for local backend testing.
+Public create returns a generic accepted response only.
+
+Admin routes require backend authentication, the `admin` role, message-specific
+permissions, and CSRF protection for mutations.
 
 The existing static frontend does not submit to them yet.
 

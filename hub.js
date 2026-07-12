@@ -10,6 +10,7 @@
   const adminOnlyItems = Array.from(document.querySelectorAll("[data-admin-only]"));
   const homepageEditorItems = Array.from(document.querySelectorAll("[data-homepage-editor]"));
   const homepageContentAdminItems = Array.from(document.querySelectorAll("[data-homepage-content-admin]"));
+  const messageAdminItems = Array.from(document.querySelectorAll("[data-message-admin]"));
 
   const debugLog = (event, details = {}, level = "info") => {
     if (window.PersonalWebDebug?.log) {
@@ -111,6 +112,7 @@
     adminOnlyItems.forEach((item) => setElementHidden(item, true));
     homepageEditorItems.forEach((item) => setElementHidden(item, true));
     homepageContentAdminItems.forEach((item) => setElementHidden(item, true));
+    messageAdminItems.forEach((item) => setElementHidden(item, true));
     debugLog("hub.homepage_content_admin.hidden", { reason: "guest" });
     initializeLocalDebugCard(null);
   };
@@ -124,12 +126,16 @@
     const canEditHomepage =
       window.PersonalWebAuth.hasRole(state, "admin") ||
       window.PersonalWebAuth.hasPermission(state, "homepage:edit");
+    const canReadMessages =
+      window.PersonalWebAuth.hasRole(state, "admin") &&
+      window.PersonalWebAuth.hasPermission(state, "visitor_messages:read");
 
     debugLog("hub.render_user", {
       userId: state.user?.id,
       roles: state.roles,
       canManageUsers,
-      canEditHomepage
+      canEditHomepage,
+      canReadMessages
     });
     setStatus(`已登录：${displayName}（${roles}）`);
     if (gridEl) {
@@ -140,6 +146,7 @@
     adminOnlyItems.forEach((item) => setElementHidden(item, !canManageUsers));
     homepageEditorItems.forEach((item) => setElementHidden(item, !canEditHomepage));
     homepageContentAdminItems.forEach((item) => setElementHidden(item, !canEditHomepage));
+    messageAdminItems.forEach((item) => setElementHidden(item, !canReadMessages));
     debugLog(canEditHomepage ? "hub.homepage_content_admin.visible" : "hub.homepage_content_admin.hidden", {
       userId: state.user?.id,
       canEditHomepage

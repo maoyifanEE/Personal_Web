@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     homepage_media_root: str = Field("data/uploads/homepage", alias="HOMEPAGE_MEDIA_ROOT")
     homepage_image_max_mb: int = Field(10, alias="HOMEPAGE_IMAGE_MAX_MB")
     homepage_video_max_mb: int = Field(100, alias="HOMEPAGE_VIDEO_MAX_MB")
+    message_rate_limit_enabled: bool = Field(True, alias="MESSAGE_RATE_LIMIT_ENABLED")
+    message_rate_limit_max: int = Field(5, alias="MESSAGE_RATE_LIMIT_MAX")
+    message_rate_limit_window_seconds: int = Field(600, alias="MESSAGE_RATE_LIMIT_WINDOW_SECONDS")
     cors_allow_origins: str = Field(
         "http://127.0.0.1:4173,http://localhost:4173",
         alias="CORS_ALLOW_ORIGINS",
@@ -63,6 +66,13 @@ class Settings(BaseSettings):
     def require_positive_media_limit(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("Homepage media size limits must be positive")
+        return value
+
+    @field_validator("message_rate_limit_max", "message_rate_limit_window_seconds")
+    @classmethod
+    def require_positive_message_rate_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Message rate limit values must be positive")
         return value
 
     @model_validator(mode="after")

@@ -19,8 +19,7 @@ const getHomepageRuntimePolicy = () => {
     hostname,
     isLocal,
     mode: isLocal ? "local" : "public",
-    userEntranceEnabled: isLocal,
-    messagePrototypeEnabled: isLocal
+    userEntranceEnabled: isLocal
   };
 };
 
@@ -28,10 +27,6 @@ const FEATURE_NOTICE_COPY = {
   "user-entry": {
     title: "用户入口暂未开放",
     message: "用户中心正在建设中，目前仅开放访客浏览。"
-  },
-  message: {
-    title: "留言功能正在建设中",
-    message: "目前留言不会被保存。后续开放后，你可以在这里给我留言。"
   }
 };
 
@@ -232,8 +227,6 @@ const initializeCoverEntrances = async (policy, openFeatureNotice) => {
   const localSessionReset = policy.isLocal ? await resetLocalDevelopmentSession() : false;
 
   setStatusBadgeVisibility("[data-user-unavailable-badge]", !policy.userEntranceEnabled);
-  setStatusBadgeVisibility("[data-message-unavailable-badge]", !policy.messagePrototypeEnabled);
-
   if (visitorEntrance) {
     visitorEntrance.setAttribute("href", "./journey.html?view=public");
     visitorEntrance.addEventListener("click", () => {
@@ -307,8 +300,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   debugLog("homepage.runtime_mode.resolved", {
     mode: policy.mode,
     hostname: policy.hostname,
-    userEntranceEnabled: policy.userEntranceEnabled,
-    messagePrototypeEnabled: policy.messagePrototypeEnabled
+    userEntranceEnabled: policy.userEntranceEnabled
   });
   const openFeatureNotice = initializeFeatureAvailabilityDialog(policy);
   debugLog("homepage.ready", {
@@ -318,35 +310,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   await initializeCoverEntrances(policy, openFeatureNotice);
   await initializeLocalDebugLink();
-  initializeVisitorMessagePrototype(policy, openFeatureNotice);
+  initializeVisitorMessageForm(policy);
 });
 
-const initializeVisitorMessagePrototype = (policy, openFeatureNotice) => {
+const initializeVisitorMessageForm = (policy) => {
   const modal = document.getElementById("visitor-message-modal");
   const openButton = document.querySelector("[data-message-open]");
   const form = document.querySelector("[data-message-form]");
   const status = document.querySelector("[data-message-status]");
 
   if (!modal || !openButton || !form || !status) {
-    debugLog("visitor_message.prototype.missing_elements", {}, "warn");
-    return;
-  }
-
-  if (!policy.messagePrototypeEnabled) {
-    form.hidden = true;
-    modal.hidden = true;
-    openButton.setAttribute("aria-controls", "feature-availability-dialog");
-    openButton.addEventListener("click", () => {
-      debugLog("homepage.message.unavailable_clicked", {
-        mode: policy.mode,
-        hostname: policy.hostname
-      });
-      openFeatureNotice?.("message");
-    });
-    debugLog("visitor_message.prototype.public_disabled", {
-      mode: policy.mode,
-      hostname: policy.hostname
-    });
+    debugLog("visitor_message.form.missing_elements", {}, "warn");
     return;
   }
 
@@ -357,17 +331,17 @@ const initializeVisitorMessagePrototype = (policy, openFeatureNotice) => {
   const setStatus = (message, type = "info") => {
     status.textContent = message;
     status.classList.toggle("is-error", type === "error");
-    status.classList.toggle("is-prototype-success", type === "success");
-    debugLog("visitor_message.prototype.status", { type, message });
+    status.classList.toggle("is-success", type === "success");
+    debugLog("visitor_message.form.status", { type });
   };
 
   const openModal = () => {
     lastFocusedElement = document.activeElement;
     modal.hidden = false;
     document.body.classList.add("visitor-message-open");
-    setStatus("当前仅为前端原型，真实留言提交需要后端和数据库支持。", "info");
+    setStatus("请填写昵称和留言内容。联系方式可选，仅管理员可见。", "info");
     window.requestAnimationFrame(() => panel?.focus());
-    debugLog("visitor_message.prototype.opened");
+    debugLog("visitor_message.form.opened", { mode: policy.mode, hostname: policy.hostname });
   };
 
   const closeModal = () => {
@@ -376,7 +350,7 @@ const initializeVisitorMessagePrototype = (policy, openFeatureNotice) => {
     if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
       lastFocusedElement.focus();
     }
-    debugLog("visitor_message.prototype.closed");
+    debugLog("visitor_message.form.closed");
   };
 
   openButton.addEventListener("click", openModal);
@@ -388,17 +362,20 @@ const initializeVisitorMessagePrototype = (policy, openFeatureNotice) => {
     }
   });
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
     const formData = new FormData(form);
     const nickname = String(formData.get("nickname") || "").trim();
+    const contact = String(formData.get("contact") || "").trim();
     const message = String(formData.get("message") || "").trim();
+    const website = String(formData.get("website") || "").trim();
 
-    debugLog("visitor_message.prototype.submit_attempted", {
+    debugLog("visitor_message.form.submit_attempted", {
       hasNickname: Boolean(nickname),
       hasMessage: Boolean(message),
-      persistence: "disabled"
+      hasContact: Boolean(contact),
+      honeypotFilled: Boolean(website)
     });
 
     if (!nickname) {
@@ -413,15 +390,55 @@ const initializeVisitorMessagePrototype = (policy, openFeatureNotice) => {
       return;
     }
 
-    setStatus(
-      "当前项目还没有后端和数据库，所以这条留言不会被真正保存。后续实现后，留言将通过 API 保存到服务器端数据库。",
-      "success"
-    );
+    const submitButton = form.querySelector(".visitor-message-submit");
+    if (submitButton) {
+      submitButton.disabled = true;
+    }
+    setStatus("正在提交留言...", "info");
+
+    try {
+      const response = await fetch(`${window.PersonalWebAuth.apiBaseUrl}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Request-ID": `message-create-${Date.now().toString(36)}`
+        },
+        body: JSON.stringify({ nickname, contact, message, website })
+      });
+      let body = {};
+      try {
+        body = await response.json();
+      } catch (error) {
+        debugLog("visitor_message.form.invalid_json_response", { error: error.message }, "warn");
+      }
+      if (!response.ok || body.accepted !== true) {
+        const error = new Error(response.status === 429 ? "提交太频繁，请稍后再试。" : "留言提交失败，请稍后再试。");
+        error.status = response.status;
+        throw error;
+      }
+      form.reset();
+      setStatus("留言已提交，谢谢你的留言。", "success");
+      debugLog("visitor_message.form.submit_success", {
+        status: response.status,
+        responseRequestId: response.headers.get("X-Request-ID") || null
+      });
+    } catch (error) {
+      setStatus(error.message || "留言提交失败，请稍后再试。", "error");
+      debugLog("visitor_message.form.submit_failure", {
+        status: error.status || null,
+        error: error.message
+      }, "warn");
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+      }
+    }
   });
 
-  debugLog("visitor_message.prototype.ready", {
-    persistence: "none",
-    storage: "disabled",
-    backend: "not used"
+  debugLog("visitor_message.form.ready", {
+    mode: policy.mode,
+    backend: "/api/messages",
+    storage: "database"
   });
 };

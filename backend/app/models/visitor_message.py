@@ -2,7 +2,9 @@
 
 from enum import StrEnum
 
-from sqlalchemy import Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -27,5 +29,8 @@ class VisitorMessage(DataManagementMixin, Base):
     contact: Mapped[str | None] = mapped_column(String(120), nullable=True)
     message: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(24), default=VisitorMessageStatus.NEW.value, nullable=False, index=True)
+    is_highlighted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    highlighted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    submitter_fingerprint: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     data_scope: Mapped[str] = mapped_column(String(24), default=DataScope.TEST.value, nullable=False, index=True)
     source_app: Mapped[str] = mapped_column(String(80), default="messages", nullable=False, index=True)
