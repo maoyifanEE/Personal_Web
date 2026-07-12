@@ -17,7 +17,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/www/personal_web/backend /var/www/personal_web/data /var/backups/personal-web
+ReadWritePaths=/var/www/personal_web/backend /var/www/personal_web/.local_logs /var/www/personal_web/data /var/backups/personal-web
 
 [Install]
 WantedBy=multi-user.target

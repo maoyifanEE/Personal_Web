@@ -19,6 +19,10 @@
   explicitly requested.
 * Added reviewed production templates for Nginx, systemd, and environment
   configuration.
+* Hardened backend JSONL diagnostics so directory creation and append failures
+  are non-fatal under the production systemd sandbox.
+* Added `.local_logs` to the controlled systemd writable paths and documented
+  pre-service creation of diagnostics, media, and backup directories.
 * Expanded the remote public check script with positive public checks and
   negative private-route denial checks.
 * Documented Ubuntu/Linux dry-run and import commands for publish bundles.

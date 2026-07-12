@@ -81,16 +81,34 @@ def test_deployment_templates() -> None:
     systemd = read("deploy/systemd/personal-web-backend.service.example")
     env = read("deploy/production.env.example")
     remote_check = read("scripts/check-remote-homepage-public.ps1")
+    deployment_doc = read("docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md")
 
     assert_true("location /api/" not in nginx, "nginx template must not proxy broad /api/")
     assert_true("proxy_pass http://127.0.0.1:8000$request_uri;" in nginx, "media proxy must target local backend")
     assert_true("location / {" in nginx and "return 404;" in nginx, "nginx template must deny unknown paths")
+    assert_true("ProtectSystem=full" in systemd, "systemd template must retain ProtectSystem=full")
     assert_true("--host 127.0.0.1 --port 8000" in systemd, "systemd template must bind Uvicorn locally")
+    assert_true(
+        "/var/www/personal_web/.local_logs" in systemd,
+        "systemd template must allow controlled diagnostics writes",
+    )
+    assert_true(
+        "ReadWritePaths=/var/www " not in systemd,
+        "systemd template must not add broad /var/www writable root",
+    )
     assert_true("ALLOW_DEV_TOOLS=false" in env, "production env must disable dev tools")
     assert_true("APP_ENV=production" in env, "production env must set APP_ENV")
     assert_true("<REPLACE_WITH_LONG_RANDOM_SECRET>" in env, "production env must use placeholder secret")
     assert_true("development-only-change-me" not in env, "production env must not use default session secret")
     assert_true("*" not in re.search(r"CORS_ALLOW_ORIGINS=(.*)", env).group(1), "CORS must not use wildcard")
+    assert_true(
+        "sudo install -d -o personal-web -g personal-web -m 0750" in deployment_doc,
+        "deployment docs must include safe directory creation command",
+    )
+    assert_true(
+        "/var/www/personal_web/.local_logs" in deployment_doc,
+        "deployment docs must mention diagnostics directory preparation",
+    )
 
     for path in [
         "/",
@@ -135,6 +153,7 @@ def test_deployment_templates() -> None:
     assert_true("PUBLIC_POSITIVE_CHECK_PASS" in remote_check, "positive pass marker missing")
     assert_true("PUBLIC_PRIVATE_ROUTE_DENY_CHECK_PASS" in remote_check, "negative pass marker missing")
     assert_true("PUBLIC_DEPLOYMENT_SURFACE_CHECK_PASS" in remote_check, "surface pass marker missing")
+    print("SYSTEMD_DIAGNOSTICS_PATH_TEST_PASS")
     print("DEPLOYMENT_TEMPLATE_TEST_PASS")
 
 

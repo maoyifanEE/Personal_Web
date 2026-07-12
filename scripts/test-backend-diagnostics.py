@@ -52,6 +52,53 @@ def test_retention() -> None:
       print("BACKEND_RETENTION_TEST_PASS")
 
 
+def test_write_failure_is_non_fatal() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        blocked_parent = Path(tmp) / "blocked-parent"
+        blocked_parent.write_text("not a directory", encoding="utf-8")
+        original_diag_root = diagnostics.LOCAL_LOG_ROOT
+        original_prune_time = diagnostics._last_retention_prune_monotonic
+        diagnostics.LOCAL_LOG_ROOT = blocked_parent / ".local_logs"
+        diagnostics._last_retention_prune_monotonic = 0.0
+        try:
+            diagnostics.write_jsonl_event(
+                "backend",
+                "diagnostics.test.write_failure",
+                {"password": "must-redact", "ok": True},
+            )
+        finally:
+            diagnostics.LOCAL_LOG_ROOT = original_diag_root
+            diagnostics._last_retention_prune_monotonic = original_prune_time
+    print("DIAGNOSTICS_WRITE_FAILURE_NON_FATAL_TEST_PASS")
+
+
+def test_writable_root_creates_jsonl() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / ".local_logs"
+        original_diag_root = diagnostics.LOCAL_LOG_ROOT
+        original_prune_time = diagnostics._last_retention_prune_monotonic
+        diagnostics.LOCAL_LOG_ROOT = root
+        diagnostics._last_retention_prune_monotonic = 0.0
+        try:
+            diagnostics.write_jsonl_event(
+                "backend",
+                "diagnostics.test.writable_root",
+                {"password": "must-redact", "visible": "ok"},
+            )
+            files = list((root / "backend").glob("backend-*.jsonl"))
+            assert len(files) == 1
+            lines = files[0].read_text(encoding="utf-8").splitlines()
+            assert len(lines) == 1
+            payload = json.loads(lines[0])
+            assert payload["event"] == "diagnostics.test.writable_root"
+            assert payload["details"]["password"] == "[REDACTED]"
+            assert payload["details"]["visible"] == "ok"
+        finally:
+            diagnostics.LOCAL_LOG_ROOT = original_diag_root
+            diagnostics._last_retention_prune_monotonic = original_prune_time
+    print("DIAGNOSTICS_WRITABLE_ROOT_TEST_PASS")
+
+
 def test_bundle_inventory() -> None:
     with tempfile.TemporaryDirectory() as tmp:
       root = Path(tmp) / ".local_logs"
@@ -180,6 +227,8 @@ def test_payload_limits() -> None:
 
 if __name__ == "__main__":
     test_retention()
+    test_write_failure_is_non_fatal()
+    test_writable_root_creates_jsonl()
     test_bundle_inventory()
     test_browser_payload_metadata_validation()
     test_payload_limits()

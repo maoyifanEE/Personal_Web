@@ -404,6 +404,30 @@ data/uploads/homepage/
 
 This folder is runtime data. It must not be committed to GitHub.
 
+Before starting the systemd service, create the controlled writable runtime
+directories with ownership matching the selected non-root service account:
+
+```bash
+sudo install -d -o personal-web -g personal-web -m 0750 \
+  /var/www/personal_web/.local_logs \
+  /var/www/personal_web/data/uploads/homepage \
+  /var/backups/personal-web
+```
+
+Directory purposes:
+
+* `/var/www/personal_web/.local_logs` stores sanitized seven-day backend JSONL
+  diagnostics.
+* `/var/www/personal_web/data/uploads/homepage` stores imported Journey media.
+* `/var/backups/personal-web` is the controlled backup location for deployment
+  and import operations.
+
+All three directories must exist before the service starts. The real owner and
+group must match the service account used in the final systemd unit. Backend
+diagnostics writes are best-effort and remain non-fatal even if this directory
+setup is wrong, but the directory setup should still be correct before
+production traffic reaches the service.
+
 The FastAPI process should bind only to `127.0.0.1:8000`. Nginx is the public
 HTTPS boundary and must proxy only the explicitly allowed read-only API routes.
 Everything else should return 403 or 404.
