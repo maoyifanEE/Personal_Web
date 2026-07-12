@@ -54,56 +54,11 @@
         type="button"
         data-message-open
         aria-haspopup="dialog"
-        aria-controls="visitor-message-modal"
+        aria-controls="feature-availability-dialog"
       >
         <span class="floating-tool-button__label">留言</span>
+        <span class="entrance-status-badge">暂未开放</span>
       </button>
-    </div>
-
-    <div
-      class="visitor-message-modal"
-      id="visitor-message-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="visitor-message-title"
-      hidden
-    >
-      <div class="visitor-message-modal__overlay" data-message-close></div>
-      <section class="visitor-message-modal__panel" tabindex="-1">
-        <button
-          class="visitor-message-modal__close"
-          type="button"
-          data-message-close
-          aria-label="关闭留言窗口"
-        >&times;</button>
-        <p class="visitor-message-modal__eyebrow">Visitor message</p>
-        <h2 id="visitor-message-title">留言</h2>
-        <p class="visitor-message-notice">
-          你可以在这里留下简短消息。联系方式仅管理员可见；请勿提交密码、身份证号等敏感信息。
-        </p>
-        <form class="visitor-message-form" data-message-form novalidate>
-          <label>
-            <span>昵称</span>
-            <input name="nickname" type="text" autocomplete="name" required>
-          </label>
-          <label>
-            <span>联系方式（可选）</span>
-            <input name="contact" type="text" autocomplete="email">
-          </label>
-          <label>
-            <span>留言内容</span>
-            <textarea name="message" rows="5" required></textarea>
-          </label>
-          <label class="visitor-message-honeypot" aria-hidden="true">
-            <span>Website</span>
-            <input name="website" type="text" tabindex="-1" autocomplete="off">
-          </label>
-          <p class="visitor-message-status" data-message-status aria-live="polite">
-            留言会提交到服务器数据库，管理员登录后可查看。
-          </p>
-          <button class="visitor-message-submit" type="submit">提交留言</button>
-        </form>
-      </section>
     </div>
     <div
       class="feature-availability-dialog"

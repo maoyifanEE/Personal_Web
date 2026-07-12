@@ -19,7 +19,8 @@ const getHomepageRuntimePolicy = () => {
     hostname,
     isLocal,
     mode: isLocal ? "local" : "public",
-    userEntranceEnabled: isLocal
+    userEntranceEnabled: isLocal,
+    visitorMessagesEnabled: false
   };
 };
 
@@ -27,6 +28,10 @@ const FEATURE_NOTICE_COPY = {
   "user-entry": {
     title: "用户入口暂未开放",
     message: "用户中心正在建设中，目前仅开放访客浏览。"
+  },
+  "message-entry": {
+    title: "留言功能暂未开放",
+    message: "留言功能正在准备中，暂时无法提交。"
   }
 };
 
@@ -300,7 +305,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   debugLog("homepage.runtime_mode.resolved", {
     mode: policy.mode,
     hostname: policy.hostname,
-    userEntranceEnabled: policy.userEntranceEnabled
+    userEntranceEnabled: policy.userEntranceEnabled,
+    visitorMessagesEnabled: policy.visitorMessagesEnabled
   });
   const openFeatureNotice = initializeFeatureAvailabilityDialog(policy);
   debugLog("homepage.ready", {
@@ -310,135 +316,32 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   await initializeCoverEntrances(policy, openFeatureNotice);
   await initializeLocalDebugLink();
-  initializeVisitorMessageForm(policy);
+  initializeVisitorMessageEntry(policy, openFeatureNotice);
 });
 
-const initializeVisitorMessageForm = (policy) => {
-  const modal = document.getElementById("visitor-message-modal");
+const initializeVisitorMessageEntry = (policy, openFeatureNotice) => {
   const openButton = document.querySelector("[data-message-open]");
-  const form = document.querySelector("[data-message-form]");
-  const status = document.querySelector("[data-message-status]");
 
-  if (!modal || !openButton || !form || !status) {
-    debugLog("visitor_message.form.missing_elements", {}, "warn");
+  if (!openButton) {
+    debugLog("visitor_message.entry.missing", {}, "warn");
     return;
   }
 
-  const panel = modal.querySelector(".visitor-message-modal__panel");
-  const closeControls = modal.querySelectorAll("[data-message-close]");
-  let lastFocusedElement = null;
-
-  const setStatus = (message, type = "info") => {
-    status.textContent = message;
-    status.classList.toggle("is-error", type === "error");
-    status.classList.toggle("is-success", type === "success");
-    debugLog("visitor_message.form.status", { type });
-  };
-
-  const openModal = () => {
-    lastFocusedElement = document.activeElement;
-    modal.hidden = false;
-    document.body.classList.add("visitor-message-open");
-    setStatus("请填写昵称和留言内容。联系方式可选，仅管理员可见。", "info");
-    window.requestAnimationFrame(() => panel?.focus());
-    debugLog("visitor_message.form.opened", { mode: policy.mode, hostname: policy.hostname });
-  };
-
-  const closeModal = () => {
-    modal.hidden = true;
-    document.body.classList.remove("visitor-message-open");
-    if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
-      lastFocusedElement.focus();
-    }
-    debugLog("visitor_message.form.closed");
-  };
-
-  openButton.addEventListener("click", openModal);
-  closeControls.forEach((control) => control.addEventListener("click", closeModal));
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !modal.hidden) {
-      closeModal();
-    }
-  });
-
-  form.addEventListener("submit", async (event) => {
+  const openUnavailableNotice = (event) => {
     event.preventDefault();
-
-    const formData = new FormData(form);
-    const nickname = String(formData.get("nickname") || "").trim();
-    const contact = String(formData.get("contact") || "").trim();
-    const message = String(formData.get("message") || "").trim();
-    const website = String(formData.get("website") || "").trim();
-
-    debugLog("visitor_message.form.submit_attempted", {
-      hasNickname: Boolean(nickname),
-      hasMessage: Boolean(message),
-      hasContact: Boolean(contact),
-      honeypotFilled: Boolean(website)
+    debugLog("visitor_message.entry.unavailable_clicked", {
+      mode: policy.mode,
+      hostname: policy.hostname,
+      visitorMessagesEnabled: policy.visitorMessagesEnabled
     });
+    openFeatureNotice?.("message-entry");
+  };
 
-    if (!nickname) {
-      setStatus("请先填写昵称。", "error");
-      form.elements.nickname?.focus();
-      return;
-    }
+  openButton.addEventListener("click", openUnavailableNotice);
 
-    if (!message) {
-      setStatus("请先填写留言内容。", "error");
-      form.elements.message?.focus();
-      return;
-    }
-
-    const submitButton = form.querySelector(".visitor-message-submit");
-    if (submitButton) {
-      submitButton.disabled = true;
-    }
-    setStatus("正在提交留言...", "info");
-
-    try {
-      const response = await fetch(`${window.PersonalWebAuth.apiBaseUrl}/messages`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Request-ID": `message-create-${Date.now().toString(36)}`
-        },
-        body: JSON.stringify({ nickname, contact, message, website })
-      });
-      let body = {};
-      try {
-        body = await response.json();
-      } catch (error) {
-        debugLog("visitor_message.form.invalid_json_response", { error: error.message }, "warn");
-      }
-      if (!response.ok || body.accepted !== true) {
-        const error = new Error(response.status === 429 ? "提交太频繁，请稍后再试。" : "留言提交失败，请稍后再试。");
-        error.status = response.status;
-        throw error;
-      }
-      form.reset();
-      setStatus("留言已提交，谢谢你的留言。", "success");
-      debugLog("visitor_message.form.submit_success", {
-        status: response.status,
-        responseRequestId: response.headers.get("X-Request-ID") || null
-      });
-    } catch (error) {
-      setStatus(error.message || "留言提交失败，请稍后再试。", "error");
-      debugLog("visitor_message.form.submit_failure", {
-        status: error.status || null,
-        error: error.message
-      }, "warn");
-    } finally {
-      if (submitButton) {
-        submitButton.disabled = false;
-      }
-    }
-  });
-
-  debugLog("visitor_message.form.ready", {
+  debugLog("visitor_message.entry.disabled", {
     mode: policy.mode,
-    backend: "/api/messages",
-    storage: "database"
+    backend: null,
+    storage: "disabled"
   });
 };

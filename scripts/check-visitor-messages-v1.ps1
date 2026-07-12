@@ -188,4 +188,29 @@ Assert-NoPattern `
   -Pattern "front-end prototype|non-persistent|not saved" `
   -Message "Public message modal must not describe the feature as a non-persistent prototype."
 
+Assert-RawPattern `
+  -Path "script.js" `
+  -Pattern "visitorMessagesEnabled: false" `
+  -Message "Public homepage must mark visitor messages disabled."
+
+Assert-RawPattern `
+  -Path "script.js" `
+  -Pattern '"message-entry": \{' `
+  -Message "Public homepage must route message entry to the coming-soon dialog."
+
+Assert-NoPattern `
+  -Path "script.js" `
+  -Pattern "/messages" `
+  -Message "Public homepage script must not submit visitor messages while disabled."
+
+Assert-NoPattern `
+  -Path "index.html" `
+  -Pattern "data-message-form|visitor-message-submit" `
+  -Message "Public homepage must not expose the visitor message form or obsolete submission copy."
+
+Assert-NoPattern `
+  -Path "deploy/nginx/personal-web-public.conf.example" `
+  -Pattern "location = /api/messages|proxy_pass http://127\.0\.0\.1:8000/api/messages;" `
+  -Message "Public Nginx template must not expose /api/messages while disabled."
+
 Write-Output "VISITOR_MESSAGES_V1_STATIC_CHECK_PASS"

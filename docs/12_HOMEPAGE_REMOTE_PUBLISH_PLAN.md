@@ -28,10 +28,14 @@ Homepage entrance behavior for the first public release:
 * The visitor entrance stays active and opens `journey.html?view=public`.
 * The user entrance stays visible, shows `暂未开放`, and does not navigate to
   `login.html`, `hub.html`, or any private page.
-* The message entrance stays visible and opens the Visitor Messages V1 form.
+* The message entrance stays visible, shows `暂未开放`, and opens a
+  coming-soon notice instead of a submission form.
 * The public homepage must not call auth-state APIs just to resolve user-entry
   navigation.
-* The public homepage submits visitor messages only through `POST /api/messages`.
+* Public visitor message submission is temporarily disabled until the
+  administrator message-management workflow is publicly usable.
+* The public homepage must not submit visitor messages through
+  `POST /api/messages` in this disabled phase.
 * Local development behavior can remain fully functional on `localhost` and
   `127.0.0.1`.
 * Public browsers must use the same-origin API base (`/api`) instead of the
@@ -343,19 +347,18 @@ Public static routes may include:
 * Required CSS and JS files for homepage and Journey display.
 * Required static assets and favicon files.
 
-Public API routes may include:
+Current public API routes may include:
 
-* `POST /api/messages`
 * `GET /api/homepage/canvas`
 * `GET /api/homepage/media/{id}/file`
 
 `GET /api/homepage/public` is not part of the phase-1 allowlist because the
 current public homepage does not require homepage item rows.
 
-`POST /api/messages` is the only public Visitor Messages V1 route. It accepts
-homepage form submissions and returns only the generic accepted response. Public
-`GET`, `HEAD`, `PUT`, `PATCH`, and `DELETE` requests to this route must not
-expose visitor-message data.
+Visitor Messages backend code exists, but public submission is temporarily
+disabled in this phase. `/api/messages` is not publicly allowlisted, and public
+`GET`, `HEAD`, `POST`, `OPTIONS`, `PUT`, `PATCH`, and `DELETE` requests to this
+route must be blocked by the public Nginx surface.
 
 Routes and endpoints that must not be public in v1:
 
@@ -401,8 +404,6 @@ Nginx public allowlist
         |
         +--> static Homepage/Journey files
         |
-        +--> POST /api/messages
-        |
         +--> selected read-only /api/homepage routes
                  |
                  v
@@ -446,8 +447,8 @@ production traffic reaches the service.
 
 The FastAPI process should bind only to `127.0.0.1:8000`. Nginx is the public
 HTTPS boundary and must proxy only explicitly allowed API routes:
-`POST /api/messages`, `GET /api/homepage/canvas`, and
-`GET /api/homepage/media/{id}/file`. Everything else should return 403 or 404.
+`GET /api/homepage/canvas` and `GET /api/homepage/media/{id}/file`.
+Everything else should return 403 or 404.
 
 ## Security Requirements
 
@@ -458,6 +459,9 @@ For this phase:
 * No dev seed users such as `1 / 1` or `2 / 2` may be production users.
 * No open registration is added.
 * No public admin editing is added.
+* Public visitor message submission is temporarily disabled.
+* Re-enabling visitor messages later requires public UI enablement and an
+  explicit Nginx `/api/messages` allowlist update.
 * No secrets are stored in the bundle.
 * No sessions are stored in the bundle.
 * No users, roles, or permissions are stored in the bundle.
@@ -488,14 +492,15 @@ It checks:
 * Canvas schema, revision, and `exists` fields.
 * Absence of `updated_by_user_id` in public canvas JSON.
 * One referenced media file when the canvas contains media stickers.
+* Rejection of public `/api/messages` requests while Visitor Messages are
+  temporarily disabled.
 * Rejection of private static routes.
 * Rejection of private, write, debug, auth, dev, message read/admin,
   media-admin, item, and unknown API routes.
 
-The public health script intentionally does not submit `POST /api/messages`
-because that would persist a real visitor-message row on the target server. The
-source-level deployment validation verifies the exact Nginx allowlist for this
-route instead.
+The public health script intentionally does not submit `POST /api/messages`.
+While Visitor Messages are disabled, it verifies that public `/api/messages`
+requests are denied and therefore do not persist visitor-message rows.
 
 Optional HTTP redirect check:
 

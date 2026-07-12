@@ -82,31 +82,21 @@ def test_deployment_templates() -> None:
     env = read("deploy/production.env.example")
     remote_check = read("scripts/check-remote-homepage-public.ps1")
     deployment_doc = read("docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md")
+    homepage = read("index.html")
+    cover_script = read("script.js")
 
     assert_true(
         not re.search(r"location\s+(?:=|~\*?|\^~)?\s*/api/?\s*\{", nginx),
         "nginx template must not proxy broad /api",
     )
-    assert_true("location = /api/messages" in nginx, "nginx template must explicitly allow /api/messages")
     assert_true(
-        "proxy_pass http://127.0.0.1:8000/api/messages;" in nginx,
-        "message proxy must target the exact local backend route",
+        "location = /api/messages" not in nginx,
+        "nginx template must not publicly allow /api/messages while messages are disabled",
     )
-    message_location = re.search(
-        r"location = /api/messages \{(?P<body>[\s\S]*?)\n    location = /api/homepage/canvas",
-        nginx,
+    assert_true(
+        "proxy_pass http://127.0.0.1:8000/api/messages;" not in nginx,
+        "message proxy must not target the backend while public messages are disabled",
     )
-    assert_true(message_location is not None, "message location block was not found")
-    message_location_body = message_location.group("body")
-    assert_true("limit_except POST OPTIONS" in message_location_body, "message route must allow only POST/OPTIONS")
-    for header in [
-        "Host $host",
-        "X-Real-IP $remote_addr",
-        "X-Forwarded-For $proxy_add_x_forwarded_for",
-        "X-Forwarded-Proto $scheme",
-        "X-Request-ID $request_id",
-    ]:
-        assert_true(header in message_location_body, f"message proxy missing header {header}")
     assert_true(
         "location = /api/admin/messages" not in nginx,
         "nginx template must not allowlist admin message routes",
@@ -119,6 +109,16 @@ def test_deployment_templates() -> None:
     assert_true("location = /hub.html" not in nginx, "nginx template must not expose hub.html")
     assert_true("proxy_pass http://127.0.0.1:8000$request_uri;" in nginx, "media proxy must target local backend")
     assert_true("location / {" in nginx and "return 404;" in nginx, "nginx template must deny unknown paths")
+    assert_true("留言" in homepage, "homepage must keep the visible message entry label")
+    assert_true("暂未开放" in homepage, "homepage must show the message/user coming-soon status")
+    assert_true("留言功能暂未开放" in cover_script, "message coming-soon heading must be configured")
+    assert_true("留言功能正在准备中，暂时无法提交。" in cover_script, "message coming-soon copy must be configured")
+    assert_true("data-message-form" not in homepage, "public message form must not be present")
+    assert_true("visitor-message-submit" not in homepage, "public message submit button must not be present")
+    assert_true("留言会提交到服务器数据库" not in homepage, "obsolete database submission copy must be absent")
+    assert_true("管理员登录后可查看" not in homepage, "obsolete admin review copy must be absent")
+    assert_true("/messages" not in cover_script, "homepage script must not call the public message API")
+    assert_true("visitorMessagesEnabled: false" in cover_script, "message feature flag must be disabled")
     assert_true("ProtectSystem=full" in systemd, "systemd template must retain ProtectSystem=full")
     assert_true("--host 127.0.0.1 --port 8000" in systemd, "systemd template must bind Uvicorn locally")
     assert_true(
@@ -163,7 +163,6 @@ def test_deployment_templates() -> None:
         "/journey-curve-import-core.js",
         "/assets/icon.svg",
         "/assets/beian/gongan.png",
-        "/api/messages",
         "/api/homepage/canvas",
     ]:
         assert_true(path in nginx, f"nginx template missing public dependency {path}")

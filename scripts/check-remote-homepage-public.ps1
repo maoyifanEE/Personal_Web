@@ -91,6 +91,15 @@ if ($homepageText -notmatch "2026013131" -or $homepageText -notmatch "3603020200
 if ($homepageText -notmatch [regex]::Escape("https://beian.mps.gov.cn/#/query/webSearch?code=36030202000491")) {
   throw "Homepage public security filing link was not found."
 }
+if ($homepageText -notmatch "留言" -or $homepageText -notmatch "暂未开放") {
+  throw "Homepage message coming-soon entry was not found."
+}
+if ($homepageText -match "data-message-form" -or $homepageText -match "visitor-message-submit") {
+  throw "Homepage exposed an enabled visitor message form."
+}
+if ($homepageText -match "留言会提交到服务器数据库" -or $homepageText -match "管理员登录后可查看") {
+  throw "Homepage still contains obsolete visitor-message submission wording."
+}
 
 $canvasResponse = Assert-StatusOk -Uri $canvasUrl
 $canvasText = [string]$canvasResponse.Content
@@ -178,6 +187,12 @@ Assert-Denied -Path "api/homepage/media/1" -Method "PATCH"
 Assert-Denied -Path "api/homepage/canvas" -Method "PUT"
 Assert-Denied -Path "api/homepage/canvas/reset" -Method "POST"
 Assert-Denied -Path "api/homepage/publish-bundle/export" -Method "POST"
+Assert-Denied -Path "api/messages" -Method "HEAD"
+Assert-Denied -Path "api/messages" -Method "POST"
+Assert-Denied -Path "api/messages" -Method "OPTIONS"
+Assert-Denied -Path "api/messages" -Method "PUT"
+Assert-Denied -Path "api/messages" -Method "PATCH"
+Assert-Denied -Path "api/messages" -Method "DELETE"
 
 Write-Host "PUBLIC_PRIVATE_ROUTE_DENY_CHECK_PASS"
 Write-Host "PUBLIC_DEPLOYMENT_SURFACE_CHECK_PASS"
