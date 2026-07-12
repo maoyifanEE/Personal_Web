@@ -2,11 +2,8 @@
 
 from datetime import datetime
 import re
-from typing import Any
-
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.common import DataScope
 from app.models.visitor_message import VisitorMessageStatus
 
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -19,22 +16,12 @@ def normalize_public_text(value: str) -> str:
 
 
 class VisitorMessageCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     nickname: str = Field(..., max_length=80)
     contact: str | None = Field(default=None, max_length=120)
     message: str = Field(..., max_length=2000)
     website: str | None = Field(default=None, max_length=240)
-    data_scope: DataScope | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def accept_email_as_contact(cls, data: Any) -> Any:
-        """Accept email as a legacy alias while storing the canonical contact field."""
-
-        if isinstance(data, dict) and not data.get("contact") and data.get("email"):
-            normalized = dict(data)
-            normalized["contact"] = normalized["email"]
-            return normalized
-        return data
 
     @field_validator("nickname", "message")
     @classmethod

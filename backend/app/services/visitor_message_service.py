@@ -17,7 +17,17 @@ from app.services.audit_service import write_audit_log
 
 logger = logging.getLogger(__name__)
 
-DEV_CREATE_SCOPES = {DataScope.TEST.value, DataScope.DEMO.value, DataScope.IMPORTED.value}
+
+class VisitorMessageNotFoundError(ValueError):
+    """Raised when a requested visitor message does not exist."""
+
+
+class VisitorMessageDeletedConflictError(ValueError):
+    """Raised when a normal mutation targets a soft-deleted visitor message."""
+
+
+class VisitorMessageActiveConflictError(ValueError):
+    """Raised when restore targets a non-deleted visitor message."""
 
 
 @dataclass(frozen=True)
@@ -33,16 +43,13 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def resolve_create_data_scope(settings: Settings, requested_scope: DataScope | None) -> str:
+def resolve_create_data_scope(settings: Settings) -> str:
     """Resolve safe data_scope for public message creation."""
 
     if settings.app_env == "production":
         return DataScope.PRODUCTION.value
 
-    scope = (requested_scope or DataScope.TEST).value
-    if scope not in DEV_CREATE_SCOPES:
-        raise ValueError("development message data_scope must be test, demo, or imported")
-    return scope
+    return DataScope.TEST.value
 
 
 def build_submitter_fingerprint(settings: Settings, client_host: str | None) -> str:
@@ -76,7 +83,7 @@ def create_visitor_message(
         logger.info("Visitor message honeypot accepted without persistence")
         return VisitorMessageCreateResult(accepted=True, created=False, honeypot_triggered=True)
 
-    data_scope = resolve_create_data_scope(settings, payload.data_scope)
+    data_scope = resolve_create_data_scope(settings)
     fingerprint = build_submitter_fingerprint(settings, client_host)
     if settings.message_rate_limit_enabled:
         window_start = utc_now() - timedelta(seconds=settings.message_rate_limit_window_seconds)
@@ -233,29 +240,42 @@ def update_message_admin_fields(
 
     message = get_visitor_message(db, message_id, include_deleted=True)
     if not message:
-        return None
+        raise VisitorMessageNotFoundError("Visitor message not found")
+    if message.deleted_at is not None:
+        raise VisitorMessageDeletedConflictError("Deleted visitor messages cannot be updated")
+
+    audit_actions: list[tuple[str, str]] = []
     if payload.status is not None:
-        message.status = payload.status.value
+        next_status = payload.status.value
+        if message.status != next_status:
+            message.status = next_status
+            audit_actions.append(("visitor_message.status_update", "Visitor message status updated by admin."))
     if payload.is_highlighted is not None:
-        message.is_highlighted = payload.is_highlighted
-        message.highlighted_at = utc_now() if payload.is_highlighted else None
-    if payload.admin_note is not None:
+        if message.is_highlighted != payload.is_highlighted:
+            message.is_highlighted = payload.is_highlighted
+            message.highlighted_at = utc_now() if payload.is_highlighted else None
+            audit_actions.append(("visitor_message.highlight_update", "Visitor message highlight flag updated by admin."))
+    if "admin_note" in payload.model_fields_set and message.admin_note != payload.admin_note:
         message.admin_note = payload.admin_note
-    message.updated_by = f"user:{actor.id}"
-    write_audit_log(
-        db,
-        action="visitor_message.admin_update",
-        source_app="messages",
-        target_table="visitor_messages",
-        target_id=str(message.id),
-        data_scope=message.data_scope,
-        actor_type="user",
-        actor_id=str(actor.id),
-        actor_user_id=actor.id,
-        summary="Visitor message admin fields updated.",
-    )
-    db.commit()
-    db.refresh(message)
+        audit_actions.append(("visitor_message.admin_note_update", "Visitor message admin note updated by admin."))
+
+    if audit_actions:
+        message.updated_by = f"user:{actor.id}"
+        for action, summary in audit_actions:
+            write_audit_log(
+                db,
+                action=action,
+                source_app="messages",
+                target_table="visitor_messages",
+                target_id=str(message.id),
+                data_scope=message.data_scope,
+                actor_type="user",
+                actor_id=str(actor.id),
+                actor_user_id=actor.id,
+                summary=summary,
+            )
+        db.commit()
+        db.refresh(message)
     logger.info("Visitor message admin-updated: id=%s actor_user_id=%s", message_id, actor.id)
     return message
 
@@ -297,7 +317,9 @@ def restore_message(db: Session, message_id: int, actor: AppUser) -> VisitorMess
 
     message = get_visitor_message(db, message_id, include_deleted=True)
     if not message:
-        return None
+        raise VisitorMessageNotFoundError("Visitor message not found")
+    if message.deleted_at is None:
+        raise VisitorMessageActiveConflictError("Active visitor messages cannot be restored")
     message.deleted_at = None
     message.deleted_by = None
     message.delete_reason = None

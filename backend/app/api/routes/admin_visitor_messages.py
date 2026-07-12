@@ -18,6 +18,9 @@ from app.schemas.visitor_message import (
     VisitorMessageSummaryResponse,
 )
 from app.services.visitor_message_service import (
+    VisitorMessageActiveConflictError,
+    VisitorMessageDeletedConflictError,
+    VisitorMessageNotFoundError,
     get_visitor_message,
     list_visitor_messages,
     restore_message,
@@ -111,9 +114,12 @@ def update_message(
 ) -> VisitorMessageAdminRead:
     """Update admin-managed visitor message fields."""
 
-    message = update_message_admin_fields(db, message_id, payload, actor)
-    if not message:
+    try:
+        message = update_message_admin_fields(db, message_id, payload, actor)
+    except VisitorMessageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Visitor message not found")
+    except VisitorMessageDeletedConflictError as exc:
+        raise HTTPException(status_code=409, detail="Deleted visitor messages cannot be updated") from exc
     return VisitorMessageAdminRead.model_validate(message)
 
 
@@ -152,7 +158,10 @@ def restore_deleted_message(
 ) -> VisitorMessageAdminRead:
     """Restore a soft-deleted visitor message."""
 
-    message = restore_message(db, message_id, actor)
-    if not message:
+    try:
+        message = restore_message(db, message_id, actor)
+    except VisitorMessageNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Visitor message not found")
+    except VisitorMessageActiveConflictError as exc:
+        raise HTTPException(status_code=409, detail="Active visitor messages cannot be restored") from exc
     return VisitorMessageAdminRead.model_validate(message)

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/messages")
 
 
-@router.post("", response_model=VisitorMessagePublicAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("", response_model=VisitorMessagePublicAcceptedResponse, status_code=status.HTTP_201_CREATED)
 def create_message(
     payload: VisitorMessageCreate,
     request: Request,
