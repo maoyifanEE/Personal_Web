@@ -1,6 +1,8 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$BaseUrl
+  [string]$BaseUrl,
+
+  [string]$HttpBaseUrl
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,36 +21,94 @@ function Join-Url {
   return $Root.TrimEnd("/") + "/" + $Path.TrimStart("/")
 }
 
-function Invoke-JsonGet {
-  param([string]$Uri)
+function Invoke-RemoteRequest {
+  param(
+    [string]$Uri,
+    [string]$Method = "GET"
+  )
 
-  Write-CheckInfo "GET $Uri"
-  $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 20
-  if ([int]$response.StatusCode -ne 200) {
-    throw "Expected 200 from $Uri, got $($response.StatusCode)"
+  try {
+    return Invoke-WebRequest -Uri $Uri -Method $Method -UseBasicParsing -TimeoutSec 20
+  } catch {
+    $response = $_.Exception.Response
+    if ($null -eq $response) {
+      throw
+    }
+    return $response
   }
-  return $response.Content | ConvertFrom-Json
 }
 
-function Invoke-StatusGet {
-  param([string]$Uri)
+function Get-StatusCode {
+  param($Response)
 
-  Write-CheckInfo "GET $Uri"
-  $response = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 20
-  if ([int]$response.StatusCode -ne 200) {
-    throw "Expected 200 from $Uri, got $($response.StatusCode)"
+  return [int]$Response.StatusCode
+}
+
+function Assert-Status {
+  param(
+    [string]$Uri,
+    [string]$Method,
+    [int[]]$ExpectedStatuses
+  )
+
+  Write-CheckInfo "$Method $Uri"
+  $response = Invoke-RemoteRequest -Uri $Uri -Method $Method
+  $status = Get-StatusCode -Response $response
+  if ($ExpectedStatuses -notcontains $status) {
+    throw "Expected status $($ExpectedStatuses -join ',') from $Method $Uri, got $status"
   }
   return $response
 }
 
-$journeyUrl = Join-Url -Root $BaseUrl -Path "journey.html?view=public"
-$canvasUrl = Join-Url -Root $BaseUrl -Path "api/homepage/canvas"
+function Assert-StatusOk {
+  param([string]$Uri)
 
-Invoke-StatusGet -Uri $journeyUrl | Out-Null
-$canvas = Invoke-JsonGet -Uri $canvasUrl
+  return Assert-Status -Uri $Uri -Method "GET" -ExpectedStatuses @(200)
+}
 
-if (-not $canvas.exists -or -not $canvas.canvas_data) {
-  throw "Canvas endpoint did not return existing canvas data."
+function Assert-Denied {
+  param(
+    [string]$Path,
+    [string]$Method = "GET"
+  )
+
+  $uri = Join-Url -Root $BaseUrl -Path $Path
+  Assert-Status -Uri $uri -Method $Method -ExpectedStatuses @(403, 404, 405) | Out-Null
+}
+
+$base = $BaseUrl.TrimEnd("/")
+$homepageUrl = Join-Url -Root $base -Path "index.html"
+$journeyUrl = Join-Url -Root $base -Path "journey.html?view=public"
+$canvasUrl = Join-Url -Root $base -Path "api/homepage/canvas"
+
+$homepage = Assert-StatusOk -Uri $homepageUrl
+Assert-StatusOk -Uri $journeyUrl | Out-Null
+
+$homepageText = [string]$homepage.Content
+if ($homepageText -notmatch "2026013131" -or $homepageText -notmatch "36030202000491") {
+  throw "Homepage filing text was not found."
+}
+if ($homepageText -notmatch [regex]::Escape("https://beian.mps.gov.cn/#/query/webSearch?code=36030202000491")) {
+  throw "Homepage public security filing link was not found."
+}
+
+$canvasResponse = Assert-StatusOk -Uri $canvasUrl
+$canvasText = [string]$canvasResponse.Content
+if ($canvasText -match '"updated_by_user_id"') {
+  throw "Public canvas response exposed updated_by_user_id."
+}
+
+$canvas = $canvasText | ConvertFrom-Json
+foreach ($field in @("canvas_key", "schema_version", "canvas_data", "revision", "exists")) {
+  if (-not ($canvas.PSObject.Properties.Name -contains $field)) {
+    throw "Canvas response missing required field: $field"
+  }
+}
+if ($canvas.revision -lt 0) {
+  throw "Canvas revision must be non-negative."
+}
+if ($null -eq $canvas.exists) {
+  throw "Canvas exists field must be present."
 }
 
 $mediaIds = New-Object System.Collections.Generic.List[int]
@@ -59,11 +119,64 @@ $json = $canvas.canvas_data | ConvertTo-Json -Depth 100
 
 if ($mediaIds.Count -gt 0) {
   $firstMediaId = ($mediaIds | Select-Object -First 1)
-  $mediaUrl = Join-Url -Root $BaseUrl -Path "api/homepage/media/$firstMediaId/file"
-  Invoke-StatusGet -Uri $mediaUrl | Out-Null
+  $mediaUrl = Join-Url -Root $base -Path "api/homepage/media/$firstMediaId/file"
+  $mediaResponse = Assert-StatusOk -Uri $mediaUrl
+  if (-not $mediaResponse.Headers["Content-Type"]) {
+    throw "Public media response did not include Content-Type."
+  }
   Write-CheckInfo "Verified public media file for mediaId=$firstMediaId"
 } else {
   Write-CheckInfo "Canvas contains no mediaId stickers; media file check skipped."
 }
 
-Write-CheckInfo "PASS"
+if ($HttpBaseUrl) {
+  $httpResponse = Assert-Status -Uri (Join-Url -Root $HttpBaseUrl -Path "") -Method "GET" -ExpectedStatuses @(301, 302, 307, 308)
+  $location = $httpResponse.Headers["Location"]
+  if ($location -and $location -notmatch "^https://") {
+    throw "HTTP redirect did not target HTTPS: $location"
+  }
+}
+
+Write-Host "PUBLIC_POSITIVE_CHECK_PASS"
+
+foreach ($path in @(
+  "login.html",
+  "hub.html",
+  "debug-log.html",
+  "apps/",
+  "apps/tasks/",
+  "apps/health/",
+  "apps/messages/",
+  "apps/admin-users/",
+  "apps/homepage-admin/",
+  "docs/",
+  "scripts/",
+  "backend/",
+  ".git/",
+  ".env",
+  "data/uploads/",
+  "not-a-real-file.txt",
+  "api/auth/me",
+  "api/debug/status",
+  "api/messages",
+  "api/messages/1",
+  "api/admin/data/summary",
+  "api/dev/reset",
+  "api/homepage/media",
+  "api/homepage/media/1/admin-file",
+  "api/homepage/items",
+  "api/homepage/items/1",
+  "api/homepage/publish-bundle/export",
+  "api/unknown"
+)) {
+  Assert-Denied -Path $path
+}
+
+Assert-Denied -Path "api/homepage/media" -Method "POST"
+Assert-Denied -Path "api/homepage/media/1" -Method "PATCH"
+Assert-Denied -Path "api/homepage/canvas" -Method "PUT"
+Assert-Denied -Path "api/homepage/canvas/reset" -Method "POST"
+Assert-Denied -Path "api/homepage/publish-bundle/export" -Method "POST"
+
+Write-Host "PUBLIC_PRIVATE_ROUTE_DENY_CHECK_PASS"
+Write-Host "PUBLIC_DEPLOYMENT_SURFACE_CHECK_PASS"

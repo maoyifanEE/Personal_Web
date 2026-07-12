@@ -251,6 +251,12 @@ function guardJourneyMutation(action) {
 }
 
 async function loadJourneyAuthState() {
+  if (!journeyRouteEditRequested) {
+    logJourney("Skipped journey auth state for public read-only route.", {
+      editRequested: journeyRouteEditRequested
+    });
+    return;
+  }
   if (!window.PersonalWebAuth) {
     logJourney("Auth helper unavailable; journey editor remains read-only.");
     return;

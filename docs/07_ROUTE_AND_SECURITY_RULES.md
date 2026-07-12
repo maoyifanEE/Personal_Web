@@ -60,6 +60,8 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * On every non-local hostname, the homepage message entrance remains visible but
   shows a `建设中` status badge and opens an informational notice only.
 * Public homepage UI gating is not a production security boundary.
+* Public homepage and Journey API requests use same-origin `/api` on non-local
+  hosts so public browsers never call a visitor machine's `127.0.0.1:8000`.
 * `login.html` is now wired to the local backend Auth/RBAC v1 login API.
 * Local login creates a database-backed session and an HttpOnly browser cookie.
 * Local login is for development only and is not production deployment.
@@ -67,6 +69,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * `journey.html` is public read-only for guests and normal users.
 * Journey editing controls require `journey.html?edit=1` plus local `homepage:edit` permission.
 * Journey reads shared canvas JSON from the local backend when available.
+* Public `GET /api/homepage/canvas` omits the internal `updated_by_user_id`
+  field; admin write/reset responses may retain internal updater metadata.
+* Public `journey.html?view=public` should not call auth-state APIs just to
+  decide that edit controls are unavailable.
 * Journey keeps browser `localStorage` as a local draft and backend-unavailable fallback.
 * Journey database save requires `homepage:edit`.
 * Journey database reset requires `homepage:edit`.
@@ -101,6 +107,9 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Server/public deployment happens only after explicit user instruction.
 * A future production Nginx allowlist must still deny direct public access to
   private, admin, debug, development, and write routes before public launch.
+* The phase-1 production Nginx allowlist should expose only `/`, `index.html`,
+  `journey.html`, their required static assets, `GET /api/homepage/canvas`, and
+  `GET /api/homepage/media/{positive_integer}/file`.
 
 ## Current Data Rule
 

@@ -205,6 +205,12 @@ Personal_Web/
 * `docs/13_JOURNEY_CURVE_IMPORT.md`: Journey curve image/JSON import workflow and AI image guidance.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
+Deployment preparation templates:
+
+* `deploy/nginx/personal-web-public.conf.example`: phase-1 public Nginx allowlist example.
+* `deploy/systemd/personal-web-backend.service.example`: local-only FastAPI service example.
+* `deploy/production.env.example`: production environment placeholder template; real values must live outside GitHub.
+
 ## Local Diagnostics
 
 Local development diagnostics are available for the homepage, login, Hub, and
@@ -518,7 +524,7 @@ Application behavior should be verified separately when application files are ch
 
 ## Visitor Message Prototype
 
-The public cover page includes a bottom-right floating `鐣欒█` tool.
+The public cover page includes a bottom-right floating `留言` tool.
 
 This tool opens a front-end modal prototype for visitor messages.
 

@@ -94,10 +94,8 @@ def sanitize_for_diagnostics(value: Any, key: str = "") -> Any:
 def write_jsonl_event(category: str, event: str, details: dict[str, Any] | None = None) -> None:
     """Append a sanitized diagnostic event to `.local_logs/<category>/`."""
 
-    maybe_prune_local_diagnostics()
     safe_category = re.sub(r"[^a-zA-Z0-9_-]+", "-", category).strip("-") or "general"
     log_dir = LOCAL_LOG_ROOT / safe_category
-    log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{safe_category}-{datetime.now(timezone.utc).strftime('%Y%m%d')}.jsonl"
     payload = {
         "timestamp": utc_now_iso(),
@@ -105,6 +103,8 @@ def write_jsonl_event(category: str, event: str, details: dict[str, Any] | None 
         "details": sanitize_for_diagnostics(details or {}),
     }
     try:
+        maybe_prune_local_diagnostics()
+        log_dir.mkdir(parents=True, exist_ok=True)
         with log_path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n")
     except OSError as error:

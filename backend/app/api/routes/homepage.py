@@ -18,6 +18,7 @@ from app.models.homepage_canvas import HomepageCanvasState
 from app.models.homepage_media import HomepageMedia
 from app.schemas.homepage import (
     CANVAS_KEY_DEFAULT,
+    HomepageCanvasPublicResponse,
     HomepageCanvasResponse,
     HomepageCanvasSaveRequest,
     HomepageItemCreateRequest,
@@ -93,7 +94,7 @@ def item_response(request: Request, db: Session, item: HomepageItem) -> dict:
 
 
 def to_canvas_response(state: HomepageCanvasState | None) -> HomepageCanvasResponse:
-    """Convert a canvas row or missing row into the public response shape."""
+    """Convert a canvas row or missing row into the internal canvas response shape."""
 
     if not state:
         return HomepageCanvasResponse(
@@ -116,13 +117,35 @@ def to_canvas_response(state: HomepageCanvasState | None) -> HomepageCanvasRespo
     )
 
 
-@router.get("/canvas", response_model=HomepageCanvasResponse)
-def read_canvas(db: Session = Depends(get_db_session)) -> HomepageCanvasResponse:
+def to_public_canvas_response(state: HomepageCanvasState | None) -> HomepageCanvasPublicResponse:
+    """Convert a canvas row or missing row into the public response shape."""
+
+    if not state:
+        return HomepageCanvasPublicResponse(
+            canvas_key=CANVAS_KEY_DEFAULT,
+            schema_version="sketch-canvas-v1",
+            canvas_data={},
+            revision=0,
+            updated_at=None,
+            exists=False,
+        )
+    return HomepageCanvasPublicResponse(
+        canvas_key=state.canvas_key,
+        schema_version=state.schema_version,
+        canvas_data=state.canvas_data,
+        revision=state.revision,
+        updated_at=state.updated_at,
+        exists=True,
+    )
+
+
+@router.get("/canvas", response_model=HomepageCanvasPublicResponse)
+def read_canvas(db: Session = Depends(get_db_session)) -> HomepageCanvasPublicResponse:
     """Publicly read the current shared Journey canvas state."""
 
     state = get_canvas_state(db, CANVAS_KEY_DEFAULT)
     write_jsonl_event("backend", "homepage.canvas.route.read", {"exists": bool(state)})
-    return to_canvas_response(state)
+    return to_public_canvas_response(state)
 
 
 @router.get("/public", response_model=HomepagePublicResponse)
