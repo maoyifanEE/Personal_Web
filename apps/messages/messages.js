@@ -9,10 +9,17 @@
   const refreshButton = document.querySelector("[data-messages-refresh]");
   const detailDialog = document.querySelector("[data-message-detail]");
   const detailBody = document.querySelector("[data-message-detail-body]");
+  const deleteDialog = document.querySelector("[data-message-delete-dialog]");
+  const deleteSummaryEl = document.querySelector("[data-message-delete-summary]");
+  const deleteCancelButtons = document.querySelectorAll("[data-message-delete-cancel]");
+  const deleteConfirmButton = document.querySelector("[data-message-delete-confirm]");
 
   const state = {
     messages: [],
-    canManage: false
+    canManage: false,
+    pendingDeleteMessage: null,
+    deletePending: false,
+    deleteReturnFocus: null
   };
 
   const debugLog = (event, details = {}, level = "info") => {
@@ -192,27 +199,76 @@
     await loadAll();
   };
 
+  const setDeleteDialogPending = (pending) => {
+    state.deletePending = pending;
+    if (deleteConfirmButton) {
+      deleteConfirmButton.disabled = pending;
+    }
+    deleteCancelButtons.forEach((button) => {
+      button.disabled = pending;
+    });
+  };
+
+  const closeDeleteDialog = () => {
+    if (deleteDialog?.open) {
+      deleteDialog.close();
+    }
+    if (state.deleteReturnFocus?.isConnected) {
+      state.deleteReturnFocus.focus();
+    }
+    state.pendingDeleteMessage = null;
+    state.deleteReturnFocus = null;
+    setDeleteDialogPending(false);
+  };
+
+  const openDeleteConfirmation = (message, returnFocusElement) => {
+    if (!deleteDialog || !deleteSummaryEl || !deleteConfirmButton) {
+      return;
+    }
+    state.pendingDeleteMessage = message;
+    setDeleteDialogPending(false);
+    state.deleteReturnFocus = returnFocusElement || null;
+    deleteSummaryEl.textContent = `将软删除留言 #${message.id}。`;
+    deleteDialog.showModal();
+    deleteConfirmButton.focus();
+  };
+
   const openDetail = (message) => {
     if (!detailDialog || !detailBody) {
       return;
     }
+    const isDeleted = Boolean(message.deletedAt);
+    const canMutate = state.canManage && !isDeleted;
     const noteInput = document.createElement("textarea");
     noteInput.rows = 4;
     noteInput.value = message.adminNote || "";
     noteInput.placeholder = "管理员备注";
+    noteInput.readOnly = !canMutate;
+    noteInput.disabled = !canMutate;
     const actions = document.createElement("div");
     actions.className = "messages-detail__actions";
     actions.append(
-      actionButton("保存备注", () => patchMessage(message.id, { adminNote: noteInput.value }), !state.canManage),
-      actionButton("标记已读", () => patchMessage(message.id, { status: "read" }), !state.canManage),
-      actionButton("归档", () => patchMessage(message.id, { status: "archived" }), !state.canManage)
+      actionButton("保存备注", () => patchMessage(message.id, { adminNote: noteInput.value }), !canMutate),
+      actionButton("标记已读", () => patchMessage(message.id, { status: "read" }), !canMutate),
+      actionButton("归档", () => patchMessage(message.id, { status: "archived" }), !canMutate)
     );
+    if (isDeleted && state.canManage) {
+      actions.append(
+        actionButton("恢复留言", async () => {
+          await restoreMessage(message.id);
+          if (detailDialog.open) {
+            detailDialog.close();
+          }
+        })
+      );
+    }
     detailBody.replaceChildren(
       createText("h2", `#${message.id} ${message.nickname}`),
       createText("p", `时间：${formatDate(message.createdAt)}`),
       createText("p", `联系方式：${message.contact || "未提供"}`),
       createText("p", `状态：${statusLabel(message.status)} / ${message.dataScope}`),
       createText("p", `高亮：${message.isHighlighted ? "是" : "否"}`),
+      createText("p", `生命周期：${isDeleted ? "已软删除，可恢复" : "有效"}`),
       createText("p", `软删除：${message.deletedAt ? formatDate(message.deletedAt) : "否"}`),
       createText("h3", "留言内容"),
       createText("p", message.message, "messages-detail__message"),
@@ -221,6 +277,17 @@
       actions
     );
     detailDialog.showModal();
+  };
+
+  const deleteButton = (message) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "软删除";
+    button.disabled = !state.canManage;
+    button.addEventListener("click", () => {
+      openDeleteConfirmation(message, button);
+    });
+    return button;
   };
 
   const renderList = () => {
@@ -258,7 +325,7 @@
       if (message.deletedAt) {
         actions.append(actionButton("恢复", () => restoreMessage(message.id), !state.canManage));
       } else {
-        actions.append(actionButton("软删除", () => softDeleteMessage(message.id), !state.canManage));
+        actions.append(deleteButton(message));
       }
       row.append(
         createText("td", String(message.id)),
@@ -313,6 +380,40 @@
       setStatus(error.message, true);
       debugLog("messages_admin.refresh.failure", { error: error.message }, "warn");
     });
+  });
+
+  deleteCancelButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      if (state.deletePending) {
+        return;
+      }
+      closeDeleteDialog();
+    });
+  });
+
+  deleteDialog?.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    if (state.deletePending) {
+      return;
+    }
+    closeDeleteDialog();
+  });
+
+  deleteConfirmButton?.addEventListener("click", async () => {
+    if (state.deletePending || !state.pendingDeleteMessage) {
+      return;
+    }
+    setDeleteDialogPending(true);
+    const messageId = state.pendingDeleteMessage.id;
+    try {
+      await softDeleteMessage(messageId);
+      setStatus(`留言 #${messageId} 已移入已删除列表。`);
+      closeDeleteDialog();
+    } catch (error) {
+      setStatus(error.message, true);
+      debugLog("messages_admin.delete.failure", { messageId, error: error.message, status: error.status }, "warn");
+      setDeleteDialogPending(false);
+    }
   });
 
   initialize();

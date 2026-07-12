@@ -98,7 +98,10 @@ class VisitorMessageAdminUpdate(BaseModel):
 
     @model_validator(mode="after")
     def require_change(self) -> "VisitorMessageAdminUpdate":
-        if self.status is None and self.is_highlighted is None and self.admin_note is None:
+        has_status_update = self.status is not None
+        has_highlight_update = self.is_highlighted is not None
+        has_admin_note_update = "admin_note" in self.model_fields_set
+        if not has_status_update and not has_highlight_update and not has_admin_note_update:
             raise ValueError("At least one update field is required")
         return self
 

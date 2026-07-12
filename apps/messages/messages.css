@@ -92,6 +92,18 @@ textarea {
   cursor: not-allowed;
 }
 
+.messages-action--danger {
+  border-color: rgba(159, 45, 45, 0.28);
+  color: #9f2d2d;
+}
+
+.messages-action--danger:hover,
+.messages-action--danger:focus-visible {
+  border-color: #9f2d2d;
+  color: #ffffff;
+  background: #9f2d2d;
+}
+
 .messages-kicker {
   margin: 0 0 10px;
   color: var(--teal);
@@ -263,6 +275,11 @@ textarea {
 
 .messages-detail__message {
   white-space: pre-wrap;
+}
+
+.messages-confirm p {
+  color: var(--ink-soft);
+  line-height: 1.7;
 }
 
 .messages-detail textarea {

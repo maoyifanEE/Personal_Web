@@ -101,6 +101,35 @@
         </form>
         <article data-message-detail-body></article>
       </dialog>
+
+      <dialog
+        class="messages-detail messages-confirm"
+        data-message-delete-dialog
+        aria-labelledby="message-delete-title"
+      >
+        <form method="dialog">
+          <button
+            class="messages-detail__close"
+            type="submit"
+            aria-label="取消删除"
+            data-message-delete-cancel
+          >
+            &times;
+          </button>
+        </form>
+        <h2 id="message-delete-title">确认软删除</h2>
+        <p data-message-delete-summary></p>
+        <p>
+          确定删除这条留言吗？留言将移入已删除列表，之后仍可恢复。
+          本操作不会永久删除数据。
+        </p>
+        <div class="messages-detail__actions">
+          <button class="messages-action" type="button" data-message-delete-cancel>取消</button>
+          <button class="messages-action messages-action--danger" type="button" data-message-delete-confirm>
+            确认软删除
+          </button>
+        </div>
+      </dialog>
     </main>
   </body>
 </html>

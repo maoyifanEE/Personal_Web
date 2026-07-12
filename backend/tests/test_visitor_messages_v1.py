@@ -36,6 +36,10 @@ def audit_actions(db_session: Session) -> list[str]:
     return list(db_session.execute(select(AuditLog.action).order_by(AuditLog.id)).scalars())
 
 
+def audit_summaries(db_session: Session) -> list[str]:
+    return list(db_session.execute(select(AuditLog.summary).order_by(AuditLog.id)).scalars())
+
+
 def admin_headers(client, username: str = "admin", password: str = "adminpass") -> dict[str, str]:
     return {"X-CSRF-Token": login_and_csrf(client, username, password)}
 
@@ -324,6 +328,59 @@ def test_status_and_admin_note_updates_persist(client, admin_user):
 
     assert patched["status"] == "read"
     assert patched["adminNote"] == "Reviewed"
+
+
+@pytest.mark.parametrize("payload", [{}, {"status": None}, {"isHighlighted": None}])
+def test_empty_or_null_only_admin_patch_is_invalid(client, admin_user, payload):
+    create_public_message(client)
+    headers = admin_headers(client)
+
+    response = client.patch("/api/admin/messages/1", json=payload, headers=headers)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("payload", [{"adminNote": None}, {"adminNote": ""}, {"adminNote": "   "}])
+def test_existing_admin_note_can_be_cleared_with_explicit_empty_values(
+    client,
+    admin_user,
+    db_session: Session,
+    payload,
+):
+    create_public_message(client)
+    headers = admin_headers(client)
+    client.patch("/api/admin/messages/1", json={"adminNote": "Sensitive admin note"}, headers=headers)
+    action_count_before_clear = len(audit_actions(db_session))
+
+    response = client.patch("/api/admin/messages/1", json=payload, headers=headers)
+    stored = db_session.get(VisitorMessage, 1)
+    actions = audit_actions(db_session)
+    summaries = " ".join(summary or "" for summary in audit_summaries(db_session))
+
+    assert response.status_code == 200
+    assert response.json()["adminNote"] is None
+    assert stored.admin_note is None
+    assert actions.count("visitor_message.admin_note_update") == 2
+    assert len(actions) == action_count_before_clear + 1
+    assert "Sensitive admin note" not in summaries
+
+
+def test_clearing_already_empty_admin_note_is_idempotent_without_false_audit(
+    client,
+    admin_user,
+    db_session: Session,
+):
+    create_public_message(client)
+    headers = admin_headers(client)
+    action_count_before_clear = len(audit_actions(db_session))
+
+    response = client.patch("/api/admin/messages/1", json={"adminNote": ""}, headers=headers)
+    stored = db_session.get(VisitorMessage, 1)
+
+    assert response.status_code == 200
+    assert response.json()["adminNote"] is None
+    assert stored.admin_note is None
+    assert len(audit_actions(db_session)) == action_count_before_clear
 
 
 def test_soft_delete_populates_deletion_metadata(client, admin_user):

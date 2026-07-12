@@ -114,6 +114,75 @@ Assert-NoPattern `
   -Pattern "innerHTML|localStorage|sessionStorage|document\.cookie" `
   -Message "Messages admin UI must avoid innerHTML and browser persistence."
 
+Assert-Pattern `
+  -Path "apps/messages/index.html" `
+  -Pattern "data-message-delete-dialog" `
+  -Message "Messages admin UI must include a dedicated delete confirmation dialog."
+
+Assert-Pattern `
+  -Path "apps/messages/index.html" `
+  -Pattern "data-message-detail" `
+  -Message "Messages admin UI must keep the detail dialog separate from delete confirmation."
+
+Assert-Pattern `
+  -Path "apps/messages/index.html" `
+  -Pattern "data-message-delete-summary|data-message-delete-cancel|data-message-delete-confirm" `
+  -Message "Delete confirmation dialog must expose summary, cancel, and confirm controls."
+
+Assert-Pattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "openDeleteConfirmation" `
+  -Message "Row delete action must open the delete confirmation flow."
+
+$messagesJs = Get-Content -Path "apps/messages/messages.js" -Raw
+$renderListBody = [regex]::Match(
+  $messagesJs,
+  "const renderList = \(\) => \{(?<body>[\s\S]*?)const initialize = async"
+).Groups["body"].Value
+if ($renderListBody -match "softDeleteMessage") {
+  throw "Row rendering must not directly call softDeleteMessage before confirmation."
+}
+
+Assert-RawPattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "deleteConfirmButton\?\.addEventListener\(`"click`"[\s\S]*softDeleteMessage" `
+  -Message "Delete confirm handler must be the point that calls softDeleteMessage."
+
+Assert-RawPattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "deleteCancelButtons\.forEach[\s\S]*closeDeleteDialog" `
+  -Message "Delete confirmation dialog must include a cancel path."
+
+Assert-RawPattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "setDeleteDialogPending[\s\S]*deleteConfirmButton\.disabled = pending[\s\S]*state\.deletePending \|\| !state\.pendingDeleteMessage[\s\S]*setDeleteDialogPending\(true\)" `
+  -Message "Delete confirmation must guard against duplicate pending submits."
+
+Assert-RawPattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "const isDeleted = Boolean\(message\.deletedAt\)[\s\S]*const canMutate = state\.canManage && !isDeleted" `
+  -Message "Deleted-message detail mutations must use deletedAt in their disabled/read-only condition."
+
+Assert-RawPattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "noteInput\.(readOnly|disabled) = !canMutate[\s\S]*noteInput\.(readOnly|disabled) = !canMutate" `
+  -Message "Deleted-message detail note input must be read-only or disabled."
+
+Assert-RawPattern `
+  -Path "apps/messages/messages.js" `
+  -Pattern "isDeleted && state\.canManage[\s\S]*restoreMessage" `
+  -Message "Deleted-message detail must offer restore when the admin can manage."
+
+Assert-RawPattern `
+  -Path "backend/app/schemas/visitor_message.py" `
+  -Pattern "has_admin_note_update = `"admin_note`" in self\.model_fields_set" `
+  -Message "Admin-note schema validation must use field-presence semantics."
+
+Assert-RawPattern `
+  -Path "backend/app/schemas/visitor_message.py" `
+  -Pattern "if not has_status_update and not has_highlight_update and not has_admin_note_update" `
+  -Message "Empty admin PATCH must remain invalid."
+
 Assert-NoPattern `
   -Path "index.html" `
   -Pattern "front-end prototype|non-persistent|not saved" `
