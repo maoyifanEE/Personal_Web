@@ -338,11 +338,17 @@ Public static routes may include:
 
 Public API routes may include:
 
+* `POST /api/messages`
 * `GET /api/homepage/canvas`
 * `GET /api/homepage/media/{id}/file`
 
 `GET /api/homepage/public` is not part of the phase-1 allowlist because the
 current public homepage does not require homepage item rows.
+
+`POST /api/messages` is the only public Visitor Messages V1 route. It accepts
+homepage form submissions and returns only the generic accepted response. Public
+`GET`, `HEAD`, `PUT`, `PATCH`, and `DELETE` requests to this route must not
+expose visitor-message data.
 
 Routes and endpoints that must not be public in v1:
 
@@ -353,6 +359,8 @@ Routes and endpoints that must not be public in v1:
 * Debug APIs.
 * Dev tools.
 * User/session management APIs.
+* Visitor message admin routes such as `/api/admin/messages`.
+* Visitor message read/list routes.
 * Unrelated app APIs.
 * `login.html`, `hub.html`, and private app pages unless production auth is
   intentionally hardened later.
@@ -385,6 +393,8 @@ Visitor browser
 Nginx public allowlist
         |
         +--> static Homepage/Journey files
+        |
+        +--> POST /api/messages
         |
         +--> selected read-only /api/homepage routes
                  |
@@ -428,8 +438,9 @@ setup is wrong, but the directory setup should still be correct before
 production traffic reaches the service.
 
 The FastAPI process should bind only to `127.0.0.1:8000`. Nginx is the public
-HTTPS boundary and must proxy only the explicitly allowed read-only API routes.
-Everything else should return 403 or 404.
+HTTPS boundary and must proxy only explicitly allowed API routes:
+`POST /api/messages`, `GET /api/homepage/canvas`, and
+`GET /api/homepage/media/{id}/file`. Everything else should return 403 or 404.
 
 ## Security Requirements
 
@@ -445,6 +456,8 @@ For this phase:
 * No users, roles, or permissions are stored in the bundle.
 * Uploaded media remains public only through existing public media rules.
 * Admin, write, debug, reset, and dev endpoints stay out of the public allowlist.
+* `/api/admin/messages`, `/apps/messages/`, `/login.html`, and `/hub.html`
+  remain blocked by the public Nginx allowlist.
 * The real production environment file belongs outside GitHub, for example
   `/etc/personal-web/personal-web.env`.
 * The real environment file must not use wildcard CORS, development seed
@@ -467,8 +480,13 @@ It checks:
 * Absence of `updated_by_user_id` in public canvas JSON.
 * One referenced media file when the canvas contains media stickers.
 * Rejection of private static routes.
-* Rejection of private, write, debug, auth, dev, message, media-admin, item, and
-  unknown API routes.
+* Rejection of private, write, debug, auth, dev, message read/admin,
+  media-admin, item, and unknown API routes.
+
+The public health script intentionally does not submit `POST /api/messages`
+because that would persist a real visitor-message row on the target server. The
+source-level deployment validation verifies the exact Nginx allowlist for this
+route instead.
 
 Optional HTTP redirect check:
 

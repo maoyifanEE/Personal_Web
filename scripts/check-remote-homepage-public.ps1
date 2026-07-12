@@ -160,6 +160,7 @@ foreach ($path in @(
   "api/debug/status",
   "api/messages",
   "api/messages/1",
+  "api/admin/messages",
   "api/admin/data/summary",
   "api/dev/reset",
   "api/homepage/media",

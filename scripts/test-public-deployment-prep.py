@@ -83,7 +83,40 @@ def test_deployment_templates() -> None:
     remote_check = read("scripts/check-remote-homepage-public.ps1")
     deployment_doc = read("docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md")
 
-    assert_true("location /api/" not in nginx, "nginx template must not proxy broad /api/")
+    assert_true(
+        not re.search(r"location\s+(?:=|~\*?|\^~)?\s*/api/?\s*\{", nginx),
+        "nginx template must not proxy broad /api",
+    )
+    assert_true("location = /api/messages" in nginx, "nginx template must explicitly allow /api/messages")
+    assert_true(
+        "proxy_pass http://127.0.0.1:8000/api/messages;" in nginx,
+        "message proxy must target the exact local backend route",
+    )
+    message_location = re.search(
+        r"location = /api/messages \{(?P<body>[\s\S]*?)\n    location = /api/homepage/canvas",
+        nginx,
+    )
+    assert_true(message_location is not None, "message location block was not found")
+    message_location_body = message_location.group("body")
+    assert_true("limit_except POST OPTIONS" in message_location_body, "message route must allow only POST/OPTIONS")
+    for header in [
+        "Host $host",
+        "X-Real-IP $remote_addr",
+        "X-Forwarded-For $proxy_add_x_forwarded_for",
+        "X-Forwarded-Proto $scheme",
+        "X-Request-ID $request_id",
+    ]:
+        assert_true(header in message_location_body, f"message proxy missing header {header}")
+    assert_true(
+        "location = /api/admin/messages" not in nginx,
+        "nginx template must not allowlist admin message routes",
+    )
+    assert_true(
+        "location /apps/messages" not in nginx and "location = /apps/messages" not in nginx,
+        "nginx template must not expose messages admin app",
+    )
+    assert_true("location = /login.html" not in nginx, "nginx template must not expose login.html")
+    assert_true("location = /hub.html" not in nginx, "nginx template must not expose hub.html")
     assert_true("proxy_pass http://127.0.0.1:8000$request_uri;" in nginx, "media proxy must target local backend")
     assert_true("location / {" in nginx and "return 404;" in nginx, "nginx template must deny unknown paths")
     assert_true("ProtectSystem=full" in systemd, "systemd template must retain ProtectSystem=full")
@@ -98,6 +131,12 @@ def test_deployment_templates() -> None:
     )
     assert_true("ALLOW_DEV_TOOLS=false" in env, "production env must disable dev tools")
     assert_true("APP_ENV=production" in env, "production env must set APP_ENV")
+    assert_true("MESSAGE_RATE_LIMIT_ENABLED=true" in env, "production env must enable message rate limiting")
+    assert_true("MESSAGE_RATE_LIMIT_MAX=5" in env, "production env must set message rate limit max")
+    assert_true(
+        "MESSAGE_RATE_LIMIT_WINDOW_SECONDS=600" in env,
+        "production env must set message rate limit window",
+    )
     assert_true("<REPLACE_WITH_LONG_RANDOM_SECRET>" in env, "production env must use placeholder secret")
     assert_true("development-only-change-me" not in env, "production env must not use default session secret")
     assert_true("*" not in re.search(r"CORS_ALLOW_ORIGINS=(.*)", env).group(1), "CORS must not use wildcard")
@@ -124,6 +163,7 @@ def test_deployment_templates() -> None:
         "/journey-curve-import-core.js",
         "/assets/icon.svg",
         "/assets/beian/gongan.png",
+        "/api/messages",
         "/api/homepage/canvas",
     ]:
         assert_true(path in nginx, f"nginx template missing public dependency {path}")
@@ -142,6 +182,8 @@ def test_deployment_templates() -> None:
         "api/auth/me",
         "api/debug/status",
         "api/messages",
+        "api/messages/1",
+        "api/admin/messages",
         "api/homepage/media",
         "api/homepage/items",
         "api/homepage/canvas/reset",
