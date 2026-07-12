@@ -38,6 +38,7 @@ Homepage entrance behavior for the first public release:
   local development backend at `127.0.0.1:8000`.
 * Public canvas responses must not expose the internal `updated_by_user_id`
   field.
+* Public publish bundles must not transfer local `app_users` identities.
 
 Other application files can remain in the repository and on disk. Security must
 not rely on visitors ignoring those files. The deployment must use an explicit
@@ -71,6 +72,7 @@ The bundle must not include:
 * Sessions.
 * Roles.
 * Permissions.
+* Local `homepage_canvas_states.updated_by_user_id` values.
 * Visitor messages.
 * Health data.
 * Task data.
@@ -165,6 +167,8 @@ The export script:
 * Reads `DATABASE_URL` from the process environment or `backend/.env`.
 * Does not print the database password.
 * Reads only the default published canvas.
+* Writes `homepage_canvas_states.updated_by_user_id` as explicit JSON `null`
+  in the bundle.
 * Recursively finds `mediaId` references in the canvas JSON.
 * Includes media referenced by Journey stickers and node gallery images.
 * Excludes `homepage_items` by default.
@@ -239,6 +243,9 @@ The import script:
 * Verifies `bundleSchemaVersion`.
 * Verifies SHA256 hashes for every bundled media file.
 * Rejects unsafe media paths.
+* Normalizes `homepage_canvas_states.updated_by_user_id` to `NULL` before
+  writing to the target database, including old bundles that contain local user
+  ids.
 * Checks current Git commit when available.
 * Checks current Alembic database revision.
 * Refuses Git or Alembic mismatch unless `-Force` is explicitly used.
@@ -454,6 +461,8 @@ For this phase:
 * No secrets are stored in the bundle.
 * No sessions are stored in the bundle.
 * No users, roles, or permissions are stored in the bundle.
+* Local canvas updater ids are not stored or trusted; public imports set
+  `homepage_canvas_states.updated_by_user_id` to `NULL`.
 * Uploaded media remains public only through existing public media rules.
 * Admin, write, debug, reset, and dev endpoints stay out of the public allowlist.
 * `/api/admin/messages`, `/apps/messages/`, `/login.html`, and `/hub.html`

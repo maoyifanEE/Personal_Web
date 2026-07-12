@@ -282,6 +282,28 @@ def extract_media_ids(value: Any) -> set[int]:
     return media_ids
 
 
+def sanitize_canvas_row_for_public_bundle(row: dict[str, Any]) -> dict[str, Any]:
+    """Return a bundle-safe canvas row without local user identity references."""
+
+    sanitized = dict(row)
+    sanitized["updated_by_user_id"] = None
+    return sanitized
+
+
+def normalize_canvas_row_for_public_import(row: dict[str, Any]) -> dict[str, Any]:
+    """Return an import-safe canvas row that never trusts source user ids."""
+
+    normalized = dict(row)
+    source_user_id = normalized.get("updated_by_user_id")
+    normalized["updated_by_user_id"] = None
+    if source_user_id is not None:
+        log(
+            "Discarded homepage_canvas_states.updated_by_user_id from bundle "
+            "because public imports do not transfer local users"
+        )
+    return normalized
+
+
 def reflect_tables(engine):
     """Reflect only the homepage tables used by the publish bundle."""
 
@@ -495,6 +517,7 @@ def export_homepage_bundle(
         canvas_row = select_default_canvas(connection, tables["canvas"])
         if not canvas_row:
             fail("Default homepage canvas row was not found; save the Journey canvas before export")
+        bundled_canvas_row = sanitize_canvas_row_for_public_bundle(canvas_row)
 
         canvas_data = canvas_row["canvas_data"]
         canvas_media_ids = extract_media_ids(canvas_data)
@@ -525,7 +548,7 @@ def export_homepage_bundle(
         copied_files, file_warnings = copy_media_files(bundle_dir, media_rows)
         warnings.extend(file_warnings)
 
-        write_json(bundle_dir / "homepage_canvas_states.json", {"row": canvas_row})
+        write_json(bundle_dir / "homepage_canvas_states.json", {"row": bundled_canvas_row})
         write_json(bundle_dir / "homepage_media.json", {"rows": media_rows})
         write_json(bundle_dir / "homepage_items.json", {"rows": item_rows})
         manifest = build_manifest(
@@ -801,6 +824,7 @@ def import_bundle(args: argparse.Namespace) -> None:
 
     ensure_repo_root()
     bundle_dir, manifest, canvas_row, media_rows, item_rows = load_bundle(Path(args.bundle_path))
+    canvas_row = normalize_canvas_row_for_public_import(canvas_row)
     log(f"Loaded bundle from {bundle_dir}")
     verify_bundle_files(bundle_dir, manifest)
 
