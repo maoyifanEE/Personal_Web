@@ -1,6 +1,7 @@
 param(
   [string]$OutputDir = "",
-  [switch]$CreateBundle
+  [switch]$CreateBundle,
+  [switch]$PathResolutionSelfTest
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,15 +11,110 @@ $shortCommit = (& git -C $repoRoot rev-parse --short HEAD).Trim()
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $debugRoot = Join-Path $repoRoot ".runtime\journey-sticker-render-debug"
 
-if (-not $OutputDir) {
-  $OutputDir = Join-Path $debugRoot "run-$timestamp-$shortCommit"
+function Resolve-RepositoryContainedOutputPath {
+  param(
+    [string]$CandidatePath,
+    [string]$RepositoryRoot,
+    [string]$DefaultPath
+  )
+
+  $canonicalRepoRoot = [System.IO.Path]::GetFullPath($RepositoryRoot)
+  if ([string]::IsNullOrWhiteSpace($CandidatePath)) {
+    $candidate = $DefaultPath
+  } elseif ([System.IO.Path]::IsPathRooted($CandidatePath)) {
+    $candidate = $CandidatePath
+  } else {
+    $candidate = Join-Path $canonicalRepoRoot $CandidatePath
+  }
+
+  $resolved = [System.IO.Path]::GetFullPath($candidate)
+  $separator = [System.IO.Path]::DirectorySeparatorChar
+  $repoWithSeparator = $canonicalRepoRoot.TrimEnd(
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
+  ) + $separator
+
+  $comparison = [System.StringComparison]::Ordinal
+  if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+  }
+
+  if (-not $resolved.StartsWith($repoWithSeparator, $comparison)) {
+    throw "OutputDir must stay inside the repository: $resolved"
+  }
+
+  return $resolved
 }
 
-$OutputDir = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $OutputDir))
-$repoRootWithSlash = $repoRoot.TrimEnd("\") + "\"
-if (-not $OutputDir.StartsWith($repoRootWithSlash, [System.StringComparison]::OrdinalIgnoreCase)) {
-  throw "OutputDir must stay inside the repository: $OutputDir"
+function Invoke-PathResolutionSelfTest {
+  param(
+    [string]$RepositoryRoot,
+    [string]$DefaultPath
+  )
+
+  $scenarios = @(
+    @{
+      Name = "default absolute path"
+      Path = ""
+      ShouldPass = $true
+    },
+    @{
+      Name = "repository relative path"
+      Path = ".runtime\journey-sticker-render-debug\path-self-test-relative"
+      ShouldPass = $true
+    },
+    @{
+      Name = "absolute path inside repository"
+      Path = Join-Path $RepositoryRoot ".runtime\journey-sticker-render-debug\path-self-test-absolute"
+      ShouldPass = $true
+    },
+    @{
+      Name = "sibling prefix confusion path"
+      Path = Join-Path (Split-Path $RepositoryRoot -Parent) "$((Split-Path $RepositoryRoot -Leaf))_other\path-self-test"
+      ShouldPass = $false
+    },
+    @{
+      Name = "absolute path outside repository"
+      Path = Join-Path (Split-Path $RepositoryRoot -Parent) "outside-personal-web-path-self-test"
+      ShouldPass = $false
+    }
+  )
+
+  foreach ($scenario in $scenarios) {
+    try {
+      $resolved = Resolve-RepositoryContainedOutputPath `
+        -CandidatePath $scenario.Path `
+        -RepositoryRoot $RepositoryRoot `
+        -DefaultPath $DefaultPath
+      if (-not $scenario.ShouldPass) {
+        throw "Scenario should have failed but resolved to $resolved"
+      }
+      if ($resolved -match [regex]::Escape($RepositoryRoot) + ".*" + [regex]::Escape($RepositoryRoot)) {
+        throw "Scenario produced a double-root path: $resolved"
+      }
+    } catch {
+      if ($scenario.ShouldPass) {
+        throw "Path self-test failed for $($scenario.Name): $($_.Exception.Message)"
+      }
+      if ($_.Exception.Message -notmatch "OutputDir must stay inside the repository") {
+        throw "Path self-test rejected $($scenario.Name) with unclear error: $($_.Exception.Message)"
+      }
+    }
+  }
+
+  Write-Host "JOURNEY_STICKER_OUTPUT_PATH_SELF_TEST_PASS"
 }
+
+$defaultOutputDir = Join-Path $debugRoot "run-$timestamp-$shortCommit"
+if ($PathResolutionSelfTest) {
+  Invoke-PathResolutionSelfTest -RepositoryRoot $repoRoot -DefaultPath $defaultOutputDir
+  exit 0
+}
+
+$OutputDir = Resolve-RepositoryContainedOutputPath `
+  -CandidatePath $OutputDir `
+  -RepositoryRoot $repoRoot `
+  -DefaultPath $defaultOutputDir
 
 $tempRoot = Join-Path $repoRoot ".runtime\temp\journey-sticker-rendering"
 $chromeProfile = Join-Path $tempRoot "chrome-profile-$timestamp"
