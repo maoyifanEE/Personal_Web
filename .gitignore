@@ -39,5 +39,6 @@ dist/
 build/
 .cache/
 .tmp/
+.runtime/
 .vite/
 *.lnk

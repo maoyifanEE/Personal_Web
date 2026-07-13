@@ -87,6 +87,134 @@ const normalizeOptionalMediaId = (value) => {
   return Number.isInteger(number) && number > 0 ? number : null;
 };
 
+const transparentColors = new Set(["transparent", "rgba(0, 0, 0, 0)"]);
+
+const hasPaintedBackground = (styles) =>
+  Boolean(styles) &&
+  (!transparentColors.has(styles.backgroundColor) ||
+    (styles.backgroundImage && styles.backgroundImage !== "none"));
+
+const hasVisibleStyleValue = (value) => Boolean(value && value !== "none");
+
+const sourceCategoryForSticker = (sticker) => {
+  if (normalizeOptionalMediaId(sticker?.mediaId)) {
+    return "homepage-media";
+  }
+  if (typeof sticker?.imageSrc === "string" && sticker.imageSrc) {
+    return "local-draft";
+  }
+  return "missing-source";
+};
+
+function logStickerRenderCreated(sticker, selected) {
+  const key = [
+    sticker.id,
+    state.mode,
+    state.editor.activeTool,
+    selected ? "selected" : "unselected",
+    sourceCategoryForSticker(sticker)
+  ].join("|");
+  if (stickerRenderLogKeys.has(key)) {
+    return;
+  }
+  stickerRenderLogKeys.add(key);
+  logJourney("sticker.render.created", {
+    itemType: "sticker",
+    selected,
+    editorMode: state.mode,
+    publicOrEdit: state.mode === "edit" ? "edit" : "public",
+    activeTool: state.editor.activeTool,
+    renderedDimensions: {
+      widthPercent: sticker.widthPercent,
+      aspectRatio: sticker.aspectRatio || 1
+    },
+    sourceCategory: sourceCategoryForSticker(sticker),
+    requestRunId: JOURNEY_INSTANCE_ID
+  });
+}
+
+function logStickerRenderStyleSnapshots(canvas) {
+  if (!canvas || typeof window.getComputedStyle !== "function") {
+    return;
+  }
+  canvas.querySelectorAll(".journey-sketch-sticker").forEach((wrapper) => {
+    const image = wrapper.querySelector("img");
+    if (!image) {
+      return;
+    }
+    const imageStyles = window.getComputedStyle(image);
+    const wrapperStyles = window.getComputedStyle(wrapper);
+    const imageRect = image.getBoundingClientRect();
+    const selected = wrapper.classList.contains("is-selected");
+    const styleFlags = {
+      imageHasBackground: hasPaintedBackground(imageStyles),
+      imageHasBoxShadow: hasVisibleStyleValue(imageStyles.boxShadow),
+      imageHasFilter: hasVisibleStyleValue(imageStyles.filter),
+      wrapperHasBackground: hasPaintedBackground(wrapperStyles),
+      wrapperHasBoxShadow: hasVisibleStyleValue(wrapperStyles.boxShadow),
+      wrapperHasFilter: hasVisibleStyleValue(wrapperStyles.filter)
+    };
+    const key = [
+      wrapper.dataset.stickerId || "",
+      state.mode,
+      state.editor.activeTool,
+      selected ? "selected" : "unselected",
+      Object.values(styleFlags).join(",")
+    ].join("|");
+    if (stickerRenderStyleSnapshotKeys.has(key)) {
+      return;
+    }
+    stickerRenderStyleSnapshotKeys.add(key);
+    const details = {
+      itemType: "sticker",
+      selected,
+      editorMode: state.mode,
+      publicOrEdit: state.mode === "edit" ? "edit" : "public",
+      activeTool: state.editor.activeTool,
+      renderedDimensions: {
+        width: Math.round(imageRect.width),
+        height: Math.round(imageRect.height)
+      },
+      classNames: {
+        wrapper: Array.from(wrapper.classList),
+        image: Array.from(image.classList)
+      },
+      styleSourceCategory: "journey-sketch-sticker",
+      ...styleFlags,
+      requestRunId: JOURNEY_INSTANCE_ID
+    };
+    logJourney("sticker.render.style_snapshot", details);
+    if (
+      styleFlags.imageHasBackground ||
+      styleFlags.imageHasBoxShadow ||
+      styleFlags.imageHasFilter ||
+      styleFlags.wrapperHasBackground ||
+      styleFlags.wrapperHasBoxShadow ||
+      styleFlags.wrapperHasFilter
+    ) {
+      logJourney("sticker.render.artifact_check", {
+        ...details,
+        diagnosticResult: "sticker_render_chain_has_visual_effect"
+      });
+    }
+  });
+}
+
+function logStickerSelectionChanged(previousStickerId, nextStickerId, reason) {
+  if (previousStickerId === nextStickerId) {
+    return;
+  }
+  logJourney("sticker.selection.changed", {
+    itemType: "sticker",
+    selected: Boolean(nextStickerId),
+    previousSelected: Boolean(previousStickerId),
+    editorMode: state.mode,
+    activeTool: state.editor.activeTool,
+    reason,
+    requestRunId: JOURNEY_INSTANCE_ID
+  });
+}
+
 const homepageMediaPublicFileUrl = (mediaId) => {
   const normalizedId = normalizeOptionalMediaId(mediaId);
   return normalizedId ? `${apiBaseUrl()}${HOMEPAGE_MEDIA_PATH}/${normalizedId}/file` : "";
@@ -191,6 +319,8 @@ let editorSidebarInitializedForEdit = false;
 let curveImportState = null;
 let curveImportUndoSnapshot = null;
 let journeyCanvasSyncChannel = null;
+const stickerRenderLogKeys = new Set();
+const stickerRenderStyleSnapshotKeys = new Set();
 const JOURNEY_INSTANCE_ID = makeId("journey-tab");
 const EDITOR_ZOOM_MIN = 0.15;
 const EDITOR_ZOOM_MAX = 1;
@@ -1787,6 +1917,7 @@ function render() {
   } else {
     canvasHost.append(canvas);
   }
+  logStickerRenderStyleSnapshots(canvas);
   renderEditorPanel();
   scheduleFocusCanvasStageSizeSync();
 }
@@ -1933,11 +2064,12 @@ function renderStickerLayer() {
   layer.className = "journey-sketch-stickers";
   getOrderedStickers()
     .forEach((sticker) => {
+      const selected = state.editor.selectedStickerId === sticker.id;
       const wrap = document.createElement("div");
       wrap.className = "journey-sketch-sticker";
       wrap.dataset.stickerId = sticker.id;
-      wrap.dataset.selected = String(state.editor.selectedStickerId === sticker.id);
-      wrap.classList.toggle("is-selected", state.editor.selectedStickerId === sticker.id);
+      wrap.dataset.selected = String(selected);
+      wrap.classList.toggle("is-selected", selected);
       wrap.style.left = `${sticker.xPercent}%`;
       wrap.style.top = `${sticker.yPercent}%`;
       wrap.style.width = `${sticker.widthPercent}%`;
@@ -1960,7 +2092,8 @@ function renderStickerLayer() {
       image.alt = "";
       image.draggable = false;
       wrap.append(image);
-      if (state.mode === "edit" && state.editor.selectedStickerId === sticker.id) {
+      logStickerRenderCreated(sticker, selected);
+      if (state.mode === "edit" && selected) {
         ["nw", "ne", "sw", "se"].forEach((corner) => {
           const handle = document.createElement("span");
           handle.className = `journey-sticker-resize journey-sticker-resize--${corner}`;
@@ -3314,8 +3447,10 @@ function handleCanvasPointerDown(event) {
     }
     render();
   } else {
+    const previousStickerId = state.editor.selectedStickerId;
     state.editor.selectedNodeId = null;
     state.editor.selectedStickerId = null;
+    logStickerSelectionChanged(previousStickerId, null, "canvas_pointer_down");
     render();
   }
 }
@@ -3434,9 +3569,11 @@ function startStickerDrag(event, stickerId, mode) {
   if (!sticker) {
     return;
   }
+  const previousStickerId = state.editor.selectedStickerId;
   state.editor.selectedStickerId = sticker.id;
   state.editor.selectedNodeId = null;
   state.editor.selectedStrokeId = null;
+  logStickerSelectionChanged(previousStickerId, sticker.id, mode);
   logJourney("Selected sticker in select mode.", { stickerId: sticker.id, mode });
   const center = cssPercentToCanvasPoint(sticker.xPercent, sticker.yPercent);
   dragState = {

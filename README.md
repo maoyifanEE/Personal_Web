@@ -60,6 +60,8 @@ Current Journey sketch canvas v1 behavior:
 * Right-click node creation.
 * Node dragging along a stroke component.
 * Sticker upload, drag, resize, rotate, and delete.
+* Sticker PNGs render on a transparent Journey wrapper with no automatic
+  rectangular box shadow, drop-shadow, filled background, or rounded image panel.
 * Sticker media upload uses the local homepage media API and stores `mediaId` references in the canvas JSON.
 
 Journey canvas JSON is saved to PostgreSQL in local development through the single editor `保存画布` action.
@@ -266,6 +268,16 @@ To guard against accidentally committed one-line source files:
 
 The readability check prints line counts, byte counts, and maximum line lengths
 for important frontend, backend, and local tooling source files.
+
+To diagnose transparent Journey sticker rendering without mutating the real
+canvas or media APIs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check-journey-sticker-rendering.ps1
+```
+
+The sticker rendering check writes ignored reports and browser screenshots under
+`.runtime\journey-sticker-render-debug\`.
 
 ## Development Rules
 

@@ -29,6 +29,8 @@ $SourceFiles = @(
   "scripts/export-homepage-public-bundle.ps1",
   "scripts/import-homepage-public-bundle.ps1",
   "scripts/check-remote-homepage-public.ps1",
+  "scripts/check-journey-sticker-rendering.ps1",
+  "scripts/analyze-journey-sticker-rendering.py",
   "scripts/publish-homepage-to-remote.example.ps1",
   "scripts/homepage_publish_bundle.py"
 )

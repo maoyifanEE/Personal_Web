@@ -1,5 +1,35 @@
 # Project History
 
+## 2026-07-13 - Fix Journey sticker rendering halo artifacts
+
+### Goal
+
+* Work on `BugFix/journey-sticker-rendering-halo-v1`.
+* Separate source-image alpha/halo artifacts from Personal_Web Journey sticker
+  wrapper, image, selected-state, public-state, and drop-shadow artifacts.
+
+### Actual changes
+
+* Added a local ignored diagnostic workflow for Journey sticker rendering under
+  `.runtime\journey-sticker-render-debug\`.
+* Confirmed `test.png` has a transparent file border but contains many
+  semitransparent source pixels, so its baked-in soft halo cannot be fully
+  removed by CSS.
+* Confirmed the Personal_Web-created rectangular artifact came from the Journey
+  sketch sticker image box shadow and rounded image panel, and the legacy
+  selected sticker class also had a drop-shadow.
+* Removed default rectangular box shadows, drop-shadows, filled backgrounds,
+  backdrop filters, opacity reductions, rounded image panels, and pseudo-element
+  fills from Journey sticker wrappers/images only.
+* Kept selected stickers represented by a thin outline and controls.
+* Added privacy-safe Journey sticker render and selection debug events.
+
+### Safety boundaries
+
+* No real Journey canvas data, media upload API, PostgreSQL data, backend API,
+  Auth/RBAC policy, deployment, server config, source fixture image, or
+  unrelated homepage media/card styling was changed.
+
 ## 2026-07-12 - Implement database-backed visitor messages
 
 ### Goal

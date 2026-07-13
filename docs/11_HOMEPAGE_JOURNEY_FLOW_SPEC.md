@@ -391,6 +391,12 @@ Data URL images must not be published to the database.
 Journey sticker images should be uploaded through the homepage media API and saved
 as `mediaId` references before saving the canvas.
 
+Journey sticker rendering must keep transparent PNG pixels transparent in both
+public preview and editor modes. The sticker wrapper and image must not add an
+automatic rectangular background, box shadow, drop-shadow, backdrop filter,
+opacity reduction, rounded image panel, or filled pseudo-element. Selected
+stickers may show a thin outline and controls only.
+
 Background-like images are ordinary stickers. To use an uploaded image as a
 background-like canvas element, select that sticker, use `铺满画布` if needed, and
 then use `置于底层`.
@@ -532,6 +538,15 @@ The debug bundle script is:
 ```powershell
 .\scripts\collect-debug-logs.ps1
 ```
+
+Transparent Journey sticker rendering can be checked locally without calling the
+real canvas or media APIs:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\check-journey-sticker-rendering.ps1
+```
+
+The check writes ignored output under `.runtime\journey-sticker-render-debug\`.
 
 It collects local `.local_logs/` files and Git status into a local zip bundle.
 
