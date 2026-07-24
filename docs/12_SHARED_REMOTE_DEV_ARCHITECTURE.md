@@ -57,6 +57,16 @@ only when the canonical key is absent or both values are identical.
 The secret must not contain private-key material. Database tunnel and media SFTP
 use separate explicit OpenSSH config paths and separate aliases.
 
+The exact non-secret allowlist is:
+
+```text
+Database SSH alias: personal-web-shared-db
+Database SSH user: personal-web-db-tunnel
+Media SSH alias: personal-web-shared-media
+Media SSH user: personal-web-dev
+Remote media root: /srv/personal-web/shared-dev/homepage
+```
+
 ## Launcher Lifecycle
 
 `start-shared-dev.bat` supports:
@@ -85,6 +95,19 @@ port/alias, backend listener identity, and frontend listener identity. It never
 records the password, complete database URL, private-key path, host/IP, command
 line, or raw SSH configuration.
 
+Backend and frontend are started as direct managed Python listener processes.
+Shared mode does not use `powershell.exe -NoExit`, `cmd.exe /k`, or
+`uvicorn --reload`. The launcher verifies PID, process start time, executable,
+`127.0.0.1`, expected port, and listener OwningProcess before recording state.
+Source changes require `stop-shared-dev.bat` followed by a manual shared-mode
+restart in this version.
+
+Before launching, existing state is classified as `absent`, `active_verified`,
+`stale_all_gone`, or `invalid_or_unverifiable`. Active state refuses a second
+start, stale all-gone state is removed, and ambiguous or unreadable state is
+preserved for manual review. Browser opening happens only after verified state
+is written and is best-effort; browser failure leaves the valid session running.
+
 Shared mode checks database identity and Alembic revision read-only before
 backend startup using `python -m app.scripts.check_shared_dev_preflight`. The
 helper requires exactly one code Alembic head and exact database revision
@@ -104,6 +127,9 @@ script validates session schema, repository ownership, profile, PID, process
 start time, executable, and expected listener ownership before stopping backend,
 frontend, then tunnel. It never kills a process merely because it is named
 `ssh.exe`, `python.exe`, or `powershell.exe`.
+After each stop it waits for the process to exit and the matching listener to
+disappear before removing session state. PID reuse or unverifiable records
+preserve state and require manual review.
 
 `scripts/stop-local-dev.ps1` remains compatible with local 8000/4173 cleanup
 and delegates shared session cleanup to the dedicated shared stop script when
@@ -136,6 +162,10 @@ exactly one `IdentityFile`, and exactly one `UserKnownHostsFile`. The media user
 must be `personal-web-dev`; `root` is rejected. Unknown or changed host keys are
 rejected by Paramiko `RejectPolicy`. Password authentication, SSH-agent fallback
 and implicit key discovery stay disabled.
+
+The database tunnel alias is separately resolved with `ssh -G -F` and must be
+`personal-web-shared-db` with user `personal-web-db-tunnel`; `root` is rejected.
+The resolved SSH configuration is never printed.
 
 ## Uploads And Rollback
 
@@ -171,6 +201,10 @@ rename. Cache cleanup prunes by retention days and maximum total MB, ignores
 symlinks, tolerates races, removes stale cache temp files, and only operates
 inside the shared media cache directory. Best-effort pruning failure is logged
 but does not fail an already verified media read.
+The file currently being returned from `materialize` is excluded from pruning,
+and recent verified cache files receive a bounded grace period so concurrent
+downloads may temporarily exceed the configured cache limit instead of deleting
+an active response file.
 
 The cache is never authoritative. Missing authoritative media returns not found.
 Storage outages return temporary unavailable. Integrity mismatches are not

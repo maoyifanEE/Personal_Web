@@ -56,7 +56,10 @@ class FilesystemHomepageMediaStorage:
         actual_sha256 = sha256_file(staging_path)
         if actual_size != expected_size or actual_sha256 != expected_sha256:
             raise StorageIntegrityError("Staged media failed integrity validation")
-        staging_path.replace(destination)
+        try:
+            staging_path.rename(destination)
+        except FileExistsError as exc:
+            raise MediaObjectCollisionError("Media destination already exists") from exc
         write_jsonl_event(
             "backend",
             "homepage.media.storage.filesystem.store_completed",

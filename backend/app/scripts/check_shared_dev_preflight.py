@@ -43,11 +43,16 @@ def run_database_preflight(
     if len(code_heads) != 1:
         raise SharedDevPreflightError("Shared database preflight requires exactly one code Alembic head")
     code_head = code_heads[0]
-    engine = (engine_factory or create_engine)(settings.database_url)
+    if engine_factory:
+        engine = engine_factory(settings.database_url)
+    else:
+        engine = create_engine(settings.database_url, connect_args={"connect_timeout": 5})
     try:
         with engine.connect() as connection:
             transaction = connection.begin()
             try:
+                connection.execute(text("SET TRANSACTION READ ONLY"))
+                readonly = connection.execute(text("SHOW transaction_read_only")).scalar_one()
                 db_name = connection.execute(text("select current_database()")).scalar_one()
                 db_user = connection.execute(text("select current_user")).scalar_one()
                 db_revision = connection.execute(text("select version_num from alembic_version")).scalar_one()
@@ -60,6 +65,8 @@ def run_database_preflight(
         if dispose:
             dispose()
 
+    if str(readonly).lower() not in {"on", "true", "1"}:
+        raise SharedDevPreflightError("Shared database transaction read-only check failed")
     if db_name != SHARED_DEV_DATABASE_NAME:
         raise SharedDevPreflightError("Shared database identity check failed")
     if db_user != SHARED_DEV_DATABASE_USER:

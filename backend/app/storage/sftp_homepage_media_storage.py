@@ -12,6 +12,7 @@ import stat
 import time
 
 from app.core.config import Settings
+from app.core.config import SHARED_DEV_REMOTE_MEDIA_ROOT
 from app.core.diagnostics import PROJECT_ROOT, write_jsonl_event
 from app.storage.errors import (
     MediaObjectCollisionError,
@@ -34,9 +35,12 @@ class SftpHomepageMediaStorage:
         self.settings = settings
         self.logical_root = settings.homepage_media_root
         self.remote_root = self._normalize_remote_root(settings.shared_dev_media_remote_root or "")
+        if self.remote_root != SHARED_DEV_REMOTE_MEDIA_ROOT:
+            raise ValueError("Shared media remote root is not allowlisted")
         self.cache_root = PROJECT_ROOT / ".runtime" / "shared-media-cache"
         self.cache_max_bytes = settings.shared_dev_media_cache_max_mb * 1024 * 1024
         self.cache_retention_seconds = settings.shared_dev_media_cache_retention_days * 24 * 60 * 60
+        self.cache_active_grace_seconds = 30
         self._client_factory = client_factory
 
     @staticmethod
@@ -100,6 +104,8 @@ class SftpHomepageMediaStorage:
                     close()
             return
 
+        client = None
+        sftp = None
         try:
             import paramiko
         except Exception as exc:  # pragma: no cover - dependency is installed outside unit fakes
@@ -158,17 +164,23 @@ class SftpHomepageMediaStorage:
                 auth_timeout=10,
             )
             sftp = client.open_sftp()
-            try:
-                yield sftp
-            finally:
-                sftp.close()
-                client.close()
-                write_jsonl_event("backend", "homepage.media.storage.sftp.disconnected", {"alias": alias})
+            channel = getattr(sftp, "get_channel", lambda: None)()
+            if channel:
+                channel.settimeout(30)
+            yield sftp
         except StorageUnavailableError:
             raise
         except Exception as exc:
             logger.warning("SFTP storage connection failed with sanitized error type: %s", type(exc).__name__)
             raise StorageUnavailableError("SFTP storage is unavailable") from exc
+        finally:
+            try:
+                if sftp is not None:
+                    sftp.close()
+            finally:
+                if client is not None:
+                    client.close()
+            write_jsonl_event("backend", "homepage.media.storage.sftp.disconnected", {"alias": alias})
 
     def store_validated_file(
         self,
@@ -180,6 +192,7 @@ class SftpHomepageMediaStorage:
     ) -> None:
         remote_final = self.remote_path_for(logical_path)
         remote_tmp = f"{remote_final}.tmp-{time.time_ns()}"
+        state = "destination_unknown"
         try:
             with self._connect() as sftp:
                 try:
@@ -188,30 +201,46 @@ class SftpHomepageMediaStorage:
                 except Exception as exc:
                     if not self._is_missing_error(exc):
                         raise
+                    state = "destination_absent_verified"
                 try:
-                    self._mkdir_p(sftp, str(PurePosixPath(remote_final).parent))
+                    self._ensure_managed_subdir(sftp, str(PurePosixPath(remote_final).parent))
                     sftp.put(str(staging_path), remote_tmp)
+                    state = "temporary_uploaded"
                     uploaded = sftp.stat(remote_tmp)
                     if uploaded.st_size != expected_size:
                         raise StorageIntegrityError("Remote media size mismatch")
                     if self._remote_sha256(sftp, remote_tmp) != expected_sha256:
                         raise StorageIntegrityError("Remote media checksum mismatch")
+                    state = "temporary_verified"
+                    try:
+                        sftp.stat(remote_final)
+                        raise MediaObjectCollisionError("Remote media destination appeared before finalization")
+                    except Exception as exc:
+                        if not self._is_missing_error(exc):
+                            raise
                     sftp.rename(remote_tmp, remote_final)
+                    state = "rename_attempted"
                     final = sftp.stat(remote_final)
                     if final.st_size != expected_size:
                         raise StorageIntegrityError("Remote media final size mismatch")
                     if self._remote_sha256(sftp, remote_final) != expected_sha256:
                         raise StorageIntegrityError("Remote media final checksum mismatch")
+                    state = "final_verified"
                     write_jsonl_event(
                         "backend",
                         "homepage.media.storage.sftp.store_completed",
                         {"path": logical_path, "bytes": expected_size, "checksumPrefix": expected_sha256[:12]},
                     )
                 except Exception:
-                    try:
-                        sftp.remove(remote_tmp)
-                    except Exception:
-                        pass
+                    self._cleanup_failed_store(
+                        sftp,
+                        remote_tmp,
+                        remote_final,
+                        state=state,
+                        logical_path=logical_path,
+                        expected_size=expected_size,
+                        expected_sha256=expected_sha256,
+                    )
                     raise
         except (MediaObjectCollisionError, StorageIntegrityError):
             raise
@@ -231,12 +260,56 @@ class SftpHomepageMediaStorage:
                 digest.update(chunk)
         return digest.hexdigest()
 
-    def _mkdir_p(self, sftp, remote_dir: str) -> None:
-        current = "/"
-        for part in [part for part in remote_dir.split("/") if part]:
+    def _cleanup_failed_store(
+        self,
+        sftp,
+        remote_tmp: str,
+        remote_final: str,
+        *,
+        state: str,
+        logical_path: str,
+        expected_size: int,
+        expected_sha256: str,
+    ) -> None:
+        if state in {"temporary_uploaded", "temporary_verified"}:
+            try:
+                sftp.remove(remote_tmp)
+            except Exception:
+                write_jsonl_event(
+                    "backend",
+                    "homepage.media.storage.sftp.orphan_candidate",
+                    {"path": logical_path, "bytes": expected_size, "checksumPrefix": expected_sha256[:12], "severity": "high"},
+                )
+            return
+        if state == "rename_attempted":
+            try:
+                final = sftp.stat(remote_final)
+                if final.st_size == expected_size and self._remote_sha256(sftp, remote_final) == expected_sha256:
+                    sftp.remove(remote_final)
+                    return
+            except Exception:
+                pass
+            write_jsonl_event(
+                "backend",
+                "homepage.media.storage.sftp.orphan_candidate",
+                {"path": logical_path, "bytes": expected_size, "checksumPrefix": expected_sha256[:12], "severity": "high"},
+            )
+
+    def _ensure_managed_subdir(self, sftp, remote_dir: str) -> None:
+        root = self.remote_root.rstrip("/")
+        if remote_dir == root or not remote_dir.startswith(f"{root}/"):
+            raise StorageUnavailableError("SFTP remote directory is outside the managed root")
+        attrs = sftp.stat(root)
+        if hasattr(attrs, "st_mode") and not stat.S_ISDIR(attrs.st_mode):
+            raise StorageUnavailableError("SFTP remote media root is not a directory")
+        suffix = remote_dir[len(root) + 1 :]
+        current = root
+        for part in [part for part in suffix.split("/") if part]:
             current = posixpath.join(current, part)
             try:
-                sftp.stat(current)
+                attrs = sftp.stat(current)
+                if hasattr(attrs, "st_mode") and not stat.S_ISDIR(attrs.st_mode):
+                    raise StorageUnavailableError("SFTP managed path component is not a directory")
             except Exception as exc:
                 if self._is_missing_error(exc):
                     sftp.mkdir(current)
@@ -254,6 +327,7 @@ class SftpHomepageMediaStorage:
         if cache_path.is_file():
             try:
                 self._verify_local_file(cache_path, expected_size, expected_sha256)
+                cache_path.touch()
                 write_jsonl_event("backend", "homepage.media.cache.hit", {"path": logical_path})
                 return cache_path
             except StorageIntegrityError:
@@ -274,8 +348,9 @@ class SftpHomepageMediaStorage:
                 sftp.get(remote_path, str(tmp_path))
             self._verify_local_file(tmp_path, expected_size, expected_sha256)
             tmp_path.replace(cache_path)
+            cache_path.touch()
             try:
-                self.prune_cache()
+                self.prune_cache(exclude={cache_path})
             except Exception as exc:
                 logger.warning("SFTP cache prune failed with sanitized error type: %s", type(exc).__name__)
                 write_jsonl_event("backend", "homepage.media.cache.prune_failed_nonfatal", {})
@@ -308,14 +383,17 @@ class SftpHomepageMediaStorage:
         except Exception as exc:
             raise StorageUnavailableError("SFTP storage rollback failed") from exc
 
-    def prune_cache(self) -> None:
+    def prune_cache(self, *, exclude: set[Path] | None = None) -> None:
         if not self.cache_root.exists():
             return
+        exclude_resolved = {path.resolve() for path in (exclude or set())}
         now = time.time()
         self._remove_stale_cache_temps()
         files = [path for path in self.cache_root.rglob("*") if path.is_file() and not path.is_symlink()]
         for path in files:
             try:
+                if path.resolve() in exclude_resolved:
+                    continue
                 if now - path.stat().st_mtime > self.cache_retention_seconds:
                     path.unlink()
                     write_jsonl_event("backend", "homepage.media.cache.pruned_retention", {})
@@ -335,6 +413,10 @@ class SftpHomepageMediaStorage:
             if total <= self.cache_max_bytes:
                 break
             try:
+                if path.resolve() in exclude_resolved:
+                    continue
+                if now - path.stat().st_mtime < self.cache_active_grace_seconds:
+                    continue
                 size = path.stat().st_size
                 path.unlink()
                 total -= size

@@ -22,24 +22,37 @@ function Get-PortListeners {
   }
 }
 
+function Wait-ProcessAndPortClosed {
+  param([int]$ProcessId, [int]$Port)
+  for ($i = 0; $i -lt 10; $i += 1) {
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    $listeners = Get-PortListeners -Port $Port | Where-Object { $_.OwningProcess -eq $ProcessId }
+    if (-not $process -and @($listeners).Count -eq 0) {
+      return $true
+    }
+    Start-Sleep -Seconds 1
+  }
+  return $false
+}
+
 function Test-ProcessRecord {
   param([object]$Record, [switch]$RequireListener)
   if (-not $Record -or -not $Record.pid -or -not $Record.startTimeUtc -or -not $Record.executable) {
-    return $false
+    return "invalid"
   }
   $process = Get-Process -Id ([int]$Record.pid) -ErrorAction SilentlyContinue
   if (-not $process) {
     return "gone"
   }
   if ($process.StartTime.ToUniversalTime().ToString("o") -ne [string]$Record.startTimeUtc) {
-    return $false
+    return "invalid"
   }
   try {
     if ($process.MainModule.FileName -ne [string]$Record.executable) {
-      return $false
+      return "invalid"
     }
   } catch {
-    return $false
+    return "invalid"
   }
   if ($RequireListener) {
     $port = [int]$Record.port
@@ -50,10 +63,10 @@ function Test-ProcessRecord {
       Where-Object { $_.OwningProcess -eq [int]$Record.pid -and $_.LocalAddress -eq "127.0.0.1" } |
       Select-Object -First 1
     if (-not $listener) {
-      return $false
+      return "invalid"
     }
   }
-  return $true
+  return "verified"
 }
 
 function Stop-VerifiedRecord {
@@ -63,11 +76,16 @@ function Stop-VerifiedRecord {
     Write-SharedStopLog "$Name process is already gone."
     return "gone"
   }
-  if ($valid -ne $true) {
+  if ($valid -ne "verified") {
     Write-SharedStopLog "Refusing to stop $Name because identity could not be verified."
     return "refused"
   }
   Stop-Process -Id ([int]$Record.pid) -Force
+  $port = if ($Record.port) { [int]$Record.port } else { [int]$Record.localPort }
+  if (-not (Wait-ProcessAndPortClosed -ProcessId ([int]$Record.pid) -Port $port)) {
+    Write-SharedStopLog "Refusing to remove state because $Name did not fully stop."
+    return "refused"
+  }
   Write-SharedStopLog "Stopped verified $Name process."
   return "stopped"
 }
@@ -81,8 +99,7 @@ if (-not (Test-Path -LiteralPath $statePath)) {
 try {
   $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 } catch {
-  Write-SharedStopLog "Shared session state is unreadable; removing stale state."
-  Remove-Item -LiteralPath $statePath -Force
+  Write-SharedStopLog "Shared session state is unreadable; manual review is required."
   return
 }
 

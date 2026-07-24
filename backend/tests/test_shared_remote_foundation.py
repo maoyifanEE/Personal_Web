@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import stat
 import types
@@ -25,6 +27,7 @@ from app.models.homepage_item import HomepageItem
 from app.models.homepage_media import HomepageMedia
 from app.services.homepage_canvas_service import contains_data_url
 from app.services.homepage_media_service import get_public_media_file
+from app.services.homepage_media_service import create_homepage_media
 from app.storage.errors import (
     MediaObjectCollisionError,
     MediaObjectMissingError,
@@ -53,9 +56,9 @@ def safe_shared_overrides() -> dict[str, object]:
         "DATABASE_URL": "postgresql+psycopg://personal_web_shared_dev_app:secret@127.0.0.1:65432/personal_web_shared_dev",
         "PERSONAL_WEB_DATA_PROFILE": "shared_remote",
         "HOMEPAGE_MEDIA_STORAGE_BACKEND": "sftp",
-        "SHARED_DEV_MEDIA_SSH_ALIAS": "shared-media",
+        "SHARED_DEV_MEDIA_SSH_ALIAS": "personal-web-shared-media",
         "SHARED_DEV_MEDIA_SSH_CONFIG_PATH": "C:/synthetic/config",
-        "SHARED_DEV_MEDIA_REMOTE_ROOT": "/remote/root",
+        "SHARED_DEV_MEDIA_REMOTE_ROOT": "/srv/personal-web/shared-dev/homepage",
     }
 
 
@@ -169,7 +172,7 @@ def test_secret_parser_requires_all_and_handles_deprecated_root_alias():
             "SHARED_DEV_DB_NAME=personal_web_shared_dev",
             "SHARED_DEV_DB_USER=personal_web_shared_dev_app",
             "SHARED_DEV_DB_PASSWORD=do-not-print",
-            "SHARED_DEV_MEDIA_REMOTE_ROOT=/remote/root",
+            "SHARED_DEV_MEDIA_REMOTE_ROOT=/srv/personal-web/shared-dev/homepage",
             "SHARED_DEV_MEDIA_SSH_ALIAS=shared-media",
             "SHARED_DEV_MEDIA_SSH_CONFIG_PATH=C:/synthetic/media_config",
         ]
@@ -177,7 +180,7 @@ def test_secret_parser_requires_all_and_handles_deprecated_root_alias():
 
     parsed = parse_shared_dev_secret_text(text, require_all=True)
 
-    assert parsed["SHARED_DEV_REMOTE_MEDIA_ROOT"] == "/remote/root"
+    assert parsed["SHARED_DEV_REMOTE_MEDIA_ROOT"] == "/srv/personal-web/shared-dev/homepage"
 
 
 def test_secret_parser_rejects_conflicting_remote_roots_without_values():
@@ -232,6 +235,26 @@ def test_filesystem_backend_store_materialize_and_collision(tmp_path, monkeypatc
         storage.materialize(logical_path)
 
 
+def test_filesystem_backend_race_does_not_overwrite_destination(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.core.diagnostics.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr("app.storage.filesystem_homepage_media_storage.PROJECT_ROOT", tmp_path)
+    storage = FilesystemHomepageMediaStorage(make_settings(HOMEPAGE_MEDIA_ROOT="data/uploads/homepage"))
+    payload = b"\x89PNG\r\n\x1a\npayload"
+    staging = tmp_path / "stage.bin"
+    staging.write_bytes(payload)
+    checksum = hashlib.sha256(payload).hexdigest()
+    logical_path = storage.build_logical_path("image", "race.png")
+    destination = tmp_path / logical_path
+    destination.parent.mkdir(parents=True)
+    destination.write_bytes(b"winner")
+
+    with pytest.raises(MediaObjectCollisionError):
+        storage.store_validated_file(staging, logical_path, expected_size=len(payload), expected_sha256=checksum)
+
+    assert destination.read_bytes() == b"winner"
+    assert staging.exists()
+
+
 @pytest.mark.parametrize(
     "logical_path",
     [
@@ -284,7 +307,7 @@ class FakeSftp:
         if path not in self.files and not any(item.startswith(path.rstrip("/") + "/") for item in self.files):
             raise FileNotFoundError(path)
         data = self.files.get(path, b"")
-        mode = stat.S_IFDIR if path in {"/remote", "/remote/root", "/remote/root/images"} else stat.S_IFREG
+        mode = stat.S_IFDIR if path in {"/remote", "/srv/personal-web/shared-dev/homepage", "/srv/personal-web/shared-dev/homepage/images"} else stat.S_IFREG
         return types.SimpleNamespace(st_size=len(data), st_mode=mode)
 
     def mkdir(self, path: str):
@@ -330,7 +353,7 @@ def make_sftp_storage(tmp_path, monkeypatch, fake):
 
 
 def test_fake_sftp_upload_verify_atomic_rename_and_close(tmp_path, monkeypatch):
-    fake = FakeSftp({"/remote": b"", "/remote/root": b"", "/remote/root/images": b""})
+    fake = FakeSftp({"/remote": b"", "/srv/personal-web/shared-dev/homepage": b"", "/srv/personal-web/shared-dev/homepage/images": b""})
     storage = make_sftp_storage(tmp_path, monkeypatch, fake)
     payload = b"remote payload"
     staging = tmp_path / "stage.bin"
@@ -340,7 +363,7 @@ def test_fake_sftp_upload_verify_atomic_rename_and_close(tmp_path, monkeypatch):
 
     storage.store_validated_file(staging, logical_path, expected_size=len(payload), expected_sha256=checksum)
 
-    assert fake.files["/remote/root/images/a.png"] == payload
+    assert fake.files["/srv/personal-web/shared-dev/homepage/images/a.png"] == payload
     assert fake.renames
     assert fake.closed is True
 
@@ -348,7 +371,7 @@ def test_fake_sftp_upload_verify_atomic_rename_and_close(tmp_path, monkeypatch):
 def test_fake_sftp_materialize_cache_hit_and_corrupt_refetch(tmp_path, monkeypatch):
     payload = b"cache payload"
     checksum = hashlib.sha256(payload).hexdigest()
-    fake = FakeSftp({"/remote/root/images/a.png": payload})
+    fake = FakeSftp({"/srv/personal-web/shared-dev/homepage/images/a.png": payload})
     storage = make_sftp_storage(tmp_path, monkeypatch, fake)
 
     first = storage.materialize("data/uploads/homepage/images/a.png", expected_size=len(payload), expected_sha256=checksum)
@@ -360,7 +383,7 @@ def test_fake_sftp_materialize_cache_hit_and_corrupt_refetch(tmp_path, monkeypat
 
 
 def test_fake_sftp_unavailable_and_hash_mismatch(tmp_path, monkeypatch):
-    fake = FakeSftp({"/remote/root/images/a.png": b"payload"})
+    fake = FakeSftp({"/srv/personal-web/shared-dev/homepage/images/a.png": b"payload"})
     storage = make_sftp_storage(tmp_path, monkeypatch, fake)
 
     with pytest.raises(StorageIntegrityError):
@@ -380,7 +403,7 @@ def write_ssh_config(tmp_path: Path, *, user: str = "personal-web-dev", port: st
     known_hosts.write_text("synthetic known host placeholder", encoding="utf-8")
     config.write_text(
         f"""
-Host shared-media
+Host personal-web-shared-media
   HostName synthetic.example.test
   User {user}
   Port {port}
@@ -417,7 +440,7 @@ def test_sftp_alias_uses_explicit_port_and_disables_agent(monkeypatch, tmp_path)
             captured.update(kwargs)
 
         def open_sftp(self):
-            return FakeSftp({"/remote/root": b""})
+            return FakeSftp({"/srv/personal-web/shared-dev/homepage": b""})
 
         def close(self):
             captured["client_closed"] = True
@@ -438,10 +461,43 @@ def test_sftp_alias_uses_explicit_port_and_disables_agent(monkeypatch, tmp_path)
     assert captured["client_closed"] is True
 
 
+def test_sftp_open_failure_closes_ssh_client(monkeypatch, tmp_path):
+    config, _, _ = write_ssh_config(tmp_path)
+    captured: dict[str, object] = {}
+
+    class FakeSshClient:
+        def load_host_keys(self, path):
+            pass
+
+        def set_missing_host_key_policy(self, policy):
+            pass
+
+        def connect(self, **kwargs):
+            pass
+
+        def open_sftp(self):
+            raise TimeoutError("synthetic timeout")
+
+        def close(self):
+            captured["client_closed"] = True
+
+    import paramiko
+
+    monkeypatch.setattr(paramiko, "SSHClient", FakeSshClient)
+    settings = make_settings(**{**safe_shared_overrides(), "SHARED_DEV_MEDIA_SSH_CONFIG_PATH": str(config)})
+    storage = SftpHomepageMediaStorage(settings)
+
+    with pytest.raises(StorageUnavailableError):
+        with storage._connect():
+            pass
+
+    assert captured["client_closed"] is True
+
+
 def test_cache_prune_failure_is_nonfatal_after_verified_download(tmp_path, monkeypatch):
     payload = b"cache payload"
     checksum = hashlib.sha256(payload).hexdigest()
-    fake = FakeSftp({"/remote/root/images/a.png": payload})
+    fake = FakeSftp({"/srv/personal-web/shared-dev/homepage/images/a.png": payload})
     storage = make_sftp_storage(tmp_path, monkeypatch, fake)
     monkeypatch.setattr(storage, "prune_cache", lambda: (_ for _ in ()).throw(OSError("synthetic prune")))
 
@@ -454,8 +510,39 @@ def test_cache_prune_failure_is_nonfatal_after_verified_download(tmp_path, monke
     assert materialized.read_bytes() == payload
 
 
+def test_cache_concurrent_materialize_keeps_returned_files(tmp_path, monkeypatch):
+    payload_a = b"a" * 1024
+    payload_b = b"b" * 1024
+    checksum_a = hashlib.sha256(payload_a).hexdigest()
+    checksum_b = hashlib.sha256(payload_b).hexdigest()
+    fake = FakeSftp(
+        {
+            "/srv/personal-web/shared-dev/homepage/images/a.png": payload_a,
+            "/srv/personal-web/shared-dev/homepage/images/b.png": payload_b,
+        }
+    )
+    storage = make_sftp_storage(tmp_path, monkeypatch, fake)
+    storage.cache_max_bytes = 1
+
+    def fetch(path, size, checksum):
+        result = storage.materialize(path, expected_size=size, expected_sha256=checksum)
+        return result, result.read_bytes()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(fetch, "data/uploads/homepage/images/a.png", len(payload_a), checksum_a),
+            pool.submit(fetch, "data/uploads/homepage/images/b.png", len(payload_b), checksum_b),
+        ]
+        results = [future.result(timeout=10) for future in futures]
+
+    assert results[0][0].exists()
+    assert results[1][0].exists()
+    assert results[0][1] == payload_a
+    assert results[1][1] == payload_b
+
+
 def test_sftp_preflight_fake_requires_shared_profile(tmp_path, monkeypatch):
-    fake = FakeSftp({"/remote/root": b""})
+    fake = FakeSftp({"/srv/personal-web/shared-dev/homepage": b""})
     storage = make_sftp_storage(tmp_path, monkeypatch, fake)
 
     assert run_sftp_preflight(settings=make_settings(**safe_shared_overrides()), storage=storage)["ok"] is True
@@ -504,7 +591,7 @@ class FakeEngine:
 
 
 def test_database_preflight_fake_passes_and_uses_read_only_queries():
-    engine = FakeEngine(["personal_web_shared_dev", "personal_web_shared_dev_app", "head123"])
+    engine = FakeEngine(["on", "personal_web_shared_dev", "personal_web_shared_dev_app", "head123"])
 
     result = run_database_preflight(
         settings=make_settings(**safe_shared_overrides()),
@@ -514,6 +601,8 @@ def test_database_preflight_fake_passes_and_uses_read_only_queries():
 
     assert result["ok"] is True
     assert all("insert" not in sql and "update" not in sql and "delete" not in sql for sql in engine.connection.sql)
+    assert engine.connection.sql[0] == "set transaction read only"
+    assert engine.connection.sql[1] == "show transaction_read_only"
     assert engine.connection.transaction.rolled_back is True
     assert engine.disposed is True
 
@@ -521,9 +610,9 @@ def test_database_preflight_fake_passes_and_uses_read_only_queries():
 @pytest.mark.parametrize(
     "values",
     [
-        ["wrong", "personal_web_shared_dev_app", "head123"],
-        ["personal_web_shared_dev", "wrong", "head123"],
-        ["personal_web_shared_dev", "personal_web_shared_dev_app", "old"],
+        ["on", "wrong", "personal_web_shared_dev_app", "head123"],
+        ["on", "personal_web_shared_dev", "wrong", "head123"],
+        ["on", "personal_web_shared_dev", "personal_web_shared_dev_app", "old"],
     ],
 )
 def test_database_preflight_fake_rejects_identity_or_revision(values):
@@ -607,3 +696,103 @@ def test_visible_homepage_item_reference_preserved(db_session):
     from app.services.homepage_media_service import is_media_referenced_by_visible_homepage_item
 
     assert is_media_referenced_by_visible_homepage_item(db_session, media.id) is True
+
+
+class FakeUpload:
+    filename = "private-original.png"
+    content_type = "image/png"
+
+
+class FakeRollbackDb:
+    def __init__(self):
+        self.rolled_back = False
+        self.committed = False
+        self.added = []
+
+    def add(self, item):
+        self.added.append(item)
+
+    def flush(self):
+        self.added[0].id = 99
+
+    def commit(self):
+        raise RuntimeError("synthetic commit failure")
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+class FakeRollbackStorage:
+    backend_name = "fake"
+
+    def __init__(self, remove_result=True, remove_exc: Exception | None = None):
+        self.remove_result = remove_result
+        self.remove_exc = remove_exc
+        self.removed_paths: list[str] = []
+
+    def build_logical_path(self, media_type, stored_filename):
+        return f"data/uploads/homepage/images/{stored_filename}"
+
+    def store_validated_file(self, *args, **kwargs):
+        return None
+
+    def remove_exact(self, path):
+        self.removed_paths.append(path)
+        if self.remove_exc:
+            raise self.remove_exc
+        return self.remove_result
+
+
+def run_rollback_case(monkeypatch, tmp_path, storage):
+    events: list[tuple[str, dict]] = []
+    stage = tmp_path / "stage.png"
+    stage.write_bytes(b"staged")
+
+    async def fake_save(*args, **kwargs):
+        return stage, 8, "a" * 64
+
+    monkeypatch.setattr("app.services.homepage_media_service.save_upload_to_runtime", fake_save)
+    monkeypatch.setattr("app.services.homepage_media_service.build_homepage_media_storage", lambda settings: storage)
+    monkeypatch.setattr("app.services.homepage_media_service.write_audit_log", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.services.homepage_media_service.write_jsonl_event",
+        lambda _scope, event, payload: events.append((event, dict(payload))),
+    )
+    db = FakeRollbackDb()
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            create_homepage_media(
+                db,
+                upload=FakeUpload(),
+                title=None,
+                description=None,
+                sort_order=0,
+                actor=types.SimpleNamespace(id=1),
+                settings=make_settings(),
+            )
+        )
+
+    return db, storage, events
+
+
+@pytest.mark.parametrize(
+    ("storage", "expected"),
+    [
+        (FakeRollbackStorage(remove_result=True), "removed"),
+        (FakeRollbackStorage(remove_result=False), "already_missing"),
+        (FakeRollbackStorage(remove_exc=RuntimeError("synthetic remove failure")), "rollback_failed"),
+    ],
+)
+def test_upload_rollback_reports_exact_result(monkeypatch, tmp_path, storage, expected):
+    db, storage, events = run_rollback_case(monkeypatch, tmp_path, storage)
+
+    assert db.rolled_back is True
+    assert db.committed is False
+    assert len(storage.removed_paths) == 1
+    rollback_events = [payload for event, payload in events if event == "homepage.media.upload.db_failed_file_rollback"]
+    assert rollback_events[-1]["rollback"] == expected
+    assert "private-original" not in str(events)
+    if expected in {"already_missing", "rollback_failed"}:
+        orphan_events = [payload for event, payload in events if event == "homepage.media.upload.orphan_candidate"]
+        assert orphan_events[-1]["severity"] == "high"

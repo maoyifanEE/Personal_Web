@@ -3,7 +3,11 @@ param(
   [switch]$DryRun,
   [switch]$ValidateOnly,
   [string]$SecretPath,
-  [string]$FakeSshExe
+  [string]$FakeSshExe,
+  [switch]$TestMode,
+  [switch]$TestSyntheticProcesses,
+  [switch]$TestSkipPreflights,
+  [switch]$TestSkipBrowser
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,11 +65,6 @@ function Read-SharedSecret {
     }
     $values[$key] = $parts[1]
   }
-  foreach ($requiredKey in $Contract.Required) {
-    if (-not $values.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$values[$requiredKey])) {
-      throw "Missing required shared-development secret key: $requiredKey"
-    }
-  }
   if ($values.ContainsKey("SHARED_DEV_MEDIA_REMOTE_ROOT")) {
     if ($values.ContainsKey("SHARED_DEV_REMOTE_MEDIA_ROOT")) {
       if ([string]$values["SHARED_DEV_MEDIA_REMOTE_ROOT"] -ne [string]$values["SHARED_DEV_REMOTE_MEDIA_ROOT"]) {
@@ -73,6 +72,11 @@ function Read-SharedSecret {
       }
     } else {
       $values["SHARED_DEV_REMOTE_MEDIA_ROOT"] = $values["SHARED_DEV_MEDIA_REMOTE_ROOT"]
+    }
+  }
+  foreach ($requiredKey in $Contract.Required) {
+    if (-not $values.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace([string]$values[$requiredKey])) {
+      throw "Missing required shared-development secret key: $requiredKey"
     }
   }
   return $values
@@ -126,6 +130,15 @@ function New-DatabaseUrl {
 
 function Validate-SharedSecretValues {
   param([hashtable]$Secret, [object]$Contract)
+  if ($Secret["SHARED_DEV_SSH_ALIAS"] -ne $Contract.expectedDatabaseSshAlias) {
+    throw "Shared database SSH alias is not allowlisted"
+  }
+  if ($Secret["SHARED_DEV_MEDIA_SSH_ALIAS"] -ne $Contract.expectedMediaSshAlias) {
+    throw "Shared media SSH alias is not allowlisted"
+  }
+  if ($Secret["SHARED_DEV_REMOTE_MEDIA_ROOT"] -ne $Contract.expectedRemoteMediaRoot) {
+    throw "Shared remote media root is not allowlisted"
+  }
   if ($Secret["SHARED_DEV_DB_NAME"] -ne $Contract.expectedDatabaseName) {
     throw "Shared development database name is not allowlisted"
   }
@@ -150,6 +163,87 @@ function Validate-SharedSecretValues {
   Write-SharedLog "Shared database and media secret fields validated"
 }
 
+function Resolve-SshAliasConfig {
+  param(
+    [string]$SshExe,
+    [string]$ConfigPath,
+    [string]$Alias,
+    [switch]$UseSyntheticParser
+  )
+  $resolved = @{}
+  if ($UseSyntheticParser) {
+    $inHost = $false
+    foreach ($line in Get-Content -LiteralPath $ConfigPath) {
+      $trimmed = $line.Trim()
+      if (-not $trimmed -or $trimmed.StartsWith("#")) { continue }
+      if ($trimmed -match '^Host\s+(.+)$') {
+        $hosts = $Matches[1].Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)
+        $inHost = $hosts -contains $Alias
+        continue
+      }
+      if ($inHost -and $trimmed -match '^(\S+)\s+(.+)$') {
+        $key = $Matches[1].ToLowerInvariant()
+        if (-not $resolved.ContainsKey($key)) { $resolved[$key] = @() }
+        $resolved[$key] += $Matches[2].Trim()
+      }
+    }
+    return $resolved
+  }
+  $lines = & $SshExe -G -F $ConfigPath $Alias 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    throw "SSH alias resolution failed"
+  }
+  foreach ($line in $lines) {
+    if ($line -match '^(\S+)\s+(.+)$') {
+      $key = $Matches[1].ToLowerInvariant()
+      if (-not $resolved.ContainsKey($key)) { $resolved[$key] = @() }
+      $resolved[$key] += $Matches[2].Trim()
+    }
+  }
+  return $resolved
+}
+
+function Assert-SshAliasSafe {
+  param(
+    [hashtable]$Resolved,
+    [string]$Alias,
+    [string]$ExpectedAlias,
+    [string]$ExpectedUser
+  )
+  if ($Alias -ne $ExpectedAlias) {
+    throw "SSH alias is not allowlisted"
+  }
+  $user = @($Resolved["user"])
+  $hostName = @($Resolved["hostname"])
+  $portValues = @($Resolved["port"])
+  $identityFiles = @($Resolved["identityfile"])
+  $knownHosts = @($Resolved["userknownhostsfile"])
+  if ($user.Count -ne 1 -or $user[0] -ne $ExpectedUser -or $user[0] -eq "root") {
+    throw "SSH alias user is not allowlisted"
+  }
+  if ($hostName.Count -ne 1 -or [string]::IsNullOrWhiteSpace($hostName[0])) {
+    throw "SSH alias hostname is invalid"
+  }
+  if ($portValues.Count -ne 1) {
+    throw "SSH alias port is invalid"
+  }
+  try {
+    $port = [int]$portValues[0]
+  } catch {
+    throw "SSH alias port is invalid"
+  }
+  if ($port -lt 1 -or $port -gt 65535) {
+    throw "SSH alias port is invalid"
+  }
+  if ($identityFiles.Count -ne 1 -or -not (Test-Path -LiteralPath $identityFiles[0])) {
+    throw "SSH alias identity file is invalid"
+  }
+  if ($knownHosts.Count -ne 1 -or -not (Test-Path -LiteralPath $knownHosts[0])) {
+    throw "SSH alias known_hosts file is invalid"
+  }
+  Write-SharedLog "SSH alias validated"
+}
+
 function Assert-TestModeSecretIsSynthetic {
   param([string]$ResolvedSecretPath, [bool]$IsTestMode, [string]$DefaultSecretPath)
   if (-not $IsTestMode) {
@@ -169,6 +263,14 @@ function Invoke-LoggedStep {
   }
 }
 
+function Remove-OldLauncherLogs {
+  param([string]$LogDir)
+  $cutoff = (Get-Date).AddDays(-7)
+  Get-ChildItem -LiteralPath $LogDir -Filter "start-shared-dev-*.log" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt $cutoff } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
 function Ensure-BackendVenv {
   param([string]$BackendDir, [string]$BackendPython)
   if (-not (Test-Path -LiteralPath $BackendPython)) {
@@ -179,6 +281,55 @@ function Ensure-BackendVenv {
   Invoke-LoggedStep "Installing backend requirements into project venv" {
     & $BackendPython -m pip install -r (Join-Path $BackendDir "requirements.txt")
   }
+}
+
+function Resolve-ManagedPythonLaunch {
+  param([string]$BackendPython)
+  $baseExecutable = (& $BackendPython -c "import sys; print(getattr(sys, '_base_executable', sys.executable))").Trim()
+  $sitePackages = (& $BackendPython -c "import site; print(site.getsitepackages()[0])").Trim()
+  if (-not (Test-Path -LiteralPath $baseExecutable)) {
+    throw "Managed Python executable was not found"
+  }
+  if (-not (Test-Path -LiteralPath $sitePackages)) {
+    throw "Managed Python site-packages path was not found"
+  }
+  return [ordered]@{
+    Executable = (Resolve-Path -LiteralPath $baseExecutable).Path
+    SitePackages = (Resolve-Path -LiteralPath $sitePackages).Path
+  }
+}
+
+function Set-ManagedPythonEnvironment {
+  param([object]$Launch)
+  $existingPythonPath = [string]$env:PYTHONPATH
+  if ([string]::IsNullOrWhiteSpace($existingPythonPath)) {
+    $env:PYTHONPATH = [string]$Launch.SitePackages
+  } else {
+    $env:PYTHONPATH = "{0};{1}" -f [string]$Launch.SitePackages, $existingPythonPath
+  }
+  $env:VIRTUAL_ENV = (Resolve-Path -LiteralPath (Join-Path $repoRoot "backend\.venv")).Path
+  $env:PATH = "{0};{1}" -f (Join-Path $env:VIRTUAL_ENV "Scripts"), [string]$env:PATH
+  Write-SharedLog "Managed Python environment prepared"
+}
+
+function Quote-ProcessArgument {
+  param([string]$Value)
+  if ($Value -notmatch '[\s"]') {
+    return $Value
+  }
+  return '"' + ($Value -replace '\\(?=")', '$0' -replace '"', '\"') + '"'
+}
+
+function Start-ManagedProcess {
+  param(
+    [string]$FilePath,
+    [string]$WorkingDirectory,
+    [string[]]$Arguments
+  )
+  $safeId = [guid]::NewGuid().ToString("N")
+  $stdoutPath = Join-Path $launcherLogDir ("managed-process-{0}.out.log" -f $safeId)
+  $stderrPath = Join-Path $launcherLogDir ("managed-process-{0}.err.log" -f $safeId)
+  return Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -ArgumentList $Arguments -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
 }
 
 function Wait-ForVerifiedListener {
@@ -260,27 +411,52 @@ function Test-FrontendNoStore {
   }
 }
 
-function Start-BackendWindow {
-  param([string]$BackendDir, [string]$BackendPython)
-  $command = @"
-`$Host.UI.RawUI.WindowTitle = 'Personal_Web Shared Backend 8000'
-`$ErrorActionPreference = 'Stop'
-& '$BackendPython' -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-"@
-  Start-Process powershell.exe -WorkingDirectory $BackendDir -ArgumentList @(
-    "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command
-  ) -WindowStyle Normal -PassThru
+function Start-DirectBackend {
+  param([string]$BackendDir, [string]$PythonExecutable, [switch]$Synthetic)
+  if ($Synthetic) {
+    return Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $BackendDir -Arguments @("-m", "http.server", "8000", "--bind", "127.0.0.1")
+  }
+  Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $BackendDir -Arguments @(
+    "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"
+  )
 }
 
-function Start-FrontendWindow {
-  param([string]$RepoRoot, [string]$BackendPython)
-  $command = @"
-`$Host.UI.RawUI.WindowTitle = 'Personal_Web Shared Frontend 4173'
-& '$BackendPython' (Join-Path '$RepoRoot' 'scripts\local_static_server.py') --host 127.0.0.1 --port 4173 --root '$RepoRoot'
-"@
-  Start-Process powershell.exe -WorkingDirectory $RepoRoot -ArgumentList @(
-    "-NoExit", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command
-  ) -WindowStyle Normal -PassThru
+function Start-DirectFrontend {
+  param([string]$RepoRoot, [string]$PythonExecutable, [switch]$Synthetic)
+  if ($Synthetic) {
+    return Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $RepoRoot -Arguments @((Join-Path $RepoRoot "scripts\local_static_server.py"), "--host", "127.0.0.1", "--port", "4173", "--root", $RepoRoot)
+  }
+  Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $RepoRoot -Arguments @(
+    (Join-Path $RepoRoot "scripts\local_static_server.py"), "--host", "127.0.0.1", "--port", "4173", "--root", $RepoRoot
+  )
+}
+
+function New-SyntheticTcpListenerScript {
+  param([string]$RuntimeDir)
+  $path = Join-Path $RuntimeDir ("synthetic-listener-{0}.py" -f [guid]::NewGuid().ToString("N"))
+  @'
+from __future__ import annotations
+
+import socket
+import sys
+import time
+
+host = "127.0.0.1"
+port = int(sys.argv[1])
+with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((host, port))
+    sock.listen(16)
+    sock.settimeout(1.0)
+    while True:
+        try:
+            conn, _ = sock.accept()
+        except socket.timeout:
+            continue
+        with conn:
+            pass
+'@ | Set-Content -LiteralPath $path -Encoding utf8
+  return $path
 }
 
 function Get-ListenerProcessRecord {
@@ -311,14 +487,69 @@ function Stop-CreatedProcess {
     return
   }
   Stop-Process -Id $Process.Id -Force
+  $Process.WaitForExit(10000) | Out-Null
 }
 
 function Write-SessionStateAtomic {
   param([string]$Path, [object]$State)
-  $tmpPath = "$Path.tmp"
+  $tmpPath = "$Path.$PID.$([guid]::NewGuid().ToString('N')).tmp"
   $State | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $tmpPath -Encoding utf8
   Move-Item -LiteralPath $tmpPath -Destination $Path -Force
   Write-SharedLog "Shared session state written"
+}
+
+function Get-StateClassification {
+  param([string]$Path, [string]$RepoRoot)
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return "absent"
+  }
+  try {
+    $state = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+  } catch {
+    return "invalid_or_unverifiable"
+  }
+  if ($state.schemaVersion -ne 1 -or $state.repositoryRoot -ne $RepoRoot -or $state.profile -ne "shared_remote") {
+    return "invalid_or_unverifiable"
+  }
+  $records = @($state.backend, $state.frontend, $state.dbTunnel)
+  $alive = 0
+  foreach ($record in $records) {
+    if (-not $record -or -not $record.pid -or -not $record.startTimeUtc -or -not $record.executable) {
+      return "invalid_or_unverifiable"
+    }
+    $port = if ($record.port) { [int]$record.port } else { [int]$record.localPort }
+    if (-not $port) {
+      return "invalid_or_unverifiable"
+    }
+    $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
+    $listeners = @(Get-PortListeners -Port $port)
+    $owned = @($listeners | Where-Object { $_.OwningProcess -eq [int]$record.pid -and $_.LocalAddress -eq "127.0.0.1" })
+    $other = @($listeners | Where-Object { $_.OwningProcess -ne [int]$record.pid -or $_.LocalAddress -ne "127.0.0.1" })
+    if (-not $process -and $listeners.Count -eq 0) {
+      continue
+    }
+    if (-not $process -or $other.Count -gt 0 -or $owned.Count -ne 1) {
+      return "invalid_or_unverifiable"
+    }
+    if ($process.StartTime.ToUniversalTime().ToString("o") -ne [string]$record.startTimeUtc) {
+      return "invalid_or_unverifiable"
+    }
+    try {
+      if ($process.MainModule.FileName -ne [string]$record.executable) {
+        return "invalid_or_unverifiable"
+      }
+    } catch {
+      return "invalid_or_unverifiable"
+    }
+    $alive += 1
+  }
+  if ($alive -eq 0) {
+    return "stale_all_gone"
+  }
+  if ($alive -eq $records.Count) {
+    return "active_verified"
+  }
+  return "invalid_or_unverifiable"
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -327,7 +558,9 @@ $launcherLogDir = Join-Path $repoRoot ".local_logs\launcher"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 New-Item -ItemType Directory -Force -Path $launcherLogDir | Out-Null
 $script:LauncherLogPath = Join-Path $launcherLogDir ("start-shared-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+Remove-OldLauncherLogs -LogDir $launcherLogDir
 $statePath = Join-Path $runtimeDir "shared-session-state.json"
+$lockPath = Join-Path $runtimeDir "shared-launch.lock"
 $backendDir = Join-Path $repoRoot "backend"
 $backendPython = Join-Path $backendDir ".venv\Scripts\python.exe"
 $baseHomepageUrl = "http://127.0.0.1:4173/"
@@ -348,7 +581,7 @@ if (-not (Test-Path -LiteralPath $SecretPath)) {
 }
 
 $contract = Load-SecretContract -RepoRoot $repoRoot
-Assert-TestModeSecretIsSynthetic -ResolvedSecretPath $SecretPath -IsTestMode ($DryRun -or $ValidateOnly -or [bool]$FakeSshExe) -DefaultSecretPath $defaultSecretPath
+Assert-TestModeSecretIsSynthetic -ResolvedSecretPath $SecretPath -IsTestMode ($DryRun -or $ValidateOnly -or $TestMode -or $TestSyntheticProcesses -or [bool]$FakeSshExe) -DefaultSecretPath $defaultSecretPath
 $secret = Read-SharedSecret -Path $SecretPath -Contract $contract
 Validate-SharedSecretValues -Secret $secret -Contract $contract.Raw
 
@@ -356,6 +589,20 @@ $localPort = [int]$secret["SHARED_DEV_DB_LOCAL_PORT"]
 $dbSshConfigPath = (Resolve-Path -LiteralPath ([string]$secret["SHARED_DEV_DB_SSH_CONFIG_PATH"])).Path
 $mediaSshConfigPath = (Resolve-Path -LiteralPath ([string]$secret["SHARED_DEV_MEDIA_SSH_CONFIG_PATH"])).Path
 $sshExe = Resolve-OpenSshExe -FakePath $FakeSshExe
+Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $dbSshConfigPath -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedDatabaseSshAlias -ExpectedUser $contract.Raw.expectedDatabaseSshUser
+Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $mediaSshConfigPath -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedMediaSshAlias -ExpectedUser $contract.Raw.expectedMediaSshUser
+
+$classification = Get-StateClassification -Path $statePath -RepoRoot $repoRoot
+if ($classification -eq "active_verified") {
+  throw "A verified shared session is already running; run stop-shared-dev.bat first"
+}
+if ($classification -eq "stale_all_gone") {
+  Remove-Item -LiteralPath $statePath -Force
+  Write-SharedLog "Removed stale shared session state"
+}
+if ($classification -eq "invalid_or_unverifiable") {
+  throw "Existing shared session state needs manual review"
+}
 
 Assert-PortFree -Port 8000 -Name "Backend"
 Assert-PortFree -Port 4173 -Name "Frontend"
@@ -367,10 +614,15 @@ if ($ValidateOnly -or $DryRun) {
 }
 
 $createdTunnel = $null
-$backendWindow = $null
-$frontendWindow = $null
+$backendProcess = $null
+$frontendProcess = $null
+$stateWrittenByThisRun = $false
 try {
+  $lock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
   Ensure-BackendVenv -BackendDir $backendDir -BackendPython $backendPython
+  $pythonLaunch = Resolve-ManagedPythonLaunch -BackendPython $backendPython
+  Set-ManagedPythonEnvironment -Launch $pythonLaunch
+  $managedPython = [string]$pythonLaunch.Executable
   $sshArguments = @(
     "-N",
     "-F", $dbSshConfigPath,
@@ -382,9 +634,16 @@ try {
     "-L", ("127.0.0.1:{0}:127.0.0.1:5432" -f $localPort),
     [string]$secret["SHARED_DEV_SSH_ALIAS"]
   )
-  $createdTunnel = Start-Process -FilePath $sshExe -ArgumentList $sshArguments -WindowStyle Hidden -PassThru
+  $tunnelExecutable = $sshExe
+  if ($TestMode -and $TestSyntheticProcesses) {
+    $tunnelExecutable = $managedPython
+    $syntheticTunnelScript = New-SyntheticTcpListenerScript -RuntimeDir $runtimeDir
+    $createdTunnel = Start-ManagedProcess -FilePath $managedPython -WorkingDirectory $repoRoot -Arguments @($syntheticTunnelScript, ([string]$localPort))
+  } else {
+    $createdTunnel = Start-Process -FilePath $sshExe -ArgumentList $sshArguments -WindowStyle Hidden -PassThru
+  }
   Write-SharedLog "Database tunnel process started"
-  Wait-ForVerifiedListener -Process $createdTunnel -Executable $sshExe -Port $localPort -TimeoutSeconds 20
+  Wait-ForVerifiedListener -Process $createdTunnel -Executable $tunnelExecutable -Port $localPort -TimeoutSeconds 20
 
   $env:DATABASE_URL = New-DatabaseUrl -Secret $secret
   $env:PERSONAL_WEB_DATA_PROFILE = "shared_remote"
@@ -399,20 +658,25 @@ try {
     $env:SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS = [string]$secret["SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS"]
   }
 
-  Invoke-LoggedStep "Running read-only shared database preflight" {
-    Push-Location $backendDir
-    try { & $backendPython -m app.scripts.check_shared_dev_preflight } finally { Pop-Location }
-  }
-  Invoke-LoggedStep "Running read-only shared SFTP preflight" {
-    Push-Location $backendDir
-    try { & $backendPython -m app.scripts.check_shared_dev_sftp_preflight } finally { Pop-Location }
+  if (-not $TestSkipPreflights) {
+    Invoke-LoggedStep "Running read-only shared database preflight" {
+      Push-Location $backendDir
+      try { & $backendPython -m app.scripts.check_shared_dev_preflight } finally { Pop-Location }
+    }
+    Invoke-LoggedStep "Running read-only shared SFTP preflight" {
+      Push-Location $backendDir
+      try { & $backendPython -m app.scripts.check_shared_dev_sftp_preflight } finally { Pop-Location }
+    }
   }
 
-  $backendWindow = Start-BackendWindow -BackendDir $backendDir -BackendPython $backendPython
-  if (-not (Wait-ForUrl -Name "Backend" -Uris @("http://127.0.0.1:8000/api/health", "http://127.0.0.1:8000/api/auth/me") -TimeoutSeconds 60 -AcceptedStatusCodes @(200, 401, 403))) {
+  $backendProcess = Start-DirectBackend -BackendDir $backendDir -PythonExecutable $managedPython -Synthetic:($TestMode -and $TestSyntheticProcesses)
+  Wait-ForVerifiedListener -Process $backendProcess -Executable $managedPython -Port 8000 -TimeoutSeconds 20
+  $backendAccepted = if ($TestMode -and $TestSyntheticProcesses) { @(200, 401, 403, 404) } else { @(200, 401, 403) }
+  if (-not (Wait-ForUrl -Name "Backend" -Uris @("http://127.0.0.1:8000/api/health", "http://127.0.0.1:8000/api/auth/me") -TimeoutSeconds 60 -AcceptedStatusCodes $backendAccepted)) {
     throw "Backend readiness failed"
   }
-  $frontendWindow = Start-FrontendWindow -RepoRoot $repoRoot -BackendPython $backendPython
+  $frontendProcess = Start-DirectFrontend -RepoRoot $repoRoot -PythonExecutable $managedPython -Synthetic:($TestMode -and $TestSyntheticProcesses)
+  Wait-ForVerifiedListener -Process $frontendProcess -Executable $managedPython -Port 4173 -TimeoutSeconds 20
   if (-not (Wait-ForUrl -Name "Frontend" -Uris @($baseHomepageUrl) -TimeoutSeconds 30)) {
     throw "Frontend readiness failed"
   }
@@ -425,24 +689,40 @@ try {
     repositoryRoot = $repoRoot
     profile = "shared_remote"
     createdAtUtc = (Get-Date).ToUniversalTime().ToString("o")
-    dbTunnel = [ordered]@{
-      pid = $createdTunnel.Id
-      startTimeUtc = $createdTunnel.StartTime.ToUniversalTime().ToString("o")
-      executable = $sshExe
-      localPort = $localPort
-      alias = [string]$secret["SHARED_DEV_SSH_ALIAS"]
-    }
+    dbTunnel = Get-ListenerProcessRecord -Port $localPort -Name "Database tunnel"
     backend = Get-ListenerProcessRecord -Port 8000 -Name "Backend"
     frontend = Get-ListenerProcessRecord -Port 4173 -Name "Frontend"
   }
+  $state.dbTunnel["localPort"] = $localPort
+  $state.dbTunnel["alias"] = [string]$secret["SHARED_DEV_SSH_ALIAS"]
   Write-SessionStateAtomic -Path $statePath -State $state
-  Start-Process $homepageUrl
+  $stateWrittenByThisRun = $true
+  if (-not $TestSkipBrowser) {
+    try {
+      Start-Process $homepageUrl
+    } catch {
+      Write-SharedLog "Browser open failed nonfatally"
+    }
+  }
   Write-SharedLog "Personal_Web shared development is ready"
 } catch {
-  Write-SharedLog ("Startup failed in sanitized phase: {0}" -f $_.Exception.Message)
-  Stop-CreatedProcess -Process $frontendWindow
-  Stop-CreatedProcess -Process $backendWindow
+  Write-SharedLog ("Startup failed safely: {0}" -f $_.Exception.GetType().Name)
+  Stop-CreatedProcess -Process $frontendProcess
+  Stop-CreatedProcess -Process $backendProcess
   Stop-CreatedProcess -Process $createdTunnel
-  Remove-Item -LiteralPath "$statePath.tmp" -Force -ErrorAction SilentlyContinue
+  Get-ChildItem -LiteralPath $runtimeDir -Filter "shared-session-state.json.*.tmp" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+  Get-ChildItem -LiteralPath $runtimeDir -Filter "synthetic-*.py" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+  if ($stateWrittenByThisRun -and (Test-Path -LiteralPath $statePath)) {
+    Remove-Item -LiteralPath $statePath -Force
+  }
   throw
+} finally {
+  if ($lock) {
+    $lock.Close()
+    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+  }
+  Get-ChildItem -LiteralPath $runtimeDir -Filter "synthetic-*.py" -ErrorAction SilentlyContinue |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 }

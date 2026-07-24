@@ -18,13 +18,41 @@ def load_shared_dev_secret_contract(path: Path = CONTRACT_PATH) -> dict[str, Any
     """Load the tracked non-secret shared-development secret contract."""
 
     contract = json.loads(path.read_text(encoding="utf-8"))
-    required = set(contract.get("requiredKeys") or [])
-    optional = set(contract.get("optionalKeys") or [])
-    if not required or not isinstance(contract.get("deprecatedAliases", {}), dict):
+    if contract.get("schemaVersion") != 1:
+        raise SharedDevSecretError("Shared-development secret contract schema is unsupported")
+    raw_required = contract.get("requiredKeys")
+    raw_optional = contract.get("optionalKeys")
+    aliases = contract.get("deprecatedAliases", {})
+    if not isinstance(raw_required, list) or not isinstance(raw_optional, list) or not isinstance(aliases, dict):
         raise SharedDevSecretError("Shared-development secret contract is invalid")
+    if any(not isinstance(key, str) or not key.strip() for key in raw_required + raw_optional):
+        raise SharedDevSecretError("Shared-development secret contract keys are invalid")
+    required = set(raw_required)
+    optional = set(raw_optional)
+    if len(required) != len(raw_required) or len(optional) != len(raw_optional):
+        raise SharedDevSecretError("Shared-development secret contract keys are duplicated")
+    if required & optional:
+        raise SharedDevSecretError("Shared-development secret contract keys overlap")
+    allowed = required | optional
+    for alias, target in aliases.items():
+        if alias not in allowed or target not in allowed or alias == target:
+            raise SharedDevSecretError("Shared-development secret contract aliases are invalid")
+        if aliases.get(target) == alias:
+            raise SharedDevSecretError("Shared-development secret contract aliases are cyclic")
+    for key in (
+        "expectedDatabaseName",
+        "expectedDatabaseUser",
+        "expectedDatabaseSshAlias",
+        "expectedDatabaseSshUser",
+        "expectedMediaSshAlias",
+        "expectedMediaSshUser",
+        "expectedRemoteMediaRoot",
+    ):
+        if not isinstance(contract.get(key), str) or not contract[key].strip():
+            raise SharedDevSecretError("Shared-development secret contract expected constants are invalid")
     contract["requiredKeys"] = sorted(required)
     contract["optionalKeys"] = sorted(optional)
-    contract["allowedKeys"] = sorted(required | optional)
+    contract["allowedKeys"] = sorted(allowed)
     return contract
 
 

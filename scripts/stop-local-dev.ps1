@@ -52,65 +52,6 @@ function Stop-LocalDevPortListeners {
   }
 }
 
-function Stop-VerifiedSharedTunnel {
-  param([string]$StatePath)
-
-  if (-not (Test-Path -LiteralPath $StatePath)) {
-    Write-StopLog "No shared development tunnel state was found."
-    return
-  }
-  try {
-    $state = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json
-  } catch {
-    Write-StopLog "Shared development tunnel state is unreadable; removing stale state file."
-    Remove-Item -LiteralPath $StatePath -Force
-    return
-  }
-  if ($state.createdBy -ne "Personal_Web start-shared-dev.ps1" -or $state.repoRoot -ne $repoRoot) {
-    Write-StopLog "Refusing to stop tunnel: state record is not owned by this project."
-    return
-  }
-
-  $tunnelPid = [int]$state.pid
-  $expectedPort = [int]$state.localPort
-  $expectedExe = [string]$state.executable
-  $process = Get-Process -Id $tunnelPid -ErrorAction SilentlyContinue
-  if (-not $process) {
-    Write-StopLog "Shared development tunnel process is gone; removing stale state."
-    Remove-Item -LiteralPath $StatePath -Force
-    return
-  }
-  if ($process.StartTime.ToUniversalTime().ToString("o") -ne [string]$state.startTimeUtc) {
-    Write-StopLog "Refusing to stop tunnel: process start time does not match state."
-    return
-  }
-  try {
-    $actualExe = $process.MainModule.FileName
-  } catch {
-    Write-StopLog "Refusing to stop tunnel: executable path could not be verified."
-    return
-  }
-  if ($actualExe -ne $expectedExe) {
-    Write-StopLog "Refusing to stop tunnel: executable path does not match state."
-    return
-  }
-  try {
-    $listener = Get-NetTCPConnection -LocalPort $expectedPort -State Listen -ErrorAction Stop |
-      Where-Object { $_.OwningProcess -eq $tunnelPid -and $_.LocalAddress -eq "127.0.0.1" } |
-      Select-Object -First 1
-  } catch {
-    $listener = $null
-  }
-  if (-not $listener) {
-    Write-StopLog "Refusing to stop tunnel: loopback listener ownership could not be verified."
-    return
-  }
-
-  Stop-Process -Id $tunnelPid -Force
-  Remove-Item -LiteralPath $StatePath -Force
-  Write-StopLog "Stopped verified shared development tunnel PID $tunnelPid on port $expectedPort."
-}
-
 Write-StopLog "[Personal_Web local dev] Stop log: $stopLogPath"
 Stop-LocalDevPortListeners
 if (Test-Path -LiteralPath $sharedStopScript) {

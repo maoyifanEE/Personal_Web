@@ -10,6 +10,7 @@ from sqlalchemy.engine import make_url
 
 SHARED_DEV_DATABASE_NAME = "personal_web_shared_dev"
 SHARED_DEV_DATABASE_USER = "personal_web_shared_dev_app"
+SHARED_DEV_REMOTE_MEDIA_ROOT = "/srv/personal-web/shared-dev/homepage"
 
 
 class Settings(BaseSettings):
@@ -120,7 +121,10 @@ class Settings(BaseSettings):
         parts = [part for part in value.split("/") if part]
         if any(part == ".." for part in parts):
             raise ValueError("SHARED_DEV_MEDIA_REMOTE_ROOT must not contain path traversal")
-        return "/" + "/".join(parts)
+        normalized = "/" + "/".join(parts)
+        if normalized != SHARED_DEV_REMOTE_MEDIA_ROOT:
+            raise ValueError("SHARED_DEV_MEDIA_REMOTE_ROOT is not allowlisted")
+        return normalized
 
     @field_validator("homepage_image_max_mb", "homepage_video_max_mb")
     @classmethod

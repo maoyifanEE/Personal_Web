@@ -394,6 +394,14 @@ shared database URL to be a `postgresql+psycopg` loopback tunnel URL for the
 allowlisted shared-development database and role. It never falls back to local
 authoritative data, never writes a database URL to `backend/.env`, and the
 shared launcher does not run Alembic migrations or the development auth seed.
+The shared launcher also starts backend and frontend as direct managed Python
+listener processes without `uvicorn --reload`; source changes require
+`stop-shared-dev.bat` followed by a manual restart in this version.
+
+The shared secret contract requires the database SSH alias
+`personal-web-shared-db` to resolve to user `personal-web-db-tunnel`, the media
+SSH alias `personal-web-shared-media` to resolve to user `personal-web-dev`, and
+the exact remote media root `/srv/personal-web/shared-dev/homepage`.
 
 The real launcher path is implemented, but must be used only after the next
 reviewed configuration phase updates the protected external secret, separate DB

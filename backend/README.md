@@ -425,12 +425,18 @@ The shared launcher constructs `DATABASE_URL` only in process memory from the
 protected external secret file. It must not write that URL to `backend/.env`.
 Unlike the local launcher, shared mode must not run `alembic upgrade head` or
 `python -m app.scripts.seed_dev_auth_users`.
+Shared mode intentionally starts backend and frontend as direct managed Python
+listener processes and does not use `uvicorn --reload`; use
+`stop-shared-dev.bat` and restart the shared launcher after source changes.
 
 The protected external secret contract is defined by
 `config/shared-dev-secret-contract.json`. It uses separate database and media
 SSH config paths. The canonical media root key is
 `SHARED_DEV_REMOTE_MEDIA_ROOT`; the launcher maps it into the backend as
-`SHARED_DEV_MEDIA_REMOTE_ROOT`.
+`SHARED_DEV_MEDIA_REMOTE_ROOT`. The only accepted database SSH alias/user is
+`personal-web-shared-db` / `personal-web-db-tunnel`; the only accepted media
+SSH alias/user is `personal-web-shared-media` / `personal-web-dev`; the only
+accepted media root is `/srv/personal-web/shared-dev/homepage`.
 
 The launcher real path is implemented but should not be run against the real
 shared environment until the next reviewed configuration phase. Tests use only
