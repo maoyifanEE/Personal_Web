@@ -372,12 +372,46 @@ The launcher:
 * checks `backend/.env`
 * requires `APP_ENV=development`
 * requires `ALLOW_DEV_TOOLS=true`
+* uses `PERSONAL_WEB_DATA_PROFILE=local` and filesystem media by default
 * installs backend requirements into `backend/.venv`
 * runs Alembic migrations
 * runs the development auth seed script
 * starts the backend at `http://127.0.0.1:8000`
 * starts the local no-store static frontend at `http://127.0.0.1:4173`
 * opens the guest-reset homepage by default
+
+## Shared Remote Development Profile
+
+An explicit shared-development profile now exists as code foundation only:
+
+```text
+PERSONAL_WEB_DATA_PROFILE=shared_remote
+HOMEPAGE_MEDIA_STORAGE_BACKEND=sftp
+```
+
+This profile is development-only. It never falls back to local authoritative
+data, never writes a database URL to `backend/.env`, and the shared launcher
+does not run Alembic migrations or the development auth seed.
+
+Use the dedicated launcher only after the protected external secret file and
+future SFTP account are intentionally configured:
+
+```powershell
+.\start-shared-dev.bat
+.\start-shared-dev.bat keep-session
+```
+
+The shared launcher keeps the existing default guest reset by opening
+`?devLogout=1`; `keep-session` preserves the current browser session. During
+this code-foundation phase, tests use synthetic secret files and fake SSH/SFTP
+clients only. The real shared server, database, and media storage must not be
+contacted from tests.
+
+Architecture details are documented in:
+
+```text
+docs/12_SHARED_REMOTE_DEV_ARCHITECTURE.md
+```
 
 Create a movable Windows shortcut:
 

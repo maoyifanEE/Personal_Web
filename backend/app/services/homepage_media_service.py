@@ -26,6 +26,14 @@ from app.schemas.homepage import (
     HomepageMediaUpdateRequest,
 )
 from app.services.audit_service import write_audit_log
+from app.storage.errors import (
+    MediaObjectCollisionError,
+    MediaObjectMissingError,
+    StorageIntegrityError,
+    StorageUnavailableError,
+    UnsafeMediaPathError,
+)
+from app.storage.factory import build_homepage_media_storage
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +123,8 @@ def signature_matches_extension(extension: str, header: bytes) -> bool:
 def safe_relative_path(settings: Settings, media_type: str, stored_filename: str) -> str:
     """Build a project-relative POSIX path for stored homepage media."""
 
-    subdir = "images" if media_type == "image" else "videos"
-    relative_path = posixpath.join(settings.homepage_media_root, subdir, stored_filename)
+    storage = build_homepage_media_storage(settings)
+    relative_path = storage.build_logical_path(media_type, stored_filename)
     parts = Path(relative_path).parts
     if Path(relative_path).is_absolute() or ".." in parts:
         raise HTTPException(status_code=500, detail="Invalid media storage path")
@@ -126,19 +134,15 @@ def safe_relative_path(settings: Settings, media_type: str, stored_filename: str
 def resolve_homepage_media_path(settings: Settings, relative_path: str) -> Path:
     """Resolve a stored homepage media path under the configured upload root."""
 
-    if not relative_path or "\\" in relative_path or ":" in relative_path:
-        write_jsonl_event("backend", "homepage.media.path.rejected_invalid_syntax", {})
-        raise HTTPException(status_code=404, detail="Media file not found")
-    path = Path(relative_path)
-    if path.is_absolute() or ".." in path.parts:
-        write_jsonl_event("backend", "homepage.media.path.rejected_escape_attempt", {})
-        raise HTTPException(status_code=404, detail="Media file not found")
-    candidate = (PROJECT_ROOT / relative_path).resolve()
-    upload_root = settings.homepage_media_root_path.resolve()
-    if not candidate.is_relative_to(upload_root):
-        write_jsonl_event("backend", "homepage.media.path.rejected_outside_upload_root", {})
-        raise HTTPException(status_code=404, detail="Media file not found")
-    return candidate
+    try:
+        return build_homepage_media_storage(settings).materialize(relative_path)
+    except (UnsafeMediaPathError, MediaObjectMissingError) as exc:
+        write_jsonl_event("backend", "homepage.media.path.not_found", {"reason": type(exc).__name__})
+        raise HTTPException(status_code=404, detail="Media file not found") from exc
+    except StorageUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="Media storage temporarily unavailable") from exc
+    except StorageIntegrityError as exc:
+        raise HTTPException(status_code=502, detail="Media storage integrity check failed") from exc
 
 
 def ensure_storage_root(settings: Settings, media_type: str) -> Path:
@@ -146,7 +150,8 @@ def ensure_storage_root(settings: Settings, media_type: str) -> Path:
 
     subdir = "images" if media_type == "image" else "videos"
     storage_dir = settings.homepage_media_root_path / subdir
-    storage_dir.mkdir(parents=True, exist_ok=True)
+    if settings.homepage_media_storage_backend == "filesystem":
+        storage_dir.mkdir(parents=True, exist_ok=True)
     return storage_dir
 
 
@@ -158,12 +163,11 @@ async def save_upload_to_runtime(
     stored_filename: str,
     max_size_bytes: int,
 ) -> tuple[Path, int, str]:
-    """Save an uploaded file while enforcing size and content signature rules."""
+    """Stage an uploaded file while enforcing size and content signature rules."""
 
-    storage_dir = ensure_storage_root(settings, media_type)
-    destination = storage_dir / stored_filename
-    if destination.exists():
-        raise HTTPException(status_code=500, detail="Generated media filename already exists")
+    staging_dir = PROJECT_ROOT / ".runtime" / "media-upload-staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    destination = staging_dir / f"{uuid4().hex}-{stored_filename}.tmp"
 
     digest = hashlib.sha256()
     total_size = 0
@@ -202,6 +206,11 @@ async def save_upload_to_runtime(
         )
         raise HTTPException(status_code=400, detail="Uploaded file content does not match its extension")
 
+    write_jsonl_event(
+        "backend",
+        "homepage.media.upload.staged",
+        {"mediaType": media_type, "storedFilename": stored_filename, "bytes": total_size},
+    )
     return destination, total_size, digest.hexdigest()
 
 
@@ -222,7 +231,7 @@ async def create_homepage_media(
     extension = normalized_extension(original_filename)
     stored_filename = f"{uuid4().hex}{extension}"
     relative_path = safe_relative_path(settings, media_type, stored_filename)
-    destination, file_size, checksum = await save_upload_to_runtime(
+    staging_path, file_size, checksum = await save_upload_to_runtime(
         upload,
         settings,
         media_type,
@@ -230,6 +239,30 @@ async def create_homepage_media(
         stored_filename,
         max_size_bytes,
     )
+    storage = build_homepage_media_storage(settings)
+    try:
+        storage.store_validated_file(
+            staging_path,
+            relative_path,
+            expected_size=file_size,
+            expected_sha256=checksum,
+        )
+    except MediaObjectCollisionError as exc:
+        staging_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="Generated media filename already exists") from exc
+    except StorageUnavailableError as exc:
+        staging_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail="Media storage temporarily unavailable") from exc
+    except StorageIntegrityError as exc:
+        staging_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=502, detail="Media storage integrity check failed") from exc
+    except Exception:
+        staging_path.unlink(missing_ok=True)
+        raise
+    finally:
+        if staging_path.exists():
+            staging_path.unlink(missing_ok=True)
+            write_jsonl_event("backend", "homepage.media.upload.stage_removed", {"storedFilename": stored_filename})
 
     media = HomepageMedia(
         media_type=media_type,
@@ -261,9 +294,18 @@ async def create_homepage_media(
         db.commit()
     except Exception:
         db.rollback()
-        destination.unlink(missing_ok=True)
-        logger.exception("Homepage media database write failed after saving file for relative path: %s", relative_path)
-        write_jsonl_event("backend", "homepage.media.upload.db_failed_file_removed", {"path": relative_path})
+        try:
+            storage.remove_exact(relative_path)
+            rollback_result = "removed"
+        except Exception as rollback_exc:
+            rollback_result = type(rollback_exc).__name__
+            logger.exception("Homepage media rollback removal failed for storage backend: %s", storage.backend_name)
+        logger.exception("Homepage media database write failed after authoritative file storage")
+        write_jsonl_event(
+            "backend",
+            "homepage.media.upload.db_failed_file_rollback",
+            {"path": relative_path, "storageBackend": storage.backend_name, "rollback": rollback_result},
+        )
         raise
 
     db.refresh(media)
@@ -271,7 +313,13 @@ async def create_homepage_media(
     write_jsonl_event(
         "backend",
         "homepage.media.uploaded",
-        {"mediaId": media.id, "mediaType": media.media_type, "bytes": media.file_size_bytes},
+        {
+            "mediaId": media.id,
+            "mediaType": media.media_type,
+            "bytes": media.file_size_bytes,
+            "storageBackend": storage.backend_name,
+            "checksumPrefix": checksum[:12],
+        },
     )
     return media
 
@@ -405,10 +453,19 @@ def get_public_media_file(db: Session, media_id: int, settings: Settings) -> tup
     if not is_media_published(db, media_id):
         write_jsonl_event("backend", "homepage.media.public_file.denied_unpublished", {"mediaId": media_id})
         raise HTTPException(status_code=404, detail="Media not found")
-    path = resolve_homepage_media_path(settings, media.relative_path)
-    if not path.exists() or not path.is_file():
+    try:
+        path = build_homepage_media_storage(settings).materialize(
+            media.relative_path,
+            expected_size=media.file_size_bytes,
+            expected_sha256=media.checksum_sha256,
+        )
+    except (UnsafeMediaPathError, MediaObjectMissingError):
         write_jsonl_event("backend", "homepage.media.public_file.missing_file", {"mediaId": media_id})
         raise HTTPException(status_code=404, detail="Media file not found")
+    except StorageUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="Media storage temporarily unavailable") from exc
+    except StorageIntegrityError as exc:
+        raise HTTPException(status_code=502, detail="Media storage integrity check failed") from exc
     return media, path
 
 
@@ -416,10 +473,19 @@ def get_admin_media_file(db: Session, media_id: int, settings: Settings) -> tupl
     """Return media and safe file path for admin preview."""
 
     media = get_media(db, media_id)
-    path = resolve_homepage_media_path(settings, media.relative_path)
-    if not path.exists() or not path.is_file():
+    try:
+        path = build_homepage_media_storage(settings).materialize(
+            media.relative_path,
+            expected_size=media.file_size_bytes,
+            expected_sha256=media.checksum_sha256,
+        )
+    except (UnsafeMediaPathError, MediaObjectMissingError):
         write_jsonl_event("backend", "homepage.media.admin_file.missing_file", {"mediaId": media_id})
         raise HTTPException(status_code=404, detail="Media file not found")
+    except StorageUnavailableError as exc:
+        raise HTTPException(status_code=503, detail="Media storage temporarily unavailable") from exc
+    except StorageIntegrityError as exc:
+        raise HTTPException(status_code=502, detail="Media storage integrity check failed") from exc
     return media, path
 
 

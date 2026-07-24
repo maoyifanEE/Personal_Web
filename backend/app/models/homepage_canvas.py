@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,7 +18,7 @@ class HomepageCanvasState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     canvas_key: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
     schema_version: Mapped[str] = mapped_column(String(80), nullable=False)
-    canvas_data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    canvas_data: Mapped[dict] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=False)
     revision: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

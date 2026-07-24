@@ -28,6 +28,9 @@ from app.db import models  # noqa: F401, E402
 from app.main import app  # noqa: E402
 from app.models.audit_log import AuditLog  # noqa: E402
 from app.models.auth import AppUser, AuthSession, Permission, Role, RolePermission, UserRole  # noqa: E402
+from app.models.homepage_canvas import HomepageCanvasState  # noqa: E402
+from app.models.homepage_item import HomepageItem  # noqa: E402
+from app.models.homepage_media import HomepageMedia  # noqa: E402
 from app.models.visitor_message import VisitorMessage  # noqa: E402
 from app.services.rbac_service import ensure_auth_roles_permissions  # noqa: E402
 
@@ -50,6 +53,9 @@ def db_session() -> Generator[Session, None, None]:
         RolePermission.__table__,
         AuthSession.__table__,
         VisitorMessage.__table__,
+        HomepageCanvasState.__table__,
+        HomepageMedia.__table__,
+        HomepageItem.__table__,
     ]
     Base.metadata.create_all(bind=engine, tables=test_tables)
     with TestingSessionLocal() as session:

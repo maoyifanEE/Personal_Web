@@ -247,6 +247,8 @@ Required local development environment values:
 ```text
 APP_ENV=development
 ALLOW_DEV_TOOLS=true
+PERSONAL_WEB_DATA_PROFILE=local
+HOMEPAGE_MEDIA_STORAGE_BACKEND=filesystem
 CORS_ALLOW_ORIGINS=http://127.0.0.1:4173,http://localhost:4173
 ```
 
@@ -402,6 +404,32 @@ It reuses the existing homepage media and item APIs. It does not add a new
 database schema. Uploading media alone does not publish it; a visible homepage
 item or the published Journey canvas must reference an enabled media row before
 the public file route becomes available. Hiding an item from the UI is a soft hide.
+
+## Shared Remote Development Foundation
+
+The backend now has an explicit `shared_remote` data profile for a future
+isolated shared-development environment:
+
+```text
+PERSONAL_WEB_DATA_PROFILE=shared_remote
+HOMEPAGE_MEDIA_STORAGE_BACKEND=sftp
+```
+
+Validation allows this only when `APP_ENV=development` and all required SFTP
+settings are present. Production rejects `shared_remote`, rejects SFTP media,
+and rejects shared-development SFTP settings.
+
+The shared launcher constructs `DATABASE_URL` only in process memory from the
+protected external secret file. It must not write that URL to `backend/.env`.
+Unlike the local launcher, shared mode must not run `alembic upgrade head` or
+`python -m app.scripts.seed_dev_auth_users`.
+
+Homepage media now goes through a storage abstraction. Local mode remains
+filesystem-backed under `data/uploads/homepage/`. Shared mode maps the same
+database logical paths to a future SFTP root and materializes reads through the
+non-authoritative cache at `.runtime/shared-media-cache/`. Uploads are first
+validated in `.runtime/media-upload-staging/`, then stored authoritatively, and
+an exact newly stored object is removed if the database metadata commit fails.
 
 Save the shared Journey canvas as an authenticated admin:
 
