@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.core.diagnostics import PROJECT_ROOT, write_jsonl_event
 from app.storage.errors import MediaObjectCollisionError, MediaObjectMissingError, StorageIntegrityError
 from app.storage.homepage_media_storage import validate_managed_logical_path
+from app.storage.integrity import sha256_file
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class FilesystemHomepageMediaStorage:
             raise MediaObjectCollisionError("Media destination already exists")
         destination.parent.mkdir(parents=True, exist_ok=True)
         actual_size = staging_path.stat().st_size
-        actual_sha256 = hashlib.sha256(staging_path.read_bytes()).hexdigest()
+        actual_sha256 = sha256_file(staging_path)
         if actual_size != expected_size or actual_sha256 != expected_sha256:
             raise StorageIntegrityError("Staged media failed integrity validation")
         staging_path.replace(destination)
@@ -75,7 +76,7 @@ class FilesystemHomepageMediaStorage:
         if expected_size is not None and path.stat().st_size != expected_size:
             raise StorageIntegrityError("Filesystem media size mismatch")
         if expected_sha256:
-            actual_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+            actual_sha256 = sha256_file(path)
             if actual_sha256 != expected_sha256:
                 raise StorageIntegrityError("Filesystem media checksum mismatch")
         return path

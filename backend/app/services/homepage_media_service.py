@@ -295,16 +295,50 @@ async def create_homepage_media(
     except Exception:
         db.rollback()
         try:
-            storage.remove_exact(relative_path)
-            rollback_result = "removed"
-        except Exception as rollback_exc:
-            rollback_result = type(rollback_exc).__name__
+            removed = storage.remove_exact(relative_path)
+            rollback_result = "removed" if removed else "already_missing"
+        except Exception:
+            rollback_result = "rollback_failed"
             logger.exception("Homepage media rollback removal failed for storage backend: %s", storage.backend_name)
+            write_jsonl_event(
+                "backend",
+                "homepage.media.upload.orphan_candidate",
+                {
+                    "path": relative_path,
+                    "storageBackend": storage.backend_name,
+                    "storedFilename": stored_filename,
+                    "bytes": file_size,
+                    "checksumPrefix": checksum[:12],
+                    "rollback": "rollback_failed",
+                    "severity": "high",
+                },
+            )
+        if rollback_result == "already_missing":
+            write_jsonl_event(
+                "backend",
+                "homepage.media.upload.orphan_candidate",
+                {
+                    "path": relative_path,
+                    "storageBackend": storage.backend_name,
+                    "storedFilename": stored_filename,
+                    "bytes": file_size,
+                    "checksumPrefix": checksum[:12],
+                    "rollback": rollback_result,
+                    "severity": "high",
+                },
+            )
         logger.exception("Homepage media database write failed after authoritative file storage")
         write_jsonl_event(
             "backend",
             "homepage.media.upload.db_failed_file_rollback",
-            {"path": relative_path, "storageBackend": storage.backend_name, "rollback": rollback_result},
+            {
+                "path": relative_path,
+                "storageBackend": storage.backend_name,
+                "storedFilename": stored_filename,
+                "bytes": file_size,
+                "checksumPrefix": checksum[:12],
+                "rollback": rollback_result,
+            },
         )
         raise
 

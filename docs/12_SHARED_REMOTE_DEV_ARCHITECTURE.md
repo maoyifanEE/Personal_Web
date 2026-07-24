@@ -1,8 +1,9 @@
 # Shared Remote Development Architecture
 
-This document describes the code foundation for an isolated shared-development
-data profile. It does not configure the real server, real database, real SFTP
-account, SSH keys, or host keys.
+This document describes the hardened code foundation for an isolated
+shared-development data profile. The real startup path is implemented, but the
+real server, real database, real SFTP account, SSH config, SSH keys, and host
+keys remain a separate reviewed configuration phase.
 
 ## Profiles
 
@@ -24,10 +25,11 @@ user profile. The code defines a strict allowlist parser for synthetic fixtures
 and future launcher use. Blank lines and comments are ignored; unknown keys,
 duplicates, and malformed lines are rejected without printing values.
 
-Required database tunnel fields:
+Required database tunnel and media fields:
 
 ```text
 SHARED_DEV_SSH_ALIAS
+SHARED_DEV_DB_SSH_CONFIG_PATH
 SHARED_DEV_DB_LOCAL_HOST
 SHARED_DEV_DB_LOCAL_PORT
 SHARED_DEV_DB_REMOTE_HOST
@@ -36,47 +38,76 @@ SHARED_DEV_DB_NAME
 SHARED_DEV_DB_USER
 SHARED_DEV_DB_PASSWORD
 SHARED_DEV_REMOTE_MEDIA_ROOT
-```
-
-Future media SFTP fields:
-
-```text
 SHARED_DEV_MEDIA_SSH_ALIAS
 SHARED_DEV_MEDIA_SSH_CONFIG_PATH
-SHARED_DEV_MEDIA_REMOTE_ROOT
+```
+
+Optional fields:
+
+```text
 SHARED_DEV_MEDIA_CACHE_MAX_MB
 SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS
 ```
 
-The secret must not contain private-key material. SFTP uses an explicit
-OpenSSH config alias and key identity from that config.
+`SHARED_DEV_REMOTE_MEDIA_ROOT` is the canonical external secret key. The
+launcher maps it into the backend process as `SHARED_DEV_MEDIA_REMOTE_ROOT`.
+Synthetic fixtures may temporarily use deprecated `SHARED_DEV_MEDIA_REMOTE_ROOT`
+only when the canonical key is absent or both values are identical.
+
+The secret must not contain private-key material. Database tunnel and media SFTP
+use separate explicit OpenSSH config paths and separate aliases.
 
 ## Launcher Lifecycle
 
-`start-shared-dev.bat` calls `scripts/start-shared-dev.ps1`. The shared launcher
-resolves the protected secret path, parses it, rejects production-like database
-names, requires loopback-only database access, starts SSH with `-N`, explicit
-`-F`, `BatchMode=yes`, `ExitOnForwardFailure=yes`, password authentication
-disabled, and a loopback-only `-L`.
+`start-shared-dev.bat` supports:
 
-The launcher records only sanitized tunnel metadata under
-`.runtime/shared-dev/tunnel-state.json`: PID, process start time, local port,
-alias, executable, and repository root. It never records the password, complete
-database URL, private-key path, or raw SSH configuration.
+```text
+start-shared-dev.bat
+start-shared-dev.bat keep-session
+start-shared-dev.bat --help
+```
 
-Shared mode must check database identity and Alembic revision read-only before
-backend startup, and it must perform an SFTP preflight. This task includes dry
-run and validation paths using synthetic fixtures only. It does not run real
-shared preflights.
+The shared launcher resolves the protected secret path, parses it through
+`config/shared-dev-secret-contract.json`, rejects production-like database
+names, requires the allowlisted shared-development database and role, requires
+loopback-only database access, installs the project venv requirements, starts
+SSH with `-N`, explicit DB `-F`, `BatchMode=yes`,
+`ExitOnForwardFailure=yes`, `PasswordAuthentication=no`,
+`KbdInteractiveAuthentication=no`, `PreferredAuthentications=publickey`, and a
+loopback-only `-L`.
+
+The launcher does not write a successful session state until tunnel, DB
+preflight, SFTP preflight, backend readiness, frontend readiness, and no-store
+checks succeed. It records sanitized process metadata under
+`.runtime/shared-dev/shared-session-state.json`: schema version, repository
+root, profile, creation time, DB tunnel PID/start time/executable/local
+port/alias, backend listener identity, and frontend listener identity. It never
+records the password, complete database URL, private-key path, host/IP, command
+line, or raw SSH configuration.
+
+Shared mode checks database identity and Alembic revision read-only before
+backend startup using `python -m app.scripts.check_shared_dev_preflight`. The
+helper requires exactly one code Alembic head and exact database revision
+equality. Shared mode then runs `python -m
+app.scripts.check_shared_dev_sftp_preflight`, which calls the configured SFTP
+backend preflight without uploading, renaming, chmodding, or deleting.
+
+The real launcher must not be run until the next reviewed configuration phase
+updates the protected secret and SSH/SFTP setup. Tests use `-ValidateOnly`,
+`-DryRun`, synthetic secrets, and fake implementations only.
 
 Default browser startup still clears the current session with `?devLogout=1`.
 Passing `keep-session` preserves the existing session.
 
-`scripts/stop-local-dev.ps1` still stops local backend/frontend listeners on
-ports 8000 and 4173. It also inspects the shared tunnel state file and stops a
-tunnel only when PID, process start time, executable, local loopback port owner,
-state owner, and repository root all match. It does not kill arbitrary `ssh.exe`
-processes.
+`stop-shared-dev.bat` calls `scripts/stop-shared-dev.ps1`. The shared stop
+script validates session schema, repository ownership, profile, PID, process
+start time, executable, and expected listener ownership before stopping backend,
+frontend, then tunnel. It never kills a process merely because it is named
+`ssh.exe`, `python.exe`, or `powershell.exe`.
+
+`scripts/stop-local-dev.ps1` remains compatible with local 8000/4173 cleanup
+and delegates shared session cleanup to the dedicated shared stop script when
+present.
 
 ## Media Storage
 
@@ -100,6 +131,12 @@ SFTP mode strips the exact logical root prefix and appends the safe suffix under
 the configured remote root. The remote path is normalized as POSIX and checked
 so it cannot escape the remote root.
 
+SFTP resolves the explicit media alias and requires `HostName`, `User`, `Port`,
+exactly one `IdentityFile`, and exactly one `UserKnownHostsFile`. The media user
+must be `personal-web-dev`; `root` is rejected. Unknown or changed host keys are
+rejected by Paramiko `RejectPolicy`. Password authentication, SSH-agent fallback
+and implicit key discovery stay disabled.
+
 ## Uploads And Rollback
 
 Uploads stream first into `.runtime/media-upload-staging/`. Existing size,
@@ -113,20 +150,27 @@ images/<uuid>.<extension>
 videos/<uuid>.<extension>
 ```
 
-SFTP storage uploads to a unique remote temporary path, verifies remote size,
-verifies SHA-256 by reading back the remote object, and atomically renames to
-the final object. If database metadata commit fails after authoritative storage
-succeeds, the service removes only the exact newly stored object. Homepage item
-deletion remains a soft hide; this task adds no general media cleanup.
+SFTP storage uploads to a unique remote temporary path, verifies temporary
+remote size and streaming SHA-256, atomically renames to the final object, then
+verifies final remote size and streaming SHA-256. Temporary remote objects are
+removed on failure paths. If database metadata commit fails after authoritative
+storage succeeds, the service removes only the exact newly stored object and
+logs `removed`, `already_missing`, or `rollback_failed`. Unexpected missing or
+failed rollback emits a high-severity sanitized orphan-candidate diagnostic.
+Homepage item deletion remains a soft hide; this task adds no general media
+cleanup.
 
 ## Cache
 
-SFTP reads materialize into `.runtime/shared-media-cache/`. Cache identity uses
-the logical suffix, expected size, and expected checksum when available. Hits
-are size-checked and checksum-checked when possible. Corrupt cache files are
-removed and fetched again. Downloads use a temporary file followed by atomic
-rename. Cache cleanup prunes by retention days and maximum total MB, and only
-inside the shared media cache directory.
+SFTP reads materialize into `.runtime/shared-media-cache/`. Cache filenames are
+fixed-length digests with safe media extensions. Cache identity uses the logical
+suffix, expected size, and expected checksum when available. Hits are
+size-checked and checksum-checked when possible. Corrupt cache files are removed
+and fetched again. Downloads use a unique temporary file followed by atomic
+rename. Cache cleanup prunes by retention days and maximum total MB, ignores
+symlinks, tolerates races, removes stale cache temp files, and only operates
+inside the shared media cache directory. Best-effort pruning failure is logged
+but does not fail an already verified media read.
 
 The cache is never authoritative. Missing authoritative media returns not found.
 Storage outages return temporary unavailable. Integrity mismatches are not

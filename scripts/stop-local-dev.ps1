@@ -2,7 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ports = @(8000, 4173)
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$sharedTunnelStatePath = Join-Path $repoRoot ".runtime\shared-dev\tunnel-state.json"
+$sharedStopScript = Join-Path $repoRoot "scripts\stop-shared-dev.ps1"
 $launcherLogDir = Join-Path $repoRoot ".local_logs\launcher"
 New-Item -ItemType Directory -Force -Path $launcherLogDir | Out-Null
 $stopLogPath = Join-Path $launcherLogDir ("stop-local-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -113,4 +113,6 @@ function Stop-VerifiedSharedTunnel {
 
 Write-StopLog "[Personal_Web local dev] Stop log: $stopLogPath"
 Stop-LocalDevPortListeners
-Stop-VerifiedSharedTunnel -StatePath $sharedTunnelStatePath
+if (Test-Path -LiteralPath $sharedStopScript) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sharedStopScript
+}

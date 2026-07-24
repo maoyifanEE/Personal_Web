@@ -415,14 +415,27 @@ PERSONAL_WEB_DATA_PROFILE=shared_remote
 HOMEPAGE_MEDIA_STORAGE_BACKEND=sftp
 ```
 
-Validation allows this only when `APP_ENV=development` and all required SFTP
-settings are present. Production rejects `shared_remote`, rejects SFTP media,
-and rejects shared-development SFTP settings.
+Validation allows this only when `APP_ENV=development`, the database URL is a
+`postgresql+psycopg` loopback tunnel URL for the allowlisted
+shared-development database and role, and all required SFTP settings are
+present. Production rejects `shared_remote`, rejects SFTP media, and rejects
+shared-development SFTP settings.
 
 The shared launcher constructs `DATABASE_URL` only in process memory from the
 protected external secret file. It must not write that URL to `backend/.env`.
 Unlike the local launcher, shared mode must not run `alembic upgrade head` or
 `python -m app.scripts.seed_dev_auth_users`.
+
+The protected external secret contract is defined by
+`config/shared-dev-secret-contract.json`. It uses separate database and media
+SSH config paths. The canonical media root key is
+`SHARED_DEV_REMOTE_MEDIA_ROOT`; the launcher maps it into the backend as
+`SHARED_DEV_MEDIA_REMOTE_ROOT`.
+
+The launcher real path is implemented but should not be run against the real
+shared environment until the next reviewed configuration phase. Tests use only
+synthetic secrets, fake executables, fake SFTP clients, and injected database
+preflight connections.
 
 Homepage media now goes through a storage abstraction. Local mode remains
 filesystem-backed under `data/uploads/homepage/`. Shared mode maps the same

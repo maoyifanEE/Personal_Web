@@ -6,12 +6,21 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+
+SHARED_DEV_DATABASE_NAME = "personal_web_shared_dev"
+SHARED_DEV_DATABASE_USER = "personal_web_shared_dev_app"
 
 
 class Settings(BaseSettings):
     """Runtime settings for the local-development backend foundation."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
 
     app_env: Literal["development", "test", "production"] = Field("development", alias="APP_ENV")
     app_name: str = Field("Personal Web Backend", alias="APP_NAME")
@@ -141,6 +150,7 @@ class Settings(BaseSettings):
                 raise ValueError("PERSONAL_WEB_DATA_PROFILE=shared_remote is allowed only in development")
             if self.homepage_media_storage_backend != "sftp":
                 raise ValueError("PERSONAL_WEB_DATA_PROFILE=shared_remote requires HOMEPAGE_MEDIA_STORAGE_BACKEND=sftp")
+            self._validate_shared_remote_database_url()
             missing = [
                 name
                 for name, value in {
@@ -175,6 +185,32 @@ class Settings(BaseSettings):
         if self.app_env == "production" and not self.cookie_secure:
             raise ValueError("COOKIE_SECURE must be true when APP_ENV=production")
         return self
+
+    def _validate_shared_remote_database_url(self) -> None:
+        """Validate shared-remote database URL without exposing URL components."""
+
+        try:
+            url = make_url(self.database_url)
+        except Exception as exc:
+            raise ValueError("Shared remote DATABASE_URL is invalid") from exc
+        if url.drivername != "postgresql+psycopg":
+            raise ValueError("Shared remote DATABASE_URL must use the supported PostgreSQL driver")
+        if url.host != "127.0.0.1":
+            raise ValueError("Shared remote DATABASE_URL must use the loopback tunnel endpoint")
+        if url.port is None or not (1 <= int(url.port) <= 65535):
+            raise ValueError("Shared remote DATABASE_URL must include a valid tunnel port")
+        if not url.database:
+            raise ValueError("Shared remote DATABASE_URL must include a database name")
+        if url.database != SHARED_DEV_DATABASE_NAME:
+            raise ValueError("Shared remote DATABASE_URL database is not allowlisted")
+        if "prod" in url.database.lower():
+            raise ValueError("Shared remote DATABASE_URL database is not allowlisted")
+        if not url.username:
+            raise ValueError("Shared remote DATABASE_URL must include a database user")
+        if url.username != SHARED_DEV_DATABASE_USER:
+            raise ValueError("Shared remote DATABASE_URL user is not allowlisted")
+        if url.password is None or url.password == "":
+            raise ValueError("Shared remote DATABASE_URL must include a password")
 
     @property
     def cors_origins(self) -> list[str]:

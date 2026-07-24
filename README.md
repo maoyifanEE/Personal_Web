@@ -389,12 +389,15 @@ PERSONAL_WEB_DATA_PROFILE=shared_remote
 HOMEPAGE_MEDIA_STORAGE_BACKEND=sftp
 ```
 
-This profile is development-only. It never falls back to local authoritative
-data, never writes a database URL to `backend/.env`, and the shared launcher
-does not run Alembic migrations or the development auth seed.
+This profile is development-only. Backend settings independently require the
+shared database URL to be a `postgresql+psycopg` loopback tunnel URL for the
+allowlisted shared-development database and role. It never falls back to local
+authoritative data, never writes a database URL to `backend/.env`, and the
+shared launcher does not run Alembic migrations or the development auth seed.
 
-Use the dedicated launcher only after the protected external secret file and
-future SFTP account are intentionally configured:
+The real launcher path is implemented, but must be used only after the next
+reviewed configuration phase updates the protected external secret, separate DB
+and media SSH configs, and the future SFTP account:
 
 ```powershell
 .\start-shared-dev.bat
@@ -406,6 +409,12 @@ The shared launcher keeps the existing default guest reset by opening
 this code-foundation phase, tests use synthetic secret files and fake SSH/SFTP
 clients only. The real shared server, database, and media storage must not be
 contacted from tests.
+
+Stop a shared session with:
+
+```powershell
+.\stop-shared-dev.bat
+```
 
 Architecture details are documented in:
 

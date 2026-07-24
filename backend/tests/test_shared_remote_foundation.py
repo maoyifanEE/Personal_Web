@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+import stat
 import types
 
 import pytest
 from fastapi import HTTPException
 
 from app.core.config import Settings
-from app.core.shared_dev_secrets import SharedDevSecretError, parse_shared_dev_secret_text
+from app.core.shared_dev_secrets import (
+    SharedDevSecretError,
+    allowed_shared_dev_secret_keys,
+    load_shared_dev_secret_contract,
+    parse_shared_dev_secret_text,
+    required_shared_dev_secret_keys,
+)
+from app.scripts.check_shared_dev_preflight import SharedDevPreflightError, run_database_preflight
+from app.scripts.check_shared_dev_sftp_preflight import SharedDevSftpPreflightError, run_sftp_preflight
 from app.models.homepage_canvas import HomepageCanvasState
 from app.models.homepage_item import HomepageItem
 from app.models.homepage_media import HomepageMedia
@@ -38,6 +47,18 @@ def make_settings(**overrides) -> Settings:
     return Settings(**values)
 
 
+def safe_shared_overrides() -> dict[str, object]:
+    return {
+        "APP_ENV": "development",
+        "DATABASE_URL": "postgresql+psycopg://personal_web_shared_dev_app:secret@127.0.0.1:65432/personal_web_shared_dev",
+        "PERSONAL_WEB_DATA_PROFILE": "shared_remote",
+        "HOMEPAGE_MEDIA_STORAGE_BACKEND": "sftp",
+        "SHARED_DEV_MEDIA_SSH_ALIAS": "shared-media",
+        "SHARED_DEV_MEDIA_SSH_CONFIG_PATH": "C:/synthetic/config",
+        "SHARED_DEV_MEDIA_REMOTE_ROOT": "/remote/root",
+    }
+
+
 def test_default_profile_is_local_filesystem():
     settings = make_settings()
 
@@ -57,6 +78,7 @@ def test_shared_remote_requires_complete_sftp_settings_without_secret_values():
     with pytest.raises(ValueError) as exc:
         make_settings(
             APP_ENV="development",
+            DATABASE_URL=safe_shared_overrides()["DATABASE_URL"],
             PERSONAL_WEB_DATA_PROFILE="shared_remote",
             HOMEPAGE_MEDIA_STORAGE_BACKEND="sftp",
             SHARED_DEV_MEDIA_SSH_ALIAS="shared-media",
@@ -66,6 +88,34 @@ def test_shared_remote_requires_complete_sftp_settings_without_secret_values():
     message = str(exc.value)
     assert "SHARED_DEV_MEDIA_REMOTE_ROOT" in message
     assert "shared-media" not in message
+
+
+def test_shared_remote_accepts_exact_safe_loopback_url():
+    settings = make_settings(**safe_shared_overrides())
+
+    assert settings.uses_shared_remote_data is True
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql+psycopg://personal_web_shared_dev_app:secret@localhost:65432/personal_web_shared_dev",
+        "postgresql+psycopg://personal_web_shared_dev_app:secret@example.test:65432/personal_web_shared_dev",
+        "postgresql+psycopg://wrong:secret@127.0.0.1:65432/personal_web_shared_dev",
+        "postgresql+psycopg://personal_web_shared_dev_app@127.0.0.1:65432/personal_web_shared_dev",
+        "postgresql://personal_web_shared_dev_app:secret@127.0.0.1:65432/personal_web_shared_dev",
+        "postgresql+psycopg://personal_web_shared_dev_app:secret@127.0.0.1/personal_web_shared_dev",
+        "postgresql+psycopg://personal_web_shared_dev_app:secret@127.0.0.1:65432/personal_web_prod",
+    ],
+)
+def test_shared_remote_rejects_unsafe_database_urls_without_leaking_components(url):
+    with pytest.raises(ValueError) as exc:
+        make_settings(**{**safe_shared_overrides(), "DATABASE_URL": url})
+
+    message = str(exc.value)
+    assert "secret" not in message
+    assert "example.test" not in message
+    assert "localhost" not in message
 
 
 def test_production_rejects_shared_settings():
@@ -97,6 +147,47 @@ def test_secret_parser_allowlist_and_preserves_values():
     )
 
     assert parsed["SHARED_DEV_DB_PASSWORD"] == "a value with spaces and # symbols"
+
+
+def test_secret_contract_required_and_allowed_sets_are_canonical():
+    contract = load_shared_dev_secret_contract()
+
+    assert "SHARED_DEV_DB_SSH_CONFIG_PATH" in required_shared_dev_secret_keys(contract)
+    assert "SHARED_DEV_REMOTE_MEDIA_ROOT" in required_shared_dev_secret_keys(contract)
+    assert "SHARED_DEV_MEDIA_REMOTE_ROOT" in allowed_shared_dev_secret_keys(contract)
+
+
+def test_secret_parser_requires_all_and_handles_deprecated_root_alias():
+    text = "\n".join(
+        [
+            "SHARED_DEV_SSH_ALIAS=shared-db",
+            "SHARED_DEV_DB_SSH_CONFIG_PATH=C:/synthetic/db_config",
+            "SHARED_DEV_DB_LOCAL_HOST=127.0.0.1",
+            "SHARED_DEV_DB_LOCAL_PORT=65432",
+            "SHARED_DEV_DB_REMOTE_HOST=127.0.0.1",
+            "SHARED_DEV_DB_REMOTE_PORT=5432",
+            "SHARED_DEV_DB_NAME=personal_web_shared_dev",
+            "SHARED_DEV_DB_USER=personal_web_shared_dev_app",
+            "SHARED_DEV_DB_PASSWORD=do-not-print",
+            "SHARED_DEV_MEDIA_REMOTE_ROOT=/remote/root",
+            "SHARED_DEV_MEDIA_SSH_ALIAS=shared-media",
+            "SHARED_DEV_MEDIA_SSH_CONFIG_PATH=C:/synthetic/media_config",
+        ]
+    )
+
+    parsed = parse_shared_dev_secret_text(text, require_all=True)
+
+    assert parsed["SHARED_DEV_REMOTE_MEDIA_ROOT"] == "/remote/root"
+
+
+def test_secret_parser_rejects_conflicting_remote_roots_without_values():
+    with pytest.raises(SharedDevSecretError) as exc:
+        parse_shared_dev_secret_text(
+            "SHARED_DEV_REMOTE_MEDIA_ROOT=/one\nSHARED_DEV_MEDIA_REMOTE_ROOT=/two\n",
+        )
+
+    assert "/one" not in str(exc.value)
+    assert "/two" not in str(exc.value)
 
 
 @pytest.mark.parametrize(
@@ -154,12 +245,7 @@ def test_filesystem_backend_store_materialize_and_collision(tmp_path, monkeypatc
 def test_sftp_mapping_rejects_unsafe_paths(logical_path):
     storage = SftpHomepageMediaStorage(
         make_settings(
-            APP_ENV="development",
-            PERSONAL_WEB_DATA_PROFILE="shared_remote",
-            HOMEPAGE_MEDIA_STORAGE_BACKEND="sftp",
-            SHARED_DEV_MEDIA_SSH_ALIAS="media",
-            SHARED_DEV_MEDIA_SSH_CONFIG_PATH="C:/synthetic/config",
-            SHARED_DEV_MEDIA_REMOTE_ROOT="/srv/personal-web/shared-dev/homepage",
+            **safe_shared_overrides(),
         )
     )
 
@@ -198,7 +284,8 @@ class FakeSftp:
         if path not in self.files and not any(item.startswith(path.rstrip("/") + "/") for item in self.files):
             raise FileNotFoundError(path)
         data = self.files.get(path, b"")
-        return types.SimpleNamespace(st_size=len(data))
+        mode = stat.S_IFDIR if path in {"/remote", "/remote/root", "/remote/root/images"} else stat.S_IFREG
+        return types.SimpleNamespace(st_size=len(data), st_mode=mode)
 
     def mkdir(self, path: str):
         self.files.setdefault(path, b"")
@@ -224,18 +311,17 @@ class FakeSftp:
     def close(self):
         self.closed = True
 
+    def listdir(self, path: str):
+        self.stat(path)
+        return []
+
 
 def make_sftp_storage(tmp_path, monkeypatch, fake):
     monkeypatch.setattr("app.core.diagnostics.PROJECT_ROOT", tmp_path)
     monkeypatch.setattr("app.storage.sftp_homepage_media_storage.PROJECT_ROOT", tmp_path)
     return SftpHomepageMediaStorage(
         make_settings(
-            APP_ENV="development",
-            PERSONAL_WEB_DATA_PROFILE="shared_remote",
-            HOMEPAGE_MEDIA_STORAGE_BACKEND="sftp",
-            SHARED_DEV_MEDIA_SSH_ALIAS="media",
-            SHARED_DEV_MEDIA_SSH_CONFIG_PATH="C:/synthetic/config",
-            SHARED_DEV_MEDIA_REMOTE_ROOT="/remote/root",
+            **safe_shared_overrides(),
             SHARED_DEV_MEDIA_CACHE_MAX_MB=1,
             SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS=1,
         ),
@@ -270,6 +356,7 @@ def test_fake_sftp_materialize_cache_hit_and_corrupt_refetch(tmp_path, monkeypat
     second = storage.materialize("data/uploads/homepage/images/a.png", expected_size=len(payload), expected_sha256=checksum)
 
     assert second.read_bytes() == payload
+    assert len(second.name) <= 80
 
 
 def test_fake_sftp_unavailable_and_hash_mismatch(tmp_path, monkeypatch):
@@ -283,6 +370,180 @@ def test_fake_sftp_unavailable_and_hash_mismatch(tmp_path, monkeypatch):
     broken._client_factory = lambda: (_ for _ in ()).throw(OSError("synthetic"))
     with pytest.raises(StorageUnavailableError):
         broken.materialize("data/uploads/homepage/images/a.png")
+
+
+def write_ssh_config(tmp_path: Path, *, user: str = "personal-web-dev", port: str = "2200") -> tuple[Path, Path, Path]:
+    key = tmp_path / "identity"
+    known_hosts = tmp_path / "known_hosts"
+    config = tmp_path / "ssh_config"
+    key.write_text("synthetic key placeholder", encoding="utf-8")
+    known_hosts.write_text("synthetic known host placeholder", encoding="utf-8")
+    config.write_text(
+        f"""
+Host shared-media
+  HostName synthetic.example.test
+  User {user}
+  Port {port}
+  IdentityFile {key}
+  UserKnownHostsFile {known_hosts}
+""".strip(),
+        encoding="utf-8",
+    )
+    return config, key, known_hosts
+
+
+def test_sftp_alias_rejects_root_before_connect(tmp_path):
+    config, _, _ = write_ssh_config(tmp_path, user="root")
+    settings = make_settings(**{**safe_shared_overrides(), "SHARED_DEV_MEDIA_SSH_CONFIG_PATH": str(config)})
+    storage = SftpHomepageMediaStorage(settings)
+
+    with pytest.raises(StorageUnavailableError, match="user"):
+        with storage._connect():
+            pass
+
+
+def test_sftp_alias_uses_explicit_port_and_disables_agent(monkeypatch, tmp_path):
+    config, _, _ = write_ssh_config(tmp_path, port="2207")
+    captured: dict[str, object] = {}
+
+    class FakeSshClient:
+        def load_host_keys(self, path):
+            captured["known_hosts_loaded"] = True
+
+        def set_missing_host_key_policy(self, policy):
+            captured["reject_policy"] = type(policy).__name__
+
+        def connect(self, **kwargs):
+            captured.update(kwargs)
+
+        def open_sftp(self):
+            return FakeSftp({"/remote/root": b""})
+
+        def close(self):
+            captured["client_closed"] = True
+
+    import paramiko
+
+    monkeypatch.setattr(paramiko, "SSHClient", FakeSshClient)
+    settings = make_settings(**{**safe_shared_overrides(), "SHARED_DEV_MEDIA_SSH_CONFIG_PATH": str(config)})
+    storage = SftpHomepageMediaStorage(settings)
+
+    with storage._connect() as sftp:
+        assert sftp is not None
+
+    assert captured["port"] == 2207
+    assert captured["allow_agent"] is False
+    assert captured["look_for_keys"] is False
+    assert captured["known_hosts_loaded"] is True
+    assert captured["client_closed"] is True
+
+
+def test_cache_prune_failure_is_nonfatal_after_verified_download(tmp_path, monkeypatch):
+    payload = b"cache payload"
+    checksum = hashlib.sha256(payload).hexdigest()
+    fake = FakeSftp({"/remote/root/images/a.png": payload})
+    storage = make_sftp_storage(tmp_path, monkeypatch, fake)
+    monkeypatch.setattr(storage, "prune_cache", lambda: (_ for _ in ()).throw(OSError("synthetic prune")))
+
+    materialized = storage.materialize(
+        "data/uploads/homepage/images/a.png",
+        expected_size=len(payload),
+        expected_sha256=checksum,
+    )
+
+    assert materialized.read_bytes() == payload
+
+
+def test_sftp_preflight_fake_requires_shared_profile(tmp_path, monkeypatch):
+    fake = FakeSftp({"/remote/root": b""})
+    storage = make_sftp_storage(tmp_path, monkeypatch, fake)
+
+    assert run_sftp_preflight(settings=make_settings(**safe_shared_overrides()), storage=storage)["ok"] is True
+    with pytest.raises(SharedDevSftpPreflightError):
+        run_sftp_preflight(settings=make_settings(), storage=storage)
+
+
+class FakeTransaction:
+    def __init__(self):
+        self.rolled_back = False
+
+    def rollback(self):
+        self.rolled_back = True
+
+
+class FakeConnection:
+    def __init__(self, values):
+        self.values = list(values)
+        self.sql: list[str] = []
+        self.transaction = FakeTransaction()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def begin(self):
+        return self.transaction
+
+    def execute(self, statement):
+        self.sql.append(str(statement).lower())
+        return types.SimpleNamespace(scalar_one=lambda: self.values.pop(0))
+
+
+class FakeEngine:
+    def __init__(self, values):
+        self.connection = FakeConnection(values)
+        self.disposed = False
+
+    def connect(self):
+        return self.connection
+
+    def dispose(self):
+        self.disposed = True
+
+
+def test_database_preflight_fake_passes_and_uses_read_only_queries():
+    engine = FakeEngine(["personal_web_shared_dev", "personal_web_shared_dev_app", "head123"])
+
+    result = run_database_preflight(
+        settings=make_settings(**safe_shared_overrides()),
+        engine_factory=lambda url: engine,
+        code_heads_factory=lambda: ["head123"],
+    )
+
+    assert result["ok"] is True
+    assert all("insert" not in sql and "update" not in sql and "delete" not in sql for sql in engine.connection.sql)
+    assert engine.connection.transaction.rolled_back is True
+    assert engine.disposed is True
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["wrong", "personal_web_shared_dev_app", "head123"],
+        ["personal_web_shared_dev", "wrong", "head123"],
+        ["personal_web_shared_dev", "personal_web_shared_dev_app", "old"],
+    ],
+)
+def test_database_preflight_fake_rejects_identity_or_revision(values):
+    engine = FakeEngine(values)
+
+    with pytest.raises(SharedDevPreflightError):
+        run_database_preflight(
+            settings=make_settings(**safe_shared_overrides()),
+            engine_factory=lambda url: engine,
+            code_heads_factory=lambda: ["head123"],
+        )
+
+
+def test_database_preflight_rejects_multiple_code_heads():
+    with pytest.raises(SharedDevPreflightError):
+        run_database_preflight(
+            settings=make_settings(**safe_shared_overrides()),
+            engine_factory=lambda url: FakeEngine([]),
+            code_heads_factory=lambda: ["a", "b"],
+        )
 
 
 def test_existing_media_public_rules_and_data_url_unchanged(client, db_session):
