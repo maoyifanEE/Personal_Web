@@ -399,10 +399,18 @@ environment interpreter at `backend\.venv\Scripts\python.exe` without
 `uvicorn --reload`; source changes require `stop-shared-dev.bat` followed by a
 manual restart in this version. It uses an auto-releasing project-scoped Windows
 mutex for mutual exclusion and does not persist raw child stdout/stderr.
-Shared session state uses schema version 2 and includes verified child-listener
-identity fields when Windows venv process topology requires them. The stop
-script returns nonzero when state is unreadable, incompatible, or cleanup needs
-manual review.
+Shared session state uses schema version 3 and records an explicit
+`listenerTopology` of `direct` or `direct_child`. Direct records must not contain
+child-listener identity fields. Direct-child records must contain
+`listenerPid`, `listenerStartTimeUtc`, `listenerExecutable`, and
+`listenerParentPid`; the stop script rejects missing, partial, changed, reused,
+wildcard, or ambiguous listener identity without repairing persisted state.
+Startup cleanup is classified as complete or manual-review incomplete. Complete
+cleanup removes current-run state and temporary files; incomplete cleanup
+preserves sanitized recovery evidence. Before starting the frontend, the
+launcher clears shared backend variables such as `DATABASE_URL`,
+`PERSONAL_WEB_DATA_PROFILE`, SFTP settings, and media cache settings so the
+frontend process does not inherit database or storage credentials.
 
 The shared secret contract requires the database SSH alias
 `personal-web-shared-db` to resolve to user `personal-web-db-tunnel`, the media

@@ -430,10 +430,15 @@ Shared mode intentionally starts backend and frontend through
 `stop-shared-dev.bat` and restart the shared launcher after source changes. The
 launcher uses an auto-releasing project-scoped Windows mutex, validates captured
 process records before cleanup, and does not persist raw child stdout/stderr.
-Shared session state is schema version 2 and records full child-listener
-identity when the venv launcher process has a direct socket-owning child. Stop
-returns a nonzero exit code when cleanup is refused or state requires manual
-review.
+Shared session state is schema version 3 and records explicit listener topology.
+`direct` records require the managed process to own the only `127.0.0.1`
+listener and must not carry child identity fields. `direct_child` records require
+`listenerPid`, `listenerStartTimeUtc`, `listenerExecutable`, and
+`listenerParentPid`; persisted records are rejected rather than repaired when
+any identity field is missing or changed. Incomplete startup cleanup preserves a
+sanitized recovery state for manual review. The frontend is started only after
+the launcher clears shared backend variables, including `DATABASE_URL`, data
+profile, SFTP settings, and media cache settings.
 
 The protected external secret contract is defined by
 `config/shared-dev-secret-contract.json`. It uses separate database and media

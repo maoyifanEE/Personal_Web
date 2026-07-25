@@ -89,7 +89,7 @@ loopback-only `-L`.
 The launcher does not write a successful session state until tunnel, DB
 preflight, SFTP preflight, backend readiness, frontend readiness, and no-store
 checks succeed. It records sanitized process metadata under
-`.runtime/shared-dev/shared-session-state.json`: schema version 2, repository
+`.runtime/shared-dev/shared-session-state.json`: schema version 3, repository
 root, profile, creation time, DB tunnel PID/start time/executable/local
 port/alias, backend listener identity, and frontend listener identity. It never
 records the password, complete database URL, private-key path, host/IP, command
@@ -99,11 +99,16 @@ Backend and frontend are started through the project virtual environment
 interpreter at `backend\.venv\Scripts\python.exe`. Shared mode does not use
 `powershell.exe -NoExit`, `cmd.exe /k`, or `uvicorn --reload`. The launcher
 captures process records and verifies PID, process start time, executable,
-`127.0.0.1`, expected port, and listener ownership before recording state.
-On Windows, the venv launcher may own a direct child listener process. That
-child is accepted only when it is bound to the captured venv process record, and
-state records `listenerPid`, `listenerStartTimeUtc`, `listenerExecutable`, and
-`listenerParentPid` for later stop verification.
+`127.0.0.1`, expected port, and exact listener ownership before recording state.
+Each persisted record carries `listenerTopology`. `direct` means the managed
+process owns the only expected loopback listener and carries no child identity
+fields. `direct_child` means the only expected loopback listener is owned by a
+direct child of the managed process and requires `listenerPid`,
+`listenerStartTimeUtc`, `listenerExecutable`, and `listenerParentPid`. Persisted
+records are verified read-only: missing topology, unknown topology, partial child
+identity, unexpected child fields on direct topology, PID reuse, changed start
+time, changed executable, changed parent, wildcard listeners, and multiple or
+unrelated listeners are rejected without mutating the state file.
 Source changes require `stop-shared-dev.bat` followed by a manual shared-mode
 restart in this version.
 
@@ -143,10 +148,32 @@ frontend, then tunnel. It never kills a process merely because it is named
 After each stop it waits for the process to exit and the matching listener to
 disappear before removing session state. PID reuse or unverifiable records
 preserve state and require manual review.
+Schema version 2 was used only by an unapproved development branch. It is
+treated as incompatible, preserved for manual review, and never migrated or used
+for process cleanup.
+
+Startup cleanup has two outcomes. Complete cleanup means each created process was
+verified stopped, or already gone with its recorded port clear; the launcher then
+removes current-run state, temporary state files, and synthetic test artifacts.
+Incomplete cleanup preserves or writes schema version 3 sanitized recovery
+evidence with `startupStatus=cleanup_incomplete`,
+`manualReviewRequired=true`, a sanitized failure category, and captured process
+identity only. Recovery evidence never includes database URLs, passwords, SSH
+commands, host/IP values, key/config paths, or environment values.
 Stop exit codes are explicit: `0` means no state or complete safe cleanup, `2`
 means unreadable/incompatible state, and `3` means cleanup was refused because
 identity or port reuse requires manual review. The batch wrapper returns the
 PowerShell exit code.
+
+The shared backend environment is scoped to database preflight, SFTP preflight,
+and backend process creation. After backend startup, and again in the final
+cleanup path, the launcher removes `DATABASE_URL`,
+`PERSONAL_WEB_DATA_PROFILE`, `HOMEPAGE_MEDIA_STORAGE_BACKEND`,
+`SHARED_DEV_MEDIA_SSH_ALIAS`, `SHARED_DEV_MEDIA_SSH_CONFIG_PATH`,
+`SHARED_DEV_MEDIA_REMOTE_ROOT`, `SHARED_DEV_MEDIA_CACHE_MAX_MB`, and
+`SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS` before starting the frontend. The static
+frontend process must not inherit database, SFTP, media cache, or shared profile
+variables.
 
 `scripts/stop-local-dev.ps1` remains compatible with local 8000/4173 cleanup
 and delegates shared session cleanup to the dedicated shared stop script when

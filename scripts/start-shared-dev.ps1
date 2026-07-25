@@ -14,12 +14,24 @@ param(
   [string]$TestScenario,
   [string]$TestRuntimeRoot,
   [string]$TestLauncherLogRoot,
-  [int]$TestPauseAfterMutexSeconds = 0
+  [int]$TestPauseAfterMutexSeconds = 0,
+  [string]$TestCleanupOutcome,
+  [string]$TestProbeDir
 )
 
 $ErrorActionPreference = "Stop"
 $script:LauncherLogPath = $null
-$sessionSchemaVersion = 2
+$sessionSchemaVersion = 3
+$sharedBackendEnvironmentNames = @(
+  "DATABASE_URL",
+  "PERSONAL_WEB_DATA_PROFILE",
+  "HOMEPAGE_MEDIA_STORAGE_BACKEND",
+  "SHARED_DEV_MEDIA_SSH_ALIAS",
+  "SHARED_DEV_MEDIA_SSH_CONFIG_PATH",
+  "SHARED_DEV_MEDIA_REMOTE_ROOT",
+  "SHARED_DEV_MEDIA_CACHE_MAX_MB",
+  "SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS"
+)
 
 function Write-SharedLog {
   param([string]$Message)
@@ -406,13 +418,36 @@ function Start-ManagedProcess {
   return Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -ArgumentList $Arguments -WindowStyle Hidden -PassThru
 }
 
+function Clear-SharedBackendEnvironment {
+  foreach ($name in $sharedBackendEnvironmentNames) {
+    Remove-Item -LiteralPath "Env:\$name" -ErrorAction SilentlyContinue
+  }
+  Write-SharedLog "Shared backend environment cleared from launcher process"
+}
+
+function Set-SharedBackendEnvironment {
+  param([hashtable]$Secret, [string]$MediaSshConfigPath)
+  $env:DATABASE_URL = New-DatabaseUrl -Secret $Secret
+  $env:PERSONAL_WEB_DATA_PROFILE = "shared_remote"
+  $env:HOMEPAGE_MEDIA_STORAGE_BACKEND = "sftp"
+  $env:SHARED_DEV_MEDIA_SSH_ALIAS = [string]$Secret["SHARED_DEV_MEDIA_SSH_ALIAS"]
+  $env:SHARED_DEV_MEDIA_SSH_CONFIG_PATH = $MediaSshConfigPath
+  $env:SHARED_DEV_MEDIA_REMOTE_ROOT = [string]$Secret["SHARED_DEV_REMOTE_MEDIA_ROOT"]
+  if ($Secret.ContainsKey("SHARED_DEV_MEDIA_CACHE_MAX_MB")) {
+    $env:SHARED_DEV_MEDIA_CACHE_MAX_MB = [string]$Secret["SHARED_DEV_MEDIA_CACHE_MAX_MB"]
+  }
+  if ($Secret.ContainsKey("SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS")) {
+    $env:SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS = [string]$Secret["SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS"]
+  }
+}
+
 function Wait-ForVerifiedListener {
   param(
     [object]$Record,
     [int]$TimeoutSeconds
   )
   for ($i = 0; $i -lt $TimeoutSeconds; $i += 1) {
-    $status = Test-ProcessRecord -Record $Record -RequireListener
+    $status = Capture-ProcessListenerIdentity -Record $Record
     if ($status -eq "gone_clean" -or $status -eq "gone_port_reused") {
       throw "Expected process exited before listener verification"
     }
@@ -473,8 +508,11 @@ function Test-FrontendNoStore {
 }
 
 function Start-DirectBackend {
-  param([string]$BackendDir, [string]$PythonExecutable, [int]$Port, [switch]$Synthetic)
+  param([string]$BackendDir, [string]$PythonExecutable, [int]$Port, [switch]$Synthetic, [string]$ProbeDir)
   if ($Synthetic) {
+    if ($ProbeDir) {
+      return Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $BackendDir -Arguments @((New-SyntheticProbeServerScript -RuntimeDir $runtimeDir), ([string]$Port), (Join-Path $ProbeDir "backend-env.json"))
+    }
     return Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $BackendDir -Arguments @("-m", "http.server", ([string]$Port), "--bind", "127.0.0.1")
   }
   Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $BackendDir -Arguments @(
@@ -483,13 +521,64 @@ function Start-DirectBackend {
 }
 
 function Start-DirectFrontend {
-  param([string]$RepoRoot, [string]$PythonExecutable, [int]$Port, [switch]$Synthetic)
+  param([string]$RepoRoot, [string]$PythonExecutable, [int]$Port, [switch]$Synthetic, [string]$ProbeDir)
   if ($Synthetic) {
+    if ($ProbeDir) {
+      return Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $RepoRoot -Arguments @((New-SyntheticProbeServerScript -RuntimeDir $runtimeDir), ([string]$Port), (Join-Path $ProbeDir "frontend-env.json"))
+    }
     return Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $RepoRoot -Arguments @((Join-Path $RepoRoot "scripts\local_static_server.py"), "--host", "127.0.0.1", "--port", ([string]$Port), "--root", $RepoRoot)
   }
   Start-ManagedProcess -FilePath $PythonExecutable -WorkingDirectory $RepoRoot -Arguments @(
     (Join-Path $RepoRoot "scripts\local_static_server.py"), "--host", "127.0.0.1", "--port", ([string]$Port), "--root", $RepoRoot
   )
+}
+
+function New-SyntheticProbeServerScript {
+  param([string]$RuntimeDir)
+  $path = Join-Path $RuntimeDir ("synthetic-probe-server-{0}.py" -f [guid]::NewGuid().ToString("N"))
+  @'
+from __future__ import annotations
+
+import json
+import os
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+port = int(sys.argv[1])
+probe_path = sys.argv[2]
+names = [
+    "DATABASE_URL",
+    "PERSONAL_WEB_DATA_PROFILE",
+    "HOMEPAGE_MEDIA_STORAGE_BACKEND",
+    "SHARED_DEV_MEDIA_SSH_ALIAS",
+    "SHARED_DEV_MEDIA_SSH_CONFIG_PATH",
+    "SHARED_DEV_MEDIA_REMOTE_ROOT",
+    "SHARED_DEV_MEDIA_CACHE_MAX_MB",
+    "SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS",
+]
+markers = {name: bool(os.environ.get(name)) for name in names}
+markers["DATABASE_URL_PRESENT"] = bool(os.environ.get("DATABASE_URL"))
+database_url = os.environ.get("DATABASE_URL", "")
+markers["DATABASE_PASSWORD_PRESENT"] = ("synthetic" in database_url and "password" in database_url)
+with open(probe_path, "w", encoding="utf-8") as handle:
+    json.dump(markers, handle, sort_keys=True)
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self) -> None:
+        self.send_response(200)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+    def do_HEAD(self) -> None:
+        self._send()
+    def do_GET(self) -> None:
+        self._send()
+        self.wfile.write(b"ok")
+    def log_message(self, *args):
+        return
+
+ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+'@ | Set-Content -LiteralPath $path -Encoding utf8
+  return $path
 }
 
 function New-SyntheticTcpListenerScript {
@@ -559,13 +648,41 @@ function New-ProcessRecord {
   }
 }
 
-function Test-ProcessRecord {
-  param([object]$Record, [switch]$RequireListener)
+function Get-RecordValue {
+  param([object]$Record, [string]$Name)
+  if ($Record -is [System.Collections.IDictionary]) {
+    if ($Record.Contains($Name)) { return $Record[$Name] }
+    return $null
+  }
+  $property = $Record.PSObject.Properties[$Name]
+  if ($property) { return $property.Value }
+  return $null
+}
+
+function Test-RecordHasField {
+  param([object]$Record, [string]$Name)
+  if ($Record -is [System.Collections.IDictionary]) {
+    return $Record.Contains($Name)
+  }
+  return [bool]$Record.PSObject.Properties[$Name]
+}
+
+function Get-RecordPort {
+  param([object]$Record)
+  $port = Get-RecordValue -Record $Record -Name "port"
+  if (-not $port) {
+    $port = Get-RecordValue -Record $Record -Name "localPort"
+  }
+  return [int]$port
+}
+
+function Test-ManagedProcessIdentity {
+  param([object]$Record)
   if (-not $Record -or -not $Record.pid -or -not $Record.startTimeUtc -or -not $Record.executable -or -not $Record.port) {
     return "invalid"
   }
   $processId = [int]$Record.pid
-  $port = [int]$Record.port
+  $port = Get-RecordPort -Record $Record
   $current = Get-Process -Id $processId -ErrorAction SilentlyContinue
   if (-not $current) {
     $listeners = @(Get-PortListeners -Port $port)
@@ -584,60 +701,143 @@ function Test-ProcessRecord {
   } catch {
     return "identity_mismatch"
   }
+  return "alive_verified"
+}
+
+function Capture-ProcessListenerIdentity {
+  param([object]$Record)
+  $identity = Test-ManagedProcessIdentity -Record $Record
+  if ($identity -ne "alive_verified") {
+    return $identity
+  }
+  $processId = [int]$Record.pid
+  $port = Get-RecordPort -Record $Record
   $listeners = @(Get-PortListeners -Port $port)
   $wildcard = @($listeners | Where-Object { $_.LocalAddress -ne "127.0.0.1" })
   if ($wildcard.Count -gt 0) {
     return "wildcard_listener"
   }
-  $owned = @($listeners | Where-Object { $_.OwningProcess -eq $processId -and $_.LocalAddress -eq "127.0.0.1" })
-  $other = @($listeners | Where-Object { $_.OwningProcess -ne $processId -and $_.LocalAddress -eq "127.0.0.1" })
-  if ($other.Count -gt 0) {
-    if ($other.Count -eq 1) {
-      $listenerPid = [int]$other[0].OwningProcess
-      $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" -ErrorAction SilentlyContinue
-      if ($listenerProcess -and [int]$listenerProcess.ParentProcessId -eq $processId) {
-        $childProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
-        if (-not $childProcess) {
-          return "listener_owned_by_other"
-        }
-        $childStart = $childProcess.StartTime.ToUniversalTime().ToString("o")
-        try {
-          $childExecutable = $childProcess.MainModule.FileName
-        } catch {
-          return "listener_owned_by_other"
-        }
-        if ($Record.listenerStartTimeUtc -and [string]$Record.listenerStartTimeUtc -ne $childStart) {
-          return "identity_mismatch"
-        }
-        if ($Record.listenerExecutable -and [string]$Record.listenerExecutable -ne $childExecutable) {
-          return "identity_mismatch"
-        }
-        if ($Record.listenerParentPid -and [int]$Record.listenerParentPid -ne $processId) {
-          return "identity_mismatch"
-        }
-        if ($Record -is [System.Collections.Specialized.OrderedDictionary]) {
-          $Record["listenerPid"] = $listenerPid
-          $Record["listenerStartTimeUtc"] = $childStart
-          $Record["listenerExecutable"] = $childExecutable
-          $Record["listenerParentPid"] = $processId
-        }
-        return "verified"
-      }
-    }
-    return "listener_owned_by_other"
-  }
-  if ($RequireListener -and $owned.Count -ne 1) {
+  $loopback = @($listeners | Where-Object { $_.LocalAddress -eq "127.0.0.1" })
+  if ($loopback.Count -eq 0) {
     return "listener_missing"
   }
-  if ($owned.Count -gt 1) {
+  if ($loopback.Count -ne 1) {
     return "listener_ambiguous"
+  }
+  $listenerPid = [int]$loopback[0].OwningProcess
+  if ($listenerPid -eq $processId) {
+    $Record["listenerTopology"] = "direct"
+    return "verified"
+  }
+  $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" -ErrorAction SilentlyContinue
+  if (-not $listenerProcess -or [int]$listenerProcess.ParentProcessId -ne $processId) {
+    return "listener_owned_by_other"
+  }
+  $childProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
+  if (-not $childProcess) {
+    return "listener_owned_by_other"
+  }
+  $childStart = $childProcess.StartTime.ToUniversalTime().ToString("o")
+  try {
+    $childExecutable = $childProcess.MainModule.FileName
+  } catch {
+    return "listener_owned_by_other"
+  }
+  $Record["listenerTopology"] = "direct_child"
+  $Record["listenerPid"] = $listenerPid
+  $Record["listenerStartTimeUtc"] = $childStart
+  $Record["listenerExecutable"] = $childExecutable
+  $Record["listenerParentPid"] = $processId
+  return "verified"
+}
+
+function Verify-PersistedProcessRecord {
+  param([object]$Record, [switch]$RequireListener)
+  $identity = Test-ManagedProcessIdentity -Record $Record
+  if ($identity -ne "alive_verified") {
+    return $identity
+  }
+  if (-not $RequireListener) {
+    return "verified"
+  }
+  $processId = [int](Get-RecordValue -Record $Record -Name "pid")
+  $port = Get-RecordPort -Record $Record
+  $topology = [string](Get-RecordValue -Record $Record -Name "listenerTopology")
+  if ($topology -ne "direct" -and $topology -ne "direct_child") {
+    return "invalid"
+  }
+  $listeners = @(Get-PortListeners -Port $port)
+  $wildcard = @($listeners | Where-Object { $_.LocalAddress -ne "127.0.0.1" })
+  if ($wildcard.Count -gt 0) {
+    return "wildcard_listener"
+  }
+  $loopback = @($listeners | Where-Object { $_.LocalAddress -eq "127.0.0.1" })
+  if ($loopback.Count -eq 0) {
+    return "listener_missing"
+  }
+  if ($loopback.Count -ne 1) {
+    return "listener_ambiguous"
+  }
+  if ($topology -eq "direct") {
+    foreach ($field in @("listenerPid", "listenerStartTimeUtc", "listenerExecutable", "listenerParentPid")) {
+      if (Test-RecordHasField -Record $Record -Name $field) {
+        return "invalid"
+      }
+    }
+    if ([int]$loopback[0].OwningProcess -ne $processId) {
+      return "listener_owned_by_other"
+    }
+    return "verified"
+  }
+  foreach ($field in @("listenerPid", "listenerStartTimeUtc", "listenerExecutable", "listenerParentPid")) {
+    if (-not (Test-RecordHasField -Record $Record -Name $field) -or -not (Get-RecordValue -Record $Record -Name $field)) {
+      return "invalid"
+    }
+  }
+  $listenerPid = [int](Get-RecordValue -Record $Record -Name "listenerPid")
+  if ([int]$loopback[0].OwningProcess -ne $listenerPid) {
+    return "listener_owned_by_other"
+  }
+  if ([int](Get-RecordValue -Record $Record -Name "listenerParentPid") -ne $processId) {
+    return "identity_mismatch"
+  }
+  $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" -ErrorAction SilentlyContinue
+  if (-not $listenerProcess -or [int]$listenerProcess.ParentProcessId -ne $processId) {
+    return "identity_mismatch"
+  }
+  $childProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
+  if (-not $childProcess) {
+    return "identity_mismatch"
+  }
+  if ($childProcess.StartTime.ToUniversalTime().ToString("o") -ne [string](Get-RecordValue -Record $Record -Name "listenerStartTimeUtc")) {
+    return "identity_mismatch"
+  }
+  try {
+    if ($childProcess.MainModule.FileName -ne [string](Get-RecordValue -Record $Record -Name "listenerExecutable")) {
+      return "identity_mismatch"
+    }
+  } catch {
+    return "identity_mismatch"
   }
   return "verified"
 }
 
 function Stop-VerifiedRecord {
   param([object]$Record, [switch]$RequireListener)
-  $status = Test-ProcessRecord -Record $Record -RequireListener:$RequireListener
+  if ($TestMode -and $TestRuntimeRoot -and $TestLauncherLogRoot -and $TestCleanupOutcome -eq "identity_mismatch") {
+    return "refused"
+  }
+  if ($TestMode -and $TestRuntimeRoot -and $TestLauncherLogRoot -and $TestCleanupOutcome -eq "stop_timeout") {
+    return "timeout"
+  }
+  if ($TestMode -and $TestRuntimeRoot -and $TestLauncherLogRoot -and $TestCleanupOutcome -eq "port_reuse") {
+    return "refused"
+  }
+  $status = if (Test-RecordHasField -Record $Record -Name "listenerTopology") {
+    Verify-PersistedProcessRecord -Record $Record -RequireListener:$RequireListener
+  } else {
+    Capture-ProcessListenerIdentity -Record $Record
+  }
   if ($status -eq "gone_clean") {
     return "already_gone"
   }
@@ -651,7 +851,7 @@ function Stop-VerifiedRecord {
     Stop-Process -Id ([int]$Record.pid) -Force -ErrorAction SilentlyContinue
   }
   for ($i = 0; $i -lt 10; $i += 1) {
-    $closedStatus = Test-ProcessRecord -Record $Record -RequireListener:$false
+    $closedStatus = Verify-PersistedProcessRecord -Record $Record -RequireListener:$false
     if ($closedStatus -eq "gone_clean") {
       return "stopped"
     }
@@ -667,6 +867,47 @@ function Write-SessionStateAtomic {
   $State | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $tmpPath -Encoding utf8
   Move-Item -LiteralPath $tmpPath -Destination $Path -Force
   Write-SharedLog "Shared session state written"
+}
+
+function New-SanitizedRecoveryState {
+  param([object[]]$Records, [string]$FailureCategory)
+  $state = [ordered]@{
+    schemaVersion = $sessionSchemaVersion
+    repositoryRoot = $repoRoot
+    profile = "shared_remote"
+    createdAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+    startupStatus = "cleanup_incomplete"
+    manualReviewRequired = $true
+    failureCategory = $FailureCategory
+  }
+  foreach ($record in $Records) {
+    if (-not $record) { continue }
+    if ($record.role -eq "database tunnel") {
+      $state["dbTunnel"] = $record
+    } elseif ($record.role -eq "backend") {
+      $state["backend"] = $record
+    } elseif ($record.role -eq "frontend") {
+      $state["frontend"] = $record
+    }
+  }
+  return $state
+}
+
+function Test-CleanupComplete {
+  param([object[]]$Records, [object[]]$Results)
+  foreach ($result in $Results) {
+    if ($result -ne "already_gone" -and $result -ne "stopped") {
+      return $false
+    }
+  }
+  foreach ($record in $Records) {
+    if (-not $record) { continue }
+    $port = Get-RecordPort -Record $record
+    if (@(Get-PortListeners -Port $port).Count -ne 0) {
+      return $false
+    }
+  }
+  return $true
 }
 
 function Get-StateClassification {
@@ -685,7 +926,7 @@ function Get-StateClassification {
   $records = @($state.backend, $state.frontend, $state.dbTunnel)
   $alive = 0
   foreach ($record in $records) {
-    $status = Test-ProcessRecord -Record $record -RequireListener
+    $status = Verify-PersistedProcessRecord -Record $record -RequireListener
     if ($status -eq "gone_clean") {
       continue
     }
@@ -710,6 +951,16 @@ $runtimeDir = Resolve-TestableRoot -OverridePath $TestRuntimeRoot -ProductionPat
 $launcherLogDir = Resolve-TestableRoot -OverridePath $TestLauncherLogRoot -ProductionPath $productionLauncherLogDir -Name "test_launcher_log_root"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 New-Item -ItemType Directory -Force -Path $launcherLogDir | Out-Null
+if ($TestProbeDir) {
+  if (-not $TestMode -or -not $TestRuntimeRoot -or -not $TestLauncherLogRoot) {
+    throw "test_probe_dir_requires_isolated_test_roots"
+  }
+  New-Item -ItemType Directory -Force -Path $TestProbeDir | Out-Null
+  $TestProbeDir = (Resolve-Path -LiteralPath $TestProbeDir).Path
+}
+if ($TestCleanupOutcome -and (-not $TestMode -or -not $TestRuntimeRoot -or -not $TestLauncherLogRoot)) {
+  throw "test_cleanup_outcome_requires_isolated_test_roots"
+}
 $script:LauncherLogPath = Join-Path $launcherLogDir ("start-shared-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 Invoke-LauncherLogRetention -LogDir $launcherLogDir
 $statePath = Join-Path $runtimeDir "shared-session-state.json"
@@ -760,6 +1011,7 @@ $frontendProcess = $null
 $createdRecords = @()
 $stateWrittenByThisRun = $false
 $launcherMutex = $null
+$preserveStartupEvidence = $false
 try {
   $launcherMutex = Acquire-LauncherMutex -Name (New-ProjectMutexName -RepoRoot $repoRoot)
   if ($TestPauseAfterMutexSeconds -gt 0) {
@@ -812,18 +1064,7 @@ try {
   if ($TestScenario -eq "tunnel_exit_before_listener") { throw "Synthetic tunnel exited before listener" }
   Wait-ForVerifiedListener -Record $tunnelRecord -TimeoutSeconds 20
 
-  $env:DATABASE_URL = New-DatabaseUrl -Secret $secret
-  $env:PERSONAL_WEB_DATA_PROFILE = "shared_remote"
-  $env:HOMEPAGE_MEDIA_STORAGE_BACKEND = "sftp"
-  $env:SHARED_DEV_MEDIA_SSH_ALIAS = [string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]
-  $env:SHARED_DEV_MEDIA_SSH_CONFIG_PATH = $mediaSshConfigPath
-  $env:SHARED_DEV_MEDIA_REMOTE_ROOT = [string]$secret["SHARED_DEV_REMOTE_MEDIA_ROOT"]
-  if ($secret.ContainsKey("SHARED_DEV_MEDIA_CACHE_MAX_MB")) {
-    $env:SHARED_DEV_MEDIA_CACHE_MAX_MB = [string]$secret["SHARED_DEV_MEDIA_CACHE_MAX_MB"]
-  }
-  if ($secret.ContainsKey("SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS")) {
-    $env:SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS = [string]$secret["SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS"]
-  }
+  Set-SharedBackendEnvironment -Secret $secret -MediaSshConfigPath $mediaSshConfigPath
 
   if (-not $TestSkipPreflights) {
     Invoke-LoggedStep "Running read-only shared database preflight" {
@@ -839,7 +1080,7 @@ try {
   if ($TestScenario -eq "database_preflight_fail") { throw "Running read-only shared database preflight failed" }
   if ($TestScenario -eq "sftp_preflight_fail") { throw "Running read-only shared SFTP preflight failed" }
 
-  $backendProcess = Start-DirectBackend -BackendDir $backendDir -PythonExecutable $managedPython -Port $backendPort -Synthetic:($TestMode -and $TestSyntheticProcesses)
+  $backendProcess = Start-DirectBackend -BackendDir $backendDir -PythonExecutable $managedPython -Port $backendPort -Synthetic:($TestMode -and $TestSyntheticProcesses) -ProbeDir $TestProbeDir
   $backendRecord = New-ProcessRecord -Process $backendProcess -Executable $managedPython -Port $backendPort -Role "backend"
   $createdRecords += $backendRecord
   if ($TestScenario -eq "backend_exit_before_listener") { throw "Synthetic backend exited before listener" }
@@ -848,7 +1089,8 @@ try {
   if ($TestScenario -eq "backend_readiness_timeout" -or -not (Wait-ForUrl -Name "Backend" -Uris @("http://127.0.0.1:${backendPort}/api/health", "http://127.0.0.1:${backendPort}/api/auth/me") -TimeoutSeconds 60 -AcceptedStatusCodes $backendAccepted)) {
     throw "Backend readiness failed"
   }
-  $frontendProcess = Start-DirectFrontend -RepoRoot $repoRoot -PythonExecutable $managedPython -Port $frontendPort -Synthetic:($TestMode -and $TestSyntheticProcesses)
+  Clear-SharedBackendEnvironment
+  $frontendProcess = Start-DirectFrontend -RepoRoot $repoRoot -PythonExecutable $managedPython -Port $frontendPort -Synthetic:($TestMode -and $TestSyntheticProcesses) -ProbeDir $TestProbeDir
   $frontendRecord = New-ProcessRecord -Process $frontendProcess -Executable $managedPython -Port $frontendPort -Role "frontend"
   $createdRecords += $frontendRecord
   if ($TestScenario -eq "frontend_exit_before_listener") { throw "Synthetic frontend exited before listener" }
@@ -860,9 +1102,9 @@ try {
     throw "Frontend no-store verification failed"
   }
 
-  if ((Test-ProcessRecord -Record $tunnelRecord -RequireListener) -ne "verified" -or
-      (Test-ProcessRecord -Record $backendRecord -RequireListener) -ne "verified" -or
-      (Test-ProcessRecord -Record $frontendRecord -RequireListener) -ne "verified") {
+  if ((Verify-PersistedProcessRecord -Record $tunnelRecord -RequireListener) -ne "verified" -or
+      (Verify-PersistedProcessRecord -Record $backendRecord -RequireListener) -ne "verified" -or
+      (Verify-PersistedProcessRecord -Record $frontendRecord -RequireListener) -ne "verified") {
     throw "Final process verification failed"
   }
   $state = [ordered]@{
@@ -879,6 +1121,7 @@ try {
   if ($TestScenario -eq "state_serialization_failure") { throw "Synthetic state serialization failed" }
   Write-SessionStateAtomic -Path $statePath -State $state
   $stateWrittenByThisRun = $true
+  if ($TestScenario -eq "post_state_failure") { throw "Synthetic post-state failure" }
   if (-not $TestSkipBrowser) {
     try {
       Start-Process $homepageUrl
@@ -889,26 +1132,37 @@ try {
   Write-SharedLog "Personal_Web shared development is ready"
 } catch {
   Write-SharedLog ("Startup failed safely: {0}" -f $_.Exception.GetType().Name)
+  $failureCategory = $_.Exception.GetType().Name
   $cleanupResults = @()
   foreach ($record in @($createdRecords | Sort-Object { if ($_.role -eq "frontend") { 0 } elseif ($_.role -eq "backend") { 1 } else { 2 } })) {
     $cleanupResults += Stop-VerifiedRecord -Record $record -RequireListener:([bool]$record.listenerRequired)
   }
-  if ($cleanupResults -contains "refused" -or $cleanupResults -contains "timeout") {
-    Write-SharedLog "High severity: launcher cleanup needs manual review"
-  }
-  Get-ChildItem -LiteralPath $runtimeDir -Filter "shared-session-state.json.*.tmp" -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
-  Get-ChildItem -LiteralPath $runtimeDir -Filter "synthetic-*.py" -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
-  if ($stateWrittenByThisRun -and (Test-Path -LiteralPath $statePath)) {
-    Remove-Item -LiteralPath $statePath -Force
+  $cleanupComplete = Test-CleanupComplete -Records $createdRecords -Results $cleanupResults
+  if ($cleanupComplete) {
+    Write-SharedLog "Startup cleanup outcome: complete"
+    Get-ChildItem -LiteralPath $runtimeDir -Filter "shared-session-state.json.*.tmp" -ErrorAction SilentlyContinue |
+      Remove-Item -Force -ErrorAction SilentlyContinue
+    Get-ChildItem -LiteralPath $runtimeDir -Filter "synthetic-*.py" -ErrorAction SilentlyContinue |
+      Remove-Item -Force -ErrorAction SilentlyContinue
+    if ($stateWrittenByThisRun -and (Test-Path -LiteralPath $statePath)) {
+      Remove-Item -LiteralPath $statePath -Force
+    }
+  } else {
+    $preserveStartupEvidence = $true
+    Write-SharedLog "Startup cleanup outcome: incomplete_manual_review"
+    $recoveryState = New-SanitizedRecoveryState -Records $createdRecords -FailureCategory $failureCategory
+    Write-SessionStateAtomic -Path $statePath -State $recoveryState
+    Write-SharedLog "High severity: preserved sanitized recovery state; run reviewed stop script or perform manual review"
   }
   throw
 } finally {
+  Clear-SharedBackendEnvironment
   if ($launcherMutex) {
     $launcherMutex.ReleaseMutex()
     $launcherMutex.Dispose()
   }
-  Get-ChildItem -LiteralPath $runtimeDir -Filter "synthetic-*.py" -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+  if (-not $preserveStartupEvidence) {
+    Get-ChildItem -LiteralPath $runtimeDir -Filter "synthetic-*.py" -ErrorAction SilentlyContinue |
+      Remove-Item -Force -ErrorAction SilentlyContinue
+  }
 }

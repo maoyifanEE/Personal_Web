@@ -188,6 +188,168 @@ def synthetic_launch_args(
     return args
 
 
+def python_exe() -> str:
+    return str((REPO_ROOT / "backend" / ".venv" / "Scripts" / "python.exe").resolve())
+
+
+class ProcessRef:
+    def __init__(self, pid: int):
+        self.pid = pid
+
+
+def process_record(proc: subprocess.Popen | ProcessRef, port: int, role: str, *, topology: str = "direct", child: ProcessRef | None = None) -> dict:
+    parent = process_info(proc.pid)
+    record = {
+        "pid": proc.pid,
+        "startTimeUtc": parent["startTimeUtc"],
+        "executable": parent["executable"],
+        "port": port,
+        "role": role,
+        "localAddress": "127.0.0.1",
+        "listenerRequired": True,
+        "listenerTopology": topology,
+    }
+    if child is not None:
+        child_info = process_info(child.pid)
+        record.update(
+            {
+                "listenerPid": child.pid,
+                "listenerStartTimeUtc": child_info["startTimeUtc"],
+                "listenerExecutable": child_info["executable"],
+                "listenerParentPid": proc.pid,
+            }
+        )
+    return record
+
+
+def process_info(pid: int) -> dict:
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            f"$p=Get-Process -Id {pid}; [ordered]@{{startTimeUtc=$p.StartTime.ToUniversalTime().ToString(\"o\"); executable=$p.MainModule.FileName}} | ConvertTo-Json -Compress",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+    return json.loads(result.stdout)
+
+
+def wait_for_port(port: int, timeout: float = 10.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            if sock.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.1)
+    raise AssertionError(f"port {port} did not open")
+
+
+def listener_pid(port: int) -> int:
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            f"(Get-NetTCPConnection -LocalPort {port} -State Listen | Where-Object {{$_.LocalAddress -eq '127.0.0.1'}} | Select-Object -First 1 -ExpandProperty OwningProcess)",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+    return int(result.stdout.strip())
+
+
+def any_listener_pid(port: int) -> int:
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            f"(Get-NetTCPConnection -LocalPort {port} -State Listen | Select-Object -First 1 -ExpandProperty OwningProcess)",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+    return int(result.stdout.strip())
+
+
+def parent_pid(pid: int) -> int:
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", f"(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").ParentProcessId"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+    return int(result.stdout.strip())
+
+
+def start_listener(port: int, host: str = "127.0.0.1") -> subprocess.Popen:
+    return subprocess.Popen(
+        [
+            python_exe(),
+            "-c",
+            "import socket,time,sys; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind((sys.argv[1], int(sys.argv[2]))); s.listen(); time.sleep(120)",
+            host,
+            str(port),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def start_parent_child_listener(tmp_path: Path, port: int) -> tuple[subprocess.Popen, ProcessRef]:
+    child = tmp_path / "child_listener.ps1"
+    child.write_text(
+        "$listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Parse('127.0.0.1'), [int]$args[0]); $listener.Start(); Start-Sleep -Seconds 120\n",
+        encoding="utf-8",
+    )
+    child_pid_file = tmp_path / "child.pid"
+    parent = tmp_path / "parent_listener.ps1"
+    parent.write_text(
+        "$p = Start-Process -FilePath powershell.exe -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$args[0],$args[1]) -WindowStyle Hidden -PassThru; Set-Content -LiteralPath $args[2] -Value $p.Id; Start-Sleep -Seconds 120\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.Popen(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(parent), str(child), str(port), str(child_pid_file)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.time() + 10
+    while time.time() < deadline and not child_pid_file.exists():
+        time.sleep(0.1)
+    assert child_pid_file.exists()
+    child_proc = ProcessRef(int(child_pid_file.read_text()))
+    wait_for_port(port)
+    return proc, child_proc
+
+
+def write_state(runtime: Path, *, backend: dict, frontend: dict | None = None, tunnel: dict | None = None, schema: int = 3) -> Path:
+    state_path = runtime / "shared-session-state.json"
+    gone = {
+        "pid": 999999,
+        "startTimeUtc": "2000-01-01T00:00:00.0000000Z",
+        "executable": "C:/missing/python.exe",
+        "port": free_port(),
+        "role": "gone",
+        "localAddress": "127.0.0.1",
+        "listenerTopology": "direct",
+    }
+    state = {
+        "schemaVersion": schema,
+        "repositoryRoot": str(REPO_ROOT),
+        "profile": "shared_remote",
+        "backend": backend,
+        "frontend": frontend or {**gone, "role": "frontend"},
+        "dbTunnel": tunnel or {**gone, "role": "database tunnel", "localPort": gone["port"]},
+    }
+    state_path.write_text(json.dumps(state, sort_keys=True), encoding="utf-8")
+    return state_path
+
+
 def test_start_shared_dev_validate_only_uses_synthetic_secret(tmp_path):
     runtime, logs = isolated_roots(tmp_path)
     snapshot = snapshot_real_runtime()
@@ -431,14 +593,17 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
         assert "DATABASE_URL" not in state_text
         assert "synthetic password" not in state_text
         state = json.loads(state_text)
-        assert state["schemaVersion"] == 2
+        assert state["schemaVersion"] == 3
         venv_python = str((REPO_ROOT / "backend" / ".venv" / "Scripts" / "python.exe").resolve())
         for record in (state["dbTunnel"], state["backend"], state["frontend"]):
             assert record["executable"] == venv_python
-            if "listenerPid" in record:
+            assert record["listenerTopology"] in {"direct", "direct_child"}
+            if record["listenerTopology"] == "direct_child":
                 assert record["listenerStartTimeUtc"]
                 assert record["listenerExecutable"]
                 assert int(record["listenerParentPid"]) == int(record["pid"])
+            else:
+                assert "listenerPid" not in record
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 assert sock.connect_ex(("127.0.0.1", int(record.get("port") or record["localPort"]))) == 0
         assert "--reload" not in (REPO_ROOT / "scripts" / "start-shared-dev.ps1").read_text(encoding="utf-8")
@@ -505,6 +670,132 @@ def test_synthetic_startup_failures_clean_started_processes_and_state(tmp_path, 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             assert sock.connect_ex(("127.0.0.1", port)) != 0
     assert_real_runtime_unchanged(snapshot)
+
+
+def test_backend_receives_shared_environment_and_frontend_does_not(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    probe_dir = tmp_path / "probes"
+    snapshot = snapshot_real_runtime()
+    tunnel_port = free_port()
+    backend_port = free_port()
+    frontend_port = free_port()
+    secret = synthetic_secret(tmp_path, local_port=tunnel_port)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    state_path = runtime / "shared-session-state.json"
+
+    result = run_launcher(
+        synthetic_launch_args(
+            secret,
+            fake_ssh,
+            runtime,
+            logs,
+            backend_port,
+            frontend_port,
+            ["-TestProbeDir", str(probe_dir)],
+        ),
+        timeout=90,
+        capture=False,
+    )
+    try:
+        assert result.returncode == 0
+        backend_probe = json.loads((probe_dir / "backend-env.json").read_text(encoding="utf-8"))
+        frontend_probe = json.loads((probe_dir / "frontend-env.json").read_text(encoding="utf-8"))
+        expected = [
+            "DATABASE_URL",
+            "PERSONAL_WEB_DATA_PROFILE",
+            "HOMEPAGE_MEDIA_STORAGE_BACKEND",
+            "SHARED_DEV_MEDIA_SSH_ALIAS",
+            "SHARED_DEV_MEDIA_SSH_CONFIG_PATH",
+            "SHARED_DEV_MEDIA_REMOTE_ROOT",
+            "SHARED_DEV_MEDIA_CACHE_MAX_MB",
+            "SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS",
+        ]
+        assert all(backend_probe[name] for name in expected)
+        assert backend_probe["DATABASE_URL_PRESENT"] is True
+        assert backend_probe["DATABASE_PASSWORD_PRESENT"] is True
+        assert all(frontend_probe[name] is False for name in expected)
+        assert frontend_probe["DATABASE_URL_PRESENT"] is False
+        assert frontend_probe["DATABASE_PASSWORD_PRESENT"] is False
+        for artifact in [probe_dir / "backend-env.json", probe_dir / "frontend-env.json", state_path, *logs.glob("*.log")]:
+            if artifact.exists():
+                text = artifact.read_text(encoding="utf-8-sig", errors="ignore")
+                assert "synthetic password" not in text
+                assert "DATABASE_URL=postgresql" not in text
+    finally:
+        stop = run_stop(runtime, logs)
+        assert stop.returncode == 0, stop.stdout + stop.stderr
+    assert_real_runtime_unchanged(snapshot)
+
+
+def test_post_state_failure_complete_cleanup_removes_state_and_ports(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    tunnel_port = free_port()
+    backend_port = free_port()
+    frontend_port = free_port()
+    secret = synthetic_secret(tmp_path, local_port=tunnel_port)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    result = run_launcher(
+        synthetic_launch_args(secret, fake_ssh, runtime, logs, backend_port, frontend_port, ["-TestScenario", "post_state_failure"]),
+        timeout=90,
+    )
+    assert result.returncode != 0
+    assert not (runtime / "shared-session-state.json").exists()
+    for port in (tunnel_port, backend_port, frontend_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            assert sock.connect_ex(("127.0.0.1", port)) != 0
+    assert "synthetic password" not in result.stdout + result.stderr
+    assert_real_runtime_unchanged(snapshot)
+
+
+@pytest.mark.parametrize("cleanup_outcome", ["identity_mismatch", "stop_timeout", "port_reuse"])
+def test_post_state_failure_incomplete_cleanup_preserves_sanitized_recovery_state(tmp_path, cleanup_outcome):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    unrelated_port = free_port()
+    unrelated = start_listener(unrelated_port)
+    tunnel_port = free_port()
+    backend_port = free_port()
+    frontend_port = free_port()
+    secret = synthetic_secret(tmp_path, local_port=tunnel_port)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    try:
+        result = run_launcher(
+            synthetic_launch_args(
+                secret,
+                fake_ssh,
+                runtime,
+                logs,
+                backend_port,
+                frontend_port,
+                ["-TestScenario", "post_state_failure", "-TestCleanupOutcome", cleanup_outcome],
+            ),
+            timeout=90,
+        )
+        assert result.returncode != 0
+        state_path = runtime / "shared-session-state.json"
+        assert state_path.exists()
+        text = state_path.read_text(encoding="utf-8-sig")
+        assert "synthetic password" not in text
+        assert "postgresql+psycopg" not in text
+        state = json.loads(text)
+        assert state["schemaVersion"] == 3
+        assert state["startupStatus"] == "cleanup_incomplete"
+        assert state["manualReviewRequired"] is True
+        for record in (state["dbTunnel"], state["backend"], state["frontend"]):
+            assert record["listenerTopology"] in {"direct", "direct_child"}
+            assert record["pid"]
+            assert record["startTimeUtc"]
+            assert record["executable"]
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            assert sock.connect_ex(("127.0.0.1", unrelated_port)) == 0
+    finally:
+        run_stop(runtime, logs, timeout=60)
+        unrelated.kill()
+        assert_real_runtime_unchanged(snapshot)
 
 
 def test_simultaneous_synthetic_launcher_is_refused_by_mutex_before_state_or_processes(tmp_path):
@@ -604,12 +895,12 @@ def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
     )
     try:
         state = {
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "repositoryRoot": str(REPO_ROOT),
             "profile": "shared_remote",
-            "backend": {"pid": 999999, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": port, "role": "backend", "localAddress": "127.0.0.1"},
-            "frontend": {"pid": 999998, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": free_port(), "role": "frontend", "localAddress": "127.0.0.1"},
-            "dbTunnel": {"pid": 999997, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/ssh.exe", "port": free_port(), "localPort": free_port(), "role": "database tunnel", "localAddress": "127.0.0.1"},
+            "backend": {"pid": 999999, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": port, "role": "backend", "localAddress": "127.0.0.1", "listenerTopology": "direct"},
+            "frontend": {"pid": 999998, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": free_port(), "role": "frontend", "localAddress": "127.0.0.1", "listenerTopology": "direct"},
+            "dbTunnel": {"pid": 999997, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/ssh.exe", "port": free_port(), "localPort": free_port(), "role": "database tunnel", "localAddress": "127.0.0.1", "listenerTopology": "direct"},
         }
         state_path.write_text(json.dumps(state), encoding="utf-8")
         result = run_stop(runtime, logs, timeout=30)
@@ -624,6 +915,115 @@ def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
             listener.kill()
         state_path.unlink(missing_ok=True)
         assert_real_runtime_unchanged(snapshot)
+
+
+def test_persisted_direct_listener_topology_passes_and_removes_state(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    proc = start_listener(free_port())
+    try:
+        port = free_port()
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+    proc = start_listener(port)
+    try:
+        wait_for_port(port)
+        record = process_record(ProcessRef(any_listener_pid(port)), port, "backend", topology="direct")
+        state_path = write_state(runtime, backend=record)
+        result = run_stop(runtime, logs)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not state_path.exists()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+
+
+def test_persisted_direct_child_listener_topology_passes_and_removes_state(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    port = free_port()
+    parent, child = start_parent_child_listener(tmp_path, port)
+    try:
+        record = process_record(ProcessRef(parent_pid(child.pid)), port, "backend", topology="direct_child", child=child)
+        state_path = write_state(runtime, backend=record)
+        result = run_stop(runtime, logs)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert not state_path.exists()
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+        subprocess.run(["powershell.exe", "-NoProfile", "-Command", f"Stop-Process -Id {child.pid} -Force -ErrorAction SilentlyContinue"], timeout=10)
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda r: r.pop("listenerTopology"),
+        lambda r: r.__setitem__("listenerTopology", "unknown"),
+        lambda r: r.__setitem__("listenerPid", r["pid"]),
+    ],
+)
+def test_persisted_direct_topology_rejects_missing_unknown_or_child_fields_without_mutation(tmp_path, mutator):
+    runtime, logs = isolated_roots(tmp_path)
+    port = free_port()
+    proc = start_listener(port)
+    try:
+        wait_for_port(port)
+        record = process_record(ProcessRef(any_listener_pid(port)), port, "backend", topology="direct")
+        mutator(record)
+        state_path = write_state(runtime, backend=record)
+        before = state_path.read_text(encoding="utf-8")
+        result = run_stop(runtime, logs)
+        assert result.returncode == 3
+        assert state_path.read_text(encoding="utf-8") == before
+    finally:
+        proc.kill()
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda r: r.pop("listenerPid"),
+        lambda r: r.pop("listenerStartTimeUtc"),
+        lambda r: r.pop("listenerExecutable"),
+        lambda r: r.pop("listenerParentPid"),
+        lambda r: r.__setitem__("listenerPid", r["pid"]),
+        lambda r: r.__setitem__("listenerStartTimeUtc", "2000-01-01T00:00:00.0000000Z"),
+        lambda r: r.__setitem__("listenerExecutable", "C:/wrong/python.exe"),
+        lambda r: r.__setitem__("listenerParentPid", 999999),
+    ],
+)
+def test_persisted_direct_child_topology_requires_exact_child_identity_without_mutation(tmp_path, mutator):
+    runtime, logs = isolated_roots(tmp_path)
+    port = free_port()
+    parent, child = start_parent_child_listener(tmp_path, port)
+    try:
+        record = process_record(ProcessRef(parent_pid(child.pid)), port, "backend", topology="direct_child", child=child)
+        mutator(record)
+        state_path = write_state(runtime, backend=record)
+        before = state_path.read_text(encoding="utf-8")
+        result = run_stop(runtime, logs)
+        assert result.returncode == 3
+        assert state_path.read_text(encoding="utf-8") == before
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+        subprocess.run(["powershell.exe", "-NoProfile", "-Command", f"Stop-Process -Id {child.pid} -Force -ErrorAction SilentlyContinue"], timeout=10)
+
+
+def test_persisted_wildcard_listener_is_rejected_without_mutation(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    port = free_port()
+    proc = start_listener(port, host="0.0.0.0")
+    try:
+        time.sleep(1)
+        record = process_record(ProcessRef(any_listener_pid(port)), port, "backend", topology="direct")
+        state_path = write_state(runtime, backend=record)
+        before = state_path.read_text(encoding="utf-8")
+        result = run_stop(runtime, logs)
+        assert result.returncode == 3
+        assert state_path.read_text(encoding="utf-8") == before
+    finally:
+        proc.kill()
 
 
 def test_stop_exit_codes_for_no_state_and_invalid_state(tmp_path):
@@ -642,6 +1042,11 @@ def test_stop_exit_codes_for_no_state_and_invalid_state(tmp_path):
     wrong_schema = run_stop(runtime, logs)
     assert wrong_schema.returncode == 2
     assert state_path.exists()
+    before_schema_2 = json.dumps({"schemaVersion": 2, "repositoryRoot": str(REPO_ROOT), "profile": "shared_remote"}, sort_keys=True)
+    state_path.write_text(before_schema_2, encoding="utf-8")
+    legacy_schema = run_stop(runtime, logs)
+    assert legacy_schema.returncode == 2
+    assert state_path.read_text(encoding="utf-8") == before_schema_2
     state_path.unlink()
     assert_real_runtime_unchanged(snapshot)
 

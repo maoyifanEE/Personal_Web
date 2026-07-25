@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$sessionSchemaVersion = 2
+$sessionSchemaVersion = 3
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 function Resolve-TestableRoot {
@@ -91,14 +91,35 @@ function Wait-ProcessAndPortClosed {
   return $false
 }
 
-function Test-ProcessRecord {
-  param([object]$Record, [switch]$RequireListener)
+function Get-RecordValue {
+  param([object]$Record, [string]$Name)
+  $property = $Record.PSObject.Properties[$Name]
+  if ($property) { return $property.Value }
+  return $null
+}
+
+function Test-RecordHasField {
+  param([object]$Record, [string]$Name)
+  return [bool]$Record.PSObject.Properties[$Name]
+}
+
+function Get-RecordPort {
+  param([object]$Record)
+  $port = Get-RecordValue -Record $Record -Name "port"
+  if (-not $port) {
+    $port = Get-RecordValue -Record $Record -Name "localPort"
+  }
+  return [int]$port
+}
+
+function Test-ManagedProcessIdentity {
+  param([object]$Record)
   if (-not $Record -or -not $Record.pid -or -not $Record.startTimeUtc -or -not $Record.executable) {
     return "invalid"
   }
   $process = Get-Process -Id ([int]$Record.pid) -ErrorAction SilentlyContinue
   if (-not $process) {
-    $port = if ($Record.port) { [int]$Record.port } else { [int]$Record.localPort }
+    $port = Get-RecordPort -Record $Record
     $listeners = @(Get-PortListeners -Port $port)
     if ($listeners.Count -eq 0) {
       return "gone_clean"
@@ -115,54 +136,83 @@ function Test-ProcessRecord {
   } catch {
     return "invalid"
   }
-  if ($RequireListener) {
-    $port = [int]$Record.port
-    if (-not $port -and $Record.localPort) {
-      $port = [int]$Record.localPort
-    }
-    $listener = Get-PortListeners -Port $port |
-      Where-Object { $_.OwningProcess -eq [int]$Record.pid -and $_.LocalAddress -eq "127.0.0.1" } |
-      Select-Object -First 1
-    $wildcard = Get-PortListeners -Port $port | Where-Object { $_.LocalAddress -ne "127.0.0.1" } | Select-Object -First 1
-    if ($wildcard) {
-      return "wildcard_listener"
-    }
-    if (-not $listener) {
-      if ($Record.listenerPid) {
-        $childListener = Get-PortListeners -Port $port |
-          Where-Object { $_.OwningProcess -eq [int]$Record.listenerPid -and $_.LocalAddress -eq "127.0.0.1" } |
-          Select-Object -First 1
-        $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.listenerPid)" -ErrorAction SilentlyContinue
-        if ($childListener -and $listenerProcess -and [int]$listenerProcess.ParentProcessId -eq [int]$Record.pid) {
-          $childProcess = Get-Process -Id ([int]$Record.listenerPid) -ErrorAction SilentlyContinue
-          if (-not $childProcess) {
-            return "invalid"
-          }
-          if ($Record.listenerStartTimeUtc -and $childProcess.StartTime.ToUniversalTime().ToString("o") -ne [string]$Record.listenerStartTimeUtc) {
-            return "invalid"
-          }
-          try {
-            if ($Record.listenerExecutable -and $childProcess.MainModule.FileName -ne [string]$Record.listenerExecutable) {
-              return "invalid"
-            }
-          } catch {
-            return "invalid"
-          }
-          if ($Record.listenerParentPid -and [int]$Record.listenerParentPid -ne [int]$Record.pid) {
-            return "invalid"
-          }
-          return "verified"
-        }
+  return "alive_verified"
+}
+
+function Verify-PersistedProcessRecord {
+  param([object]$Record, [switch]$RequireListener)
+  $identity = Test-ManagedProcessIdentity -Record $Record
+  if ($identity -ne "alive_verified") {
+    return $identity
+  }
+  if (-not $RequireListener) {
+    return "verified"
+  }
+  $processId = [int](Get-RecordValue -Record $Record -Name "pid")
+  $port = Get-RecordPort -Record $Record
+  $topology = [string](Get-RecordValue -Record $Record -Name "listenerTopology")
+  if ($topology -ne "direct" -and $topology -ne "direct_child") {
+    return "invalid"
+  }
+  $listeners = @(Get-PortListeners -Port $port)
+  $wildcard = @($listeners | Where-Object { $_.LocalAddress -ne "127.0.0.1" })
+  if ($wildcard.Count -gt 0) {
+    return "wildcard_listener"
+  }
+  $loopback = @($listeners | Where-Object { $_.LocalAddress -eq "127.0.0.1" })
+  if ($loopback.Count -eq 0) {
+    return "invalid"
+  }
+  if ($loopback.Count -ne 1) {
+    return "listener_ambiguous"
+  }
+  if ($topology -eq "direct") {
+    foreach ($field in @("listenerPid", "listenerStartTimeUtc", "listenerExecutable", "listenerParentPid")) {
+      if (Test-RecordHasField -Record $Record -Name $field) {
+        return "invalid"
       }
+    }
+    if ([int]$loopback[0].OwningProcess -ne $processId) {
       return "invalid"
     }
+    return "verified"
+  }
+  foreach ($field in @("listenerPid", "listenerStartTimeUtc", "listenerExecutable", "listenerParentPid")) {
+    if (-not (Test-RecordHasField -Record $Record -Name $field) -or -not (Get-RecordValue -Record $Record -Name $field)) {
+      return "invalid"
+    }
+  }
+  $listenerPid = [int](Get-RecordValue -Record $Record -Name "listenerPid")
+  if ([int]$loopback[0].OwningProcess -ne $listenerPid) {
+    return "invalid"
+  }
+  if ([int](Get-RecordValue -Record $Record -Name "listenerParentPid") -ne $processId) {
+    return "invalid"
+  }
+  $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" -ErrorAction SilentlyContinue
+  if (-not $listenerProcess -or [int]$listenerProcess.ParentProcessId -ne $processId) {
+    return "invalid"
+  }
+  $childProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
+  if (-not $childProcess) {
+    return "invalid"
+  }
+  if ($childProcess.StartTime.ToUniversalTime().ToString("o") -ne [string](Get-RecordValue -Record $Record -Name "listenerStartTimeUtc")) {
+    return "invalid"
+  }
+  try {
+    if ($childProcess.MainModule.FileName -ne [string](Get-RecordValue -Record $Record -Name "listenerExecutable")) {
+      return "invalid"
+    }
+  } catch {
+    return "invalid"
   }
   return "verified"
 }
 
 function Stop-VerifiedRecord {
   param([object]$Record, [string]$Name, [switch]$RequireListener)
-  $valid = Test-ProcessRecord -Record $Record -RequireListener:$RequireListener
+  $valid = Verify-PersistedProcessRecord -Record $Record -RequireListener:$RequireListener
   if ($valid -eq "gone_clean") {
     Write-SharedStopLog "$Name process is already gone and port is clear."
     return "gone_clean"
@@ -172,7 +222,7 @@ function Stop-VerifiedRecord {
     return "refused"
   }
   if ($valid -ne "verified") {
-    Write-SharedStopLog "Refusing to stop $Name because identity could not be verified."
+    Write-SharedStopLog "Refusing to stop $Name because identity could not be verified: $valid"
     return "refused"
   }
   $targetPid = if ($Record.listenerPid) { [int]$Record.listenerPid } else { [int]$Record.pid }
