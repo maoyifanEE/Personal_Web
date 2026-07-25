@@ -394,9 +394,11 @@ shared database URL to be a `postgresql+psycopg` loopback tunnel URL for the
 allowlisted shared-development database and role. It never falls back to local
 authoritative data, never writes a database URL to `backend/.env`, and the
 shared launcher does not run Alembic migrations or the development auth seed.
-The shared launcher also starts backend and frontend as direct managed Python
-listener processes without `uvicorn --reload`; source changes require
-`stop-shared-dev.bat` followed by a manual restart in this version.
+The shared launcher starts backend and frontend through the project virtual
+environment interpreter at `backend\.venv\Scripts\python.exe` without
+`uvicorn --reload`; source changes require `stop-shared-dev.bat` followed by a
+manual restart in this version. It uses an auto-releasing project-scoped Windows
+mutex for mutual exclusion and does not persist raw child stdout/stderr.
 
 The shared secret contract requires the database SSH alias
 `personal-web-shared-db` to resolve to user `personal-web-db-tunnel`, the media
@@ -414,9 +416,11 @@ and media SSH configs, and the future SFTP account:
 
 The shared launcher keeps the existing default guest reset by opening
 `?devLogout=1`; `keep-session` preserves the current browser session. During
-this code-foundation phase, tests use synthetic secret files and fake SSH/SFTP
-clients only. The real shared server, database, and media storage must not be
-contacted from tests.
+this code-foundation phase, tests use synthetic secret files, temporary
+loopback ports, fake SSH/SFTP clients, invalid-contract fixtures, and synthetic
+failure scenarios only. The real shared server, database, and media storage must
+not be contacted from tests, and the real launcher remains prohibited until the
+next fixed-commit review.
 
 Stop a shared session with:
 

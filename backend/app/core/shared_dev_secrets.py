@@ -8,6 +8,7 @@ from typing import Any
 
 
 CONTRACT_PATH = Path(__file__).resolve().parents[3] / "config" / "shared-dev-secret-contract.json"
+CONTRACT_INVALID = "contract_invalid"
 
 
 class SharedDevSecretError(ValueError):
@@ -19,26 +20,32 @@ def load_shared_dev_secret_contract(path: Path = CONTRACT_PATH) -> dict[str, Any
 
     contract = json.loads(path.read_text(encoding="utf-8"))
     if contract.get("schemaVersion") != 1:
-        raise SharedDevSecretError("Shared-development secret contract schema is unsupported")
+        raise SharedDevSecretError(CONTRACT_INVALID)
     raw_required = contract.get("requiredKeys")
     raw_optional = contract.get("optionalKeys")
     aliases = contract.get("deprecatedAliases", {})
     if not isinstance(raw_required, list) or not isinstance(raw_optional, list) or not isinstance(aliases, dict):
-        raise SharedDevSecretError("Shared-development secret contract is invalid")
+        raise SharedDevSecretError(CONTRACT_INVALID)
     if any(not isinstance(key, str) or not key.strip() for key in raw_required + raw_optional):
-        raise SharedDevSecretError("Shared-development secret contract keys are invalid")
+        raise SharedDevSecretError(CONTRACT_INVALID)
     required = set(raw_required)
     optional = set(raw_optional)
     if len(required) != len(raw_required) or len(optional) != len(raw_optional):
-        raise SharedDevSecretError("Shared-development secret contract keys are duplicated")
+        raise SharedDevSecretError(CONTRACT_INVALID)
     if required & optional:
-        raise SharedDevSecretError("Shared-development secret contract keys overlap")
+        raise SharedDevSecretError(CONTRACT_INVALID)
     allowed = required | optional
     for alias, target in aliases.items():
         if alias not in allowed or target not in allowed or alias == target:
-            raise SharedDevSecretError("Shared-development secret contract aliases are invalid")
-        if aliases.get(target) == alias:
-            raise SharedDevSecretError("Shared-development secret contract aliases are cyclic")
+            raise SharedDevSecretError(CONTRACT_INVALID)
+    for start in aliases:
+        seen: set[str] = set()
+        current = start
+        while current in aliases:
+            if current in seen:
+                raise SharedDevSecretError(CONTRACT_INVALID)
+            seen.add(current)
+            current = aliases[current]
     for key in (
         "expectedDatabaseName",
         "expectedDatabaseUser",
@@ -49,7 +56,18 @@ def load_shared_dev_secret_contract(path: Path = CONTRACT_PATH) -> dict[str, Any
         "expectedRemoteMediaRoot",
     ):
         if not isinstance(contract.get(key), str) or not contract[key].strip():
-            raise SharedDevSecretError("Shared-development secret contract expected constants are invalid")
+            raise SharedDevSecretError(CONTRACT_INVALID)
+    expected = {
+        "expectedDatabaseName": "personal_web_shared_dev",
+        "expectedDatabaseUser": "personal_web_shared_dev_app",
+        "expectedDatabaseSshAlias": "personal-web-shared-db",
+        "expectedDatabaseSshUser": "personal-web-db-tunnel",
+        "expectedMediaSshAlias": "personal-web-shared-media",
+        "expectedMediaSshUser": "personal-web-dev",
+        "expectedRemoteMediaRoot": "/srv/personal-web/shared-dev/homepage",
+    }
+    if any(contract[key] != value for key, value in expected.items()):
+        raise SharedDevSecretError(CONTRACT_INVALID)
     contract["requiredKeys"] = sorted(required)
     contract["optionalKeys"] = sorted(optional)
     contract["allowedKeys"] = sorted(allowed)

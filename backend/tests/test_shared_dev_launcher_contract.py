@@ -6,11 +6,17 @@ import subprocess
 from pathlib import Path
 import socket
 import json
+import os
+import time
 
 import pytest
 
+from app.core.shared_dev_secrets import SharedDevSecretError, load_shared_dev_secret_contract
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CONTRACT_PATH = REPO_ROOT / "config" / "shared-dev-secret-contract.json"
+STATE_PATH = REPO_ROOT / ".runtime" / "shared-dev" / "shared-session-state.json"
 
 
 def synthetic_secret(tmp_path: Path, *, db_name: str = "personal_web_shared_dev", local_port: int = 65432) -> Path:
@@ -73,6 +79,27 @@ def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def run_launcher(args: list[str], *, timeout: int = 60, capture: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"), *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=capture,
+        stdout=None if capture else subprocess.DEVNULL,
+        stderr=None if capture else subprocess.DEVNULL,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def write_contract(tmp_path: Path, mutator) -> Path:
+    contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
+    mutator(contract)
+    path = tmp_path / "contract.json"
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    return path
 
 
 def test_start_shared_dev_validate_only_uses_synthetic_secret(tmp_path):
@@ -253,16 +280,71 @@ def test_powershell_parser_canonicalizes_deprecated_media_root_before_required_c
     assert result.returncode == 0, result.stderr + result.stdout
 
 
+@pytest.mark.parametrize(
+    "case_name,mutator",
+    [
+        ("schema", lambda c: c.__setitem__("schemaVersion", 2)),
+        ("missing_required", lambda c: c.pop("requiredKeys")),
+        ("missing_optional", lambda c: c.pop("optionalKeys")),
+        ("non_array_required", lambda c: c.__setitem__("requiredKeys", "x")),
+        ("non_string_key", lambda c: c["requiredKeys"].append(123)),
+        ("empty_key", lambda c: c["requiredKeys"].append(" ")),
+        ("duplicate_required", lambda c: c["requiredKeys"].append(c["requiredKeys"][0])),
+        ("duplicate_optional", lambda c: c["optionalKeys"].append(c["optionalKeys"][0])),
+        ("overlap", lambda c: c["optionalKeys"].append(c["requiredKeys"][0])),
+        ("alias_not_allowed", lambda c: c["deprecatedAliases"].__setitem__("NOT_ALLOWED", "SHARED_DEV_REMOTE_MEDIA_ROOT")),
+        ("alias_target_not_allowed", lambda c: c["deprecatedAliases"].__setitem__("SHARED_DEV_MEDIA_REMOTE_ROOT", "NOT_ALLOWED")),
+        ("self_alias", lambda c: c["deprecatedAliases"].__setitem__("SHARED_DEV_MEDIA_REMOTE_ROOT", "SHARED_DEV_MEDIA_REMOTE_ROOT")),
+        ("alias_cycle", lambda c: c["deprecatedAliases"].update({"SHARED_DEV_MEDIA_REMOTE_ROOT": "SHARED_DEV_REMOTE_MEDIA_ROOT", "SHARED_DEV_REMOTE_MEDIA_ROOT": "SHARED_DEV_MEDIA_REMOTE_ROOT"})),
+        ("missing_constant", lambda c: c.pop("expectedDatabaseName")),
+        ("empty_constant", lambda c: c.__setitem__("expectedDatabaseName", "")),
+        ("wrong_db", lambda c: c.__setitem__("expectedDatabaseName", "personal_web_prod")),
+        ("wrong_user", lambda c: c.__setitem__("expectedDatabaseUser", "wrong")),
+        ("wrong_db_alias", lambda c: c.__setitem__("expectedDatabaseSshAlias", "personal-web-prod")),
+        ("wrong_db_user", lambda c: c.__setitem__("expectedDatabaseSshUser", "root")),
+        ("wrong_media_alias", lambda c: c.__setitem__("expectedMediaSshAlias", "media")),
+        ("wrong_media_user", lambda c: c.__setitem__("expectedMediaSshUser", "root")),
+        ("wrong_root", lambda c: c.__setitem__("expectedRemoteMediaRoot", "/")),
+    ],
+)
+def test_python_and_powershell_reject_invalid_contracts_with_same_safe_category(tmp_path, case_name, mutator):
+    contract_path = write_contract(tmp_path, mutator)
+    secret = synthetic_secret(tmp_path)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+
+    with pytest.raises(SharedDevSecretError) as py_exc:
+        load_shared_dev_secret_contract(contract_path)
+    assert str(py_exc.value) == "contract_invalid"
+
+    result = run_launcher(
+        [
+            "-ValidateOnly",
+            "-TestMode",
+            "-SecretPath",
+            str(secret),
+            "-FakeSshExe",
+            str(fake_ssh),
+            "-TestContractPath",
+            str(contract_path),
+        ],
+        timeout=30,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0, case_name
+    assert "contract_invalid" in combined
+    assert "synthetic password" not in combined
+
+
 def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
-    for fixed_port in (8000, 4173):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            if sock.connect_ex(("127.0.0.1", fixed_port)) == 0:
-                pytest.skip(f"project fixed port {fixed_port} is already occupied")
     tunnel_port = free_port()
+    backend_port = free_port()
+    frontend_port = free_port()
     secret = synthetic_secret(tmp_path, local_port=tunnel_port)
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
-    state_path = REPO_ROOT / ".runtime" / "shared-dev" / "shared-session-state.json"
+    state_path = STATE_PATH
     state_path.unlink(missing_ok=True)
 
     start = subprocess.run(
@@ -281,6 +363,10 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
             "-TestSyntheticProcesses",
             "-TestSkipPreflights",
             "-TestSkipBrowser",
+            "-TestBackendPort",
+            str(backend_port),
+            "-TestFrontendPort",
+            str(frontend_port),
         ],
         cwd=REPO_ROOT,
         text=True,
@@ -297,7 +383,9 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
         assert "DATABASE_URL" not in state_text
         assert "synthetic password" not in state_text
         state = json.loads(state_text)
+        venv_python = str((REPO_ROOT / "backend" / ".venv" / "Scripts" / "python.exe").resolve())
         for record in (state["dbTunnel"], state["backend"], state["frontend"]):
+            assert record["executable"] == venv_python
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 assert sock.connect_ex(("127.0.0.1", int(record.get("port") or record["localPort"]))) == 0
         assert "--reload" not in (REPO_ROOT / "scripts" / "start-shared-dev.ps1").read_text(encoding="utf-8")
@@ -315,6 +403,10 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
                 str(secret),
                 "-FakeSshExe",
                 str(fake_ssh),
+                "-TestBackendPort",
+                str(backend_port),
+                "-TestFrontendPort",
+                str(frontend_port),
             ],
             cwd=REPO_ROOT,
             text=True,
@@ -337,6 +429,126 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
         assert stop.returncode == 0, stop.stderr + stop.stdout
         assert not state_path.exists()
 
-    for port in (tunnel_port, 8000, 4173):
+    for port in (tunnel_port, backend_port, frontend_port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             assert sock.connect_ex(("127.0.0.1", port)) != 0
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "database_preflight_fail",
+        "sftp_preflight_fail",
+        "backend_exit_before_listener",
+        "backend_readiness_timeout",
+        "frontend_exit_before_listener",
+        "frontend_readiness_timeout",
+        "frontend_no_store_failure",
+        "state_serialization_failure",
+    ],
+)
+def test_synthetic_startup_failures_clean_started_processes_and_state(tmp_path, scenario):
+    tunnel_port = free_port()
+    backend_port = free_port()
+    frontend_port = free_port()
+    secret = synthetic_secret(tmp_path, local_port=tunnel_port)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    STATE_PATH.unlink(missing_ok=True)
+
+    result = run_launcher(
+        [
+            "-TestMode",
+            "-SecretPath",
+            str(secret),
+            "-FakeSshExe",
+            str(fake_ssh),
+            "-TestSyntheticProcesses",
+            "-TestSkipPreflights",
+            "-TestSkipBrowser",
+            "-TestBackendPort",
+            str(backend_port),
+            "-TestFrontendPort",
+            str(frontend_port),
+            "-TestScenario",
+            scenario,
+        ],
+        timeout=90,
+    )
+
+    assert result.returncode != 0
+    assert "synthetic password" not in result.stdout + result.stderr
+    assert not STATE_PATH.exists()
+    for port in (tunnel_port, backend_port, frontend_port):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            assert sock.connect_ex(("127.0.0.1", port)) != 0
+
+
+def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    port = free_port()
+    listener = subprocess.Popen(
+        [
+            str(REPO_ROOT / "backend" / ".venv" / "Scripts" / "python.exe"),
+            "-c",
+            "import socket,time; s=socket.socket(); s.bind(('127.0.0.1', int(__import__('sys').argv[1]))); s.listen(); time.sleep(60)",
+            str(port),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        state = {
+            "schemaVersion": 1,
+            "repositoryRoot": str(REPO_ROOT),
+            "profile": "shared_remote",
+            "backend": {"pid": 999999, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": port, "role": "backend", "localAddress": "127.0.0.1"},
+            "frontend": {"pid": 999998, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": free_port(), "role": "frontend", "localAddress": "127.0.0.1"},
+            "dbTunnel": {"pid": 999997, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/ssh.exe", "port": free_port(), "localPort": free_port(), "role": "database tunnel", "localAddress": "127.0.0.1"},
+        }
+        STATE_PATH.write_text(json.dumps(state), encoding="utf-8")
+        result = subprocess.run(
+            ["cmd.exe", "/c", str(REPO_ROOT / "stop-shared-dev.bat")],
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0
+        assert STATE_PATH.exists()
+        assert listener.poll() is None
+    finally:
+        listener.terminate()
+        try:
+            listener.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            listener.kill()
+        STATE_PATH.unlink(missing_ok=True)
+
+
+def test_launcher_log_retention_deletes_only_old_recognized_files(tmp_path):
+    log_dir = REPO_ROOT / ".local_logs" / "launcher"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    old_start = log_dir / "start-shared-dev-old.log"
+    old_stop = log_dir / "stop-shared-dev-old.log"
+    recent_start = log_dir / "start-shared-dev-recent.log"
+    unknown_old = log_dir / "unknown-old.log"
+    for path in (old_start, old_stop, recent_start, unknown_old):
+        path.write_text("synthetic", encoding="utf-8")
+    old_time = time.time() - 9 * 24 * 60 * 60
+    os.utime(old_start, (old_time, old_time))
+    os.utime(old_stop, (old_time, old_time))
+    os.utime(unknown_old, (old_time, old_time))
+
+    secret = synthetic_secret(tmp_path)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    result = run_launcher(["-ValidateOnly", "-TestMode", "-SecretPath", str(secret), "-FakeSshExe", str(fake_ssh)], timeout=30)
+    assert result.returncode == 0
+    subprocess.run(["cmd.exe", "/c", str(REPO_ROOT / "stop-shared-dev.bat")], cwd=REPO_ROOT, text=True, capture_output=True, timeout=30, check=False)
+
+    assert not old_start.exists()
+    assert not old_stop.exists()
+    assert recent_start.exists()
+    assert unknown_old.exists()

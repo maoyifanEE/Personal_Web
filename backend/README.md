@@ -425,9 +425,11 @@ The shared launcher constructs `DATABASE_URL` only in process memory from the
 protected external secret file. It must not write that URL to `backend/.env`.
 Unlike the local launcher, shared mode must not run `alembic upgrade head` or
 `python -m app.scripts.seed_dev_auth_users`.
-Shared mode intentionally starts backend and frontend as direct managed Python
-listener processes and does not use `uvicorn --reload`; use
-`stop-shared-dev.bat` and restart the shared launcher after source changes.
+Shared mode intentionally starts backend and frontend through
+`backend\.venv\Scripts\python.exe` and does not use `uvicorn --reload`; use
+`stop-shared-dev.bat` and restart the shared launcher after source changes. The
+launcher uses an auto-releasing project-scoped Windows mutex, validates captured
+process records before cleanup, and does not persist raw child stdout/stderr.
 
 The protected external secret contract is defined by
 `config/shared-dev-secret-contract.json`. It uses separate database and media
@@ -440,8 +442,9 @@ accepted media root is `/srv/personal-web/shared-dev/homepage`.
 
 The launcher real path is implemented but should not be run against the real
 shared environment until the next reviewed configuration phase. Tests use only
-synthetic secrets, fake executables, fake SFTP clients, and injected database
-preflight connections.
+synthetic secrets, fake executables, fake SFTP clients, injected database
+preflight connections, temporary loopback ports, malformed-contract fixtures,
+and synthetic launcher failure scenarios.
 
 Homepage media now goes through a storage abstraction. Local mode remains
 filesystem-backed under `data/uploads/homepage/`. Shared mode maps the same

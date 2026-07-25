@@ -95,10 +95,13 @@ port/alias, backend listener identity, and frontend listener identity. It never
 records the password, complete database URL, private-key path, host/IP, command
 line, or raw SSH configuration.
 
-Backend and frontend are started as direct managed Python listener processes.
-Shared mode does not use `powershell.exe -NoExit`, `cmd.exe /k`, or
-`uvicorn --reload`. The launcher verifies PID, process start time, executable,
-`127.0.0.1`, expected port, and listener OwningProcess before recording state.
+Backend and frontend are started through the project virtual environment
+interpreter at `backend\.venv\Scripts\python.exe`. Shared mode does not use
+`powershell.exe -NoExit`, `cmd.exe /k`, or `uvicorn --reload`. The launcher
+captures process records and verifies PID, process start time, executable,
+`127.0.0.1`, expected port, and listener ownership before recording state.
+On Windows, the venv launcher may own a direct child listener process; that
+child PID is accepted only when it is bound to the captured venv process record.
 Source changes require `stop-shared-dev.bat` followed by a manual shared-mode
 restart in this version.
 
@@ -107,6 +110,9 @@ Before launching, existing state is classified as `absent`, `active_verified`,
 start, stale all-gone state is removed, and ambiguous or unreadable state is
 preserved for manual review. Browser opening happens only after verified state
 is written and is best-effort; browser failure leaves the valid session running.
+Concurrent launch prevention uses an auto-releasing project-scoped Windows mutex
+derived from the normalized repository root and shared profile identifier. No
+persistent lock file is authoritative.
 
 Shared mode checks database identity and Alembic revision read-only before
 backend startup using `python -m app.scripts.check_shared_dev_preflight`. The
@@ -115,9 +121,10 @@ equality. Shared mode then runs `python -m
 app.scripts.check_shared_dev_sftp_preflight`, which calls the configured SFTP
 backend preflight without uploading, renaming, chmodding, or deleting.
 
-The real launcher must not be run until the next reviewed configuration phase
-updates the protected secret and SSH/SFTP setup. Tests use `-ValidateOnly`,
-`-DryRun`, synthetic secrets, and fake implementations only.
+The real launcher must not be run until the next fixed-commit reviewed
+configuration phase updates the protected secret and SSH/SFTP setup. Tests use
+`-ValidateOnly`, `-DryRun`, synthetic secrets, temporary loopback ports, invalid
+contract fixtures, and synthetic failure scenarios only.
 
 Default browser startup still clears the current session with `?devLogout=1`.
 Passing `keep-session` preserves the existing session.
@@ -222,6 +229,10 @@ launcher preflight status, tunnel state, and stop decisions. Logs must not print
 passwords, full database URLs, secret contents, private-key paths, cookies,
 authorization headers, CSRF tokens, session tokens, password hashes, media
 contents, private messages, or Data URLs.
+
+The shared launcher does not persist raw child stdout or stderr. Launcher log
+retention runs from start and stop entry points, deletes only recognized
+launcher-owned files under `.local_logs/launcher`, and keeps unknown files.
 
 ## Deferred Work
 

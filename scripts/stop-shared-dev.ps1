@@ -13,6 +13,27 @@ function Write-SharedStopLog {
   Add-Content -Path $stopLogPath -Value "[$((Get-Date).ToString('o'))] $Message" -Encoding utf8
 }
 
+function Invoke-LauncherLogRetention {
+  param([string]$LogDir)
+  $root = (Resolve-Path -LiteralPath $LogDir).Path
+  $repo = (Resolve-Path -LiteralPath $repoRoot).Path
+  if (-not $root.StartsWith($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "launcher_log_root_invalid"
+  }
+  $cutoff = (Get-Date).AddDays(-7)
+  $patterns = @("start-shared-dev-*.log", "stop-shared-dev-*.log", "launcher-temp-*.log")
+  $removed = 0
+  foreach ($pattern in $patterns) {
+    Get-ChildItem -LiteralPath $root -Filter $pattern -File -ErrorAction SilentlyContinue |
+      Where-Object { ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0 -and $_.LastWriteTime -lt $cutoff } |
+      ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+        $removed += 1
+      }
+  }
+  Write-SharedStopLog "Launcher log retention completed; removed $removed file(s)."
+}
+
 function Get-PortListeners {
   param([int]$Port)
   try {
@@ -42,7 +63,12 @@ function Test-ProcessRecord {
   }
   $process = Get-Process -Id ([int]$Record.pid) -ErrorAction SilentlyContinue
   if (-not $process) {
-    return "gone"
+    $port = if ($Record.port) { [int]$Record.port } else { [int]$Record.localPort }
+    $listeners = @(Get-PortListeners -Port $port)
+    if ($listeners.Count -eq 0) {
+      return "gone_clean"
+    }
+    return "gone_port_reused"
   }
   if ($process.StartTime.ToUniversalTime().ToString("o") -ne [string]$Record.startTimeUtc) {
     return "invalid"
@@ -62,7 +88,20 @@ function Test-ProcessRecord {
     $listener = Get-PortListeners -Port $port |
       Where-Object { $_.OwningProcess -eq [int]$Record.pid -and $_.LocalAddress -eq "127.0.0.1" } |
       Select-Object -First 1
+    $wildcard = Get-PortListeners -Port $port | Where-Object { $_.LocalAddress -ne "127.0.0.1" } | Select-Object -First 1
+    if ($wildcard) {
+      return "wildcard_listener"
+    }
     if (-not $listener) {
+      if ($Record.listenerPid) {
+        $childListener = Get-PortListeners -Port $port |
+          Where-Object { $_.OwningProcess -eq [int]$Record.listenerPid -and $_.LocalAddress -eq "127.0.0.1" } |
+          Select-Object -First 1
+        $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.listenerPid)" -ErrorAction SilentlyContinue
+        if ($childListener -and $listenerProcess -and [int]$listenerProcess.ParentProcessId -eq [int]$Record.pid) {
+          return "verified"
+        }
+      }
       return "invalid"
     }
   }
@@ -72,15 +111,23 @@ function Test-ProcessRecord {
 function Stop-VerifiedRecord {
   param([object]$Record, [string]$Name, [switch]$RequireListener)
   $valid = Test-ProcessRecord -Record $Record -RequireListener:$RequireListener
-  if ($valid -eq "gone") {
-    Write-SharedStopLog "$Name process is already gone."
-    return "gone"
+  if ($valid -eq "gone_clean") {
+    Write-SharedStopLog "$Name process is already gone and port is clear."
+    return "gone_clean"
+  }
+  if ($valid -eq "gone_port_reused") {
+    Write-SharedStopLog "$Name process is gone but the recorded port is in use; manual review required."
+    return "refused"
   }
   if ($valid -ne "verified") {
     Write-SharedStopLog "Refusing to stop $Name because identity could not be verified."
     return "refused"
   }
-  Stop-Process -Id ([int]$Record.pid) -Force
+  $targetPid = if ($Record.listenerPid) { [int]$Record.listenerPid } else { [int]$Record.pid }
+  Stop-Process -Id $targetPid -Force
+  if ($targetPid -ne [int]$Record.pid) {
+    Stop-Process -Id ([int]$Record.pid) -Force -ErrorAction SilentlyContinue
+  }
   $port = if ($Record.port) { [int]$Record.port } else { [int]$Record.localPort }
   if (-not (Wait-ProcessAndPortClosed -ProcessId ([int]$Record.pid) -Port $port)) {
     Write-SharedStopLog "Refusing to remove state because $Name did not fully stop."
@@ -91,6 +138,7 @@ function Stop-VerifiedRecord {
 }
 
 Write-SharedStopLog "Stop log: $stopLogPath"
+Invoke-LauncherLogRetention -LogDir $launcherLogDir
 if (-not (Test-Path -LiteralPath $statePath)) {
   Write-SharedStopLog "No shared session state was found."
   return
