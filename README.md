@@ -435,6 +435,21 @@ shared server, database, media storage, `.runtime\shared-dev`, and
 `.local_logs\launcher` must not be contacted or modified from tests, and the
 real launcher remains prohibited until the next fixed-commit review.
 
+Validate the real shared-development configuration without starting any tunnel
+or application process:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\start-shared-dev.ps1 `
+  -ValidateOnly
+```
+
+`-ValidateOnly` is a normal operational mode, not test mode. It uses the
+protected shared-development secret path by default, parses the canonical
+contract, validates the configured SSH aliases with `ssh -G`, and writes only a
+sanitized launcher log. Test-only flags such as fake SSH, failure injection, or
+temporary runtime/log roots require explicit `-TestMode`.
+
 Stop a shared session with:
 
 ```powershell

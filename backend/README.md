@@ -456,6 +456,19 @@ preflight connections, temporary loopback ports, malformed-contract fixtures,
 synthetic launcher failure scenarios, and injected temporary runtime/log roots
 that keep tests out of real `.runtime\shared-dev` and `.local_logs\launcher`.
 
+Real configuration validation is available without starting services:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\start-shared-dev.ps1 `
+  -ValidateOnly
+```
+
+This command is not `TestMode`. It uses the protected shared-development secret
+by default, validates required keys and `ssh -G` alias metadata, and creates no
+tunnel, backend, frontend, browser, or session state. Test hooks and temporary
+runtime/log roots require explicit `-TestMode`.
+
 Homepage media now goes through a storage abstraction. Local mode remains
 filesystem-backed under `data/uploads/homepage/`. Shared mode maps the same
 database logical paths to a future SFTP root and materializes reads through the

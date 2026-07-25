@@ -341,6 +341,43 @@ function Assert-TestModeSecretIsSynthetic {
   }
 }
 
+function Assert-TestOnlyParametersAllowed {
+  if ($TestMode) {
+    if (-not $SecretPath) {
+      throw "test_mode_requires_explicit_secret_path"
+    }
+    if (-not $TestRuntimeRoot -or -not $TestLauncherLogRoot) {
+      throw "test_mode_requires_isolated_roots"
+    }
+    return
+  }
+  if ($TestRuntimeRoot) { throw "test_runtime_root_requires_test_mode" }
+  if ($TestLauncherLogRoot) { throw "test_launcher_log_root_requires_test_mode" }
+  if ($FakeSshExe) { throw "fake_ssh_requires_test_mode" }
+  if ($TestSyntheticProcesses) { throw "test_synthetic_processes_requires_test_mode" }
+  if ($TestSkipPreflights) { throw "test_skip_preflights_requires_test_mode" }
+  if ($TestSkipBrowser) { throw "test_skip_browser_requires_test_mode" }
+  if ($TestContractPath) { throw "contract_path_requires_test_mode" }
+  if ($TestBackendPort -ne 8000) { throw "test_backend_port_requires_test_mode" }
+  if ($TestFrontendPort -ne 4173) { throw "test_frontend_port_requires_test_mode" }
+  if ($TestScenario) { throw "test_scenario_requires_test_mode" }
+  if ($TestPauseAfterMutexSeconds -ne 0) { throw "test_pause_requires_test_mode" }
+  if ($TestCleanupOutcome) { throw "test_cleanup_outcome_requires_test_mode" }
+  if ($TestProbeDir) { throw "test_probe_dir_requires_test_mode" }
+}
+
+function Resolve-SecretFile {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Shared-development secret file was not found"
+  }
+  $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "shared_secret_path_invalid"
+  }
+  return $item.FullName
+}
+
 function Invoke-LoggedStep {
   param([string]$Name, [scriptblock]$Script)
   Write-SharedLog $Name
@@ -947,6 +984,13 @@ function Get-StateClassification {
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $productionRuntimeDir = Join-Path $repoRoot ".runtime\shared-dev"
 $productionLauncherLogDir = Join-Path $repoRoot ".local_logs\launcher"
+$defaultSecretPath = Join-Path $env:USERPROFILE ".personal_web\shared-dev-secrets.env"
+Assert-TestOnlyParametersAllowed
+if (-not $SecretPath) {
+  $SecretPath = $defaultSecretPath
+}
+$SecretPath = Resolve-SecretFile -Path $SecretPath
+
 $runtimeDir = Resolve-TestableRoot -OverridePath $TestRuntimeRoot -ProductionPath $productionRuntimeDir -Name "test_runtime_root"
 $launcherLogDir = Resolve-TestableRoot -OverridePath $TestLauncherLogRoot -ProductionPath $productionLauncherLogDir -Name "test_launcher_log_root"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
@@ -970,7 +1014,6 @@ $backendPort = if ($TestMode -and $TestSyntheticProcesses) { $TestBackendPort } 
 $frontendPort = if ($TestMode -and $TestSyntheticProcesses) { $TestFrontendPort } else { 4173 }
 $baseHomepageUrl = "http://127.0.0.1:${frontendPort}/"
 $homepageUrl = if ($KeepSession) { $baseHomepageUrl } else { "${baseHomepageUrl}?devLogout=1" }
-$defaultSecretPath = Join-Path $env:USERPROFILE ".personal_web\shared-dev-secrets.env"
 
 Set-Location $repoRoot
 Write-SharedLog "Repository: $repoRoot"
@@ -978,31 +1021,27 @@ Write-SharedLog "KeepSession: $KeepSession"
 Write-SharedLog "DryRun: $DryRun"
 Write-SharedLog "ValidateOnly: $ValidateOnly"
 
-if (-not $SecretPath) {
-  $SecretPath = $defaultSecretPath
-}
-if ($TestContractPath -and -not $TestMode) {
-  throw "contract_path_requires_test_mode"
-}
-if (-not (Test-Path -LiteralPath $SecretPath)) {
-  throw "Shared-development secret file was not found"
-}
+try {
+  $contract = Load-SecretContract -RepoRoot $repoRoot -ContractPath $TestContractPath
+  Assert-TestModeSecretIsSynthetic -ResolvedSecretPath $SecretPath -IsTestMode $TestMode -DefaultSecretPath $defaultSecretPath
+  $secret = Read-SharedSecret -Path $SecretPath -Contract $contract
+  Validate-SharedSecretValues -Secret $secret -Contract $contract.Raw
 
-$contract = Load-SecretContract -RepoRoot $repoRoot -ContractPath $TestContractPath
-Assert-TestModeSecretIsSynthetic -ResolvedSecretPath $SecretPath -IsTestMode ($DryRun -or $ValidateOnly -or $TestMode -or $TestSyntheticProcesses -or [bool]$FakeSshExe) -DefaultSecretPath $defaultSecretPath
-$secret = Read-SharedSecret -Path $SecretPath -Contract $contract
-Validate-SharedSecretValues -Secret $secret -Contract $contract.Raw
+  $localPort = [int]$secret["SHARED_DEV_DB_LOCAL_PORT"]
+  $dbSshConfigPath = (Resolve-Path -LiteralPath ([string]$secret["SHARED_DEV_DB_SSH_CONFIG_PATH"])).Path
+  $mediaSshConfigPath = (Resolve-Path -LiteralPath ([string]$secret["SHARED_DEV_MEDIA_SSH_CONFIG_PATH"])).Path
+  $sshExe = Resolve-OpenSshExe -FakePath $FakeSshExe
+  Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $dbSshConfigPath -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedDatabaseSshAlias -ExpectedUser $contract.Raw.expectedDatabaseSshUser
+  Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $mediaSshConfigPath -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedMediaSshAlias -ExpectedUser $contract.Raw.expectedMediaSshUser
 
-$localPort = [int]$secret["SHARED_DEV_DB_LOCAL_PORT"]
-$dbSshConfigPath = (Resolve-Path -LiteralPath ([string]$secret["SHARED_DEV_DB_SSH_CONFIG_PATH"])).Path
-$mediaSshConfigPath = (Resolve-Path -LiteralPath ([string]$secret["SHARED_DEV_MEDIA_SSH_CONFIG_PATH"])).Path
-$sshExe = Resolve-OpenSshExe -FakePath $FakeSshExe
-Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $dbSshConfigPath -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedDatabaseSshAlias -ExpectedUser $contract.Raw.expectedDatabaseSshUser
-Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $mediaSshConfigPath -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedMediaSshAlias -ExpectedUser $contract.Raw.expectedMediaSshUser
-
-if ($ValidateOnly -or $DryRun) {
-  Write-SharedLog "Validation/dry-run completed without launching processes or writing shared state"
-  return
+  if ($ValidateOnly -or $DryRun) {
+    Write-SharedLog "Validation/dry-run completed without launching processes or writing shared state"
+    return
+  }
+} finally {
+  if ($ValidateOnly -or $DryRun) {
+    Clear-SharedBackendEnvironment
+  }
 }
 
 $createdTunnel = $null

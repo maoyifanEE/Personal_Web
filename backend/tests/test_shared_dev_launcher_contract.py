@@ -115,7 +115,21 @@ def assert_real_runtime_unchanged(snapshot: tuple[bool, str | None, int | None, 
         assert logs == set()
 
 
-def run_launcher(args: list[str], *, timeout: int = 60, capture: bool = True) -> subprocess.CompletedProcess[str]:
+def snapshot_real_state() -> tuple[bool, str | None, int | None]:
+    state_text = STATE_PATH.read_text(encoding="utf-8", errors="ignore") if STATE_PATH.exists() else None
+    state_mtime = STATE_PATH.stat().st_mtime_ns if STATE_PATH.exists() else None
+    return STATE_PATH.exists(), state_text, state_mtime
+
+
+def assert_real_state_unchanged(snapshot: tuple[bool, str | None, int | None]) -> None:
+    existed, text, mtime = snapshot
+    assert STATE_PATH.exists() is existed
+    if existed:
+        assert STATE_PATH.read_text(encoding="utf-8", errors="ignore") == text
+        assert STATE_PATH.stat().st_mtime_ns == mtime
+
+
+def run_launcher(args: list[str], *, timeout: int = 60, capture: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"), *args],
         cwd=REPO_ROOT,
@@ -123,6 +137,7 @@ def run_launcher(args: list[str], *, timeout: int = 60, capture: bool = True) ->
         capture_output=capture,
         stdout=None if capture else subprocess.DEVNULL,
         stderr=None if capture else subprocess.DEVNULL,
+        env=env,
         timeout=timeout,
         check=False,
     )
@@ -186,6 +201,27 @@ def synthetic_launch_args(
     if extra:
         args.extend(extra)
     return args
+
+
+def synthetic_ssh_processes_for(path_fragment: str) -> list[int]:
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-Command",
+            (
+                "Get-CimInstance Win32_Process -Filter \"name='ssh.exe'\" | "
+                f"Where-Object {{ $_.CommandLine -like '*{path_fragment}*' }} | "
+                "Select-Object -ExpandProperty ProcessId"
+            ),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    return [int(line.strip()) for line in result.stdout.splitlines() if line.strip().isdigit()]
 
 
 def python_exe() -> str:
@@ -377,6 +413,160 @@ def test_start_shared_dev_validate_only_uses_synthetic_secret(tmp_path):
     assert "alembic upgrade" not in result.stdout.lower()
     assert "seed_dev_auth_users" not in result.stdout
     assert_real_runtime_unchanged(snapshot)
+
+
+def test_validate_only_without_test_mode_accepts_explicit_temporary_secret_and_starts_no_processes(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_state()
+    secret = synthetic_secret(tmp_path)
+    state_path = REPO_ROOT / ".runtime" / "shared-dev" / "shared-session-state.json"
+    before_env = {
+        key: os.environ.get(key)
+        for key in [
+            "DATABASE_URL",
+            "PERSONAL_WEB_DATA_PROFILE",
+            "HOMEPAGE_MEDIA_STORAGE_BACKEND",
+            "SHARED_DEV_MEDIA_SSH_ALIAS",
+            "SHARED_DEV_MEDIA_SSH_CONFIG_PATH",
+            "SHARED_DEV_MEDIA_REMOTE_ROOT",
+            "SHARED_DEV_MEDIA_CACHE_MAX_MB",
+            "SHARED_DEV_MEDIA_CACHE_RETENTION_DAYS",
+        ]
+    }
+
+    result = run_launcher(["-ValidateOnly", "-SecretPath", str(secret)], timeout=30)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Validation/dry-run completed" in result.stdout
+    assert "requires_test_mode" not in result.stdout + result.stderr
+    assert "synthetic password" not in result.stdout + result.stderr
+    assert not (runtime / "shared-session-state.json").exists()
+    assert not state_path.exists()
+    assert synthetic_ssh_processes_for(str(tmp_path)) == []
+    assert before_env == {key: os.environ.get(key) for key in before_env}
+    assert_real_state_unchanged(snapshot)
+
+
+def test_validate_only_default_secret_resolution_is_real_mode_without_test_mode(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_state()
+    fake_profile = tmp_path / "profile"
+    protected_dir = fake_profile / ".personal_web"
+    protected_dir.mkdir(parents=True)
+    secret = synthetic_secret(tmp_path)
+    default_secret = protected_dir / "shared-dev-secrets.env"
+    default_secret.write_text(secret.read_text(encoding="utf-8"), encoding="utf-8")
+    env = os.environ.copy()
+    env["USERPROFILE"] = str(fake_profile)
+
+    result = run_launcher(["-ValidateOnly"], timeout=30, env=env)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Validation/dry-run completed" in result.stdout
+    assert "requires_test_mode" not in result.stdout + result.stderr
+    assert "synthetic password" not in result.stdout + result.stderr
+    assert not (runtime / "shared-session-state.json").exists()
+    assert synthetic_ssh_processes_for(str(tmp_path)) == []
+    assert_real_state_unchanged(snapshot)
+
+
+def test_validate_only_failure_is_sanitized_and_writes_no_state(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_state()
+    secret = synthetic_secret(tmp_path, db_name="personal_web_prod")
+
+    result = run_launcher(["-ValidateOnly", "-SecretPath", str(secret)], timeout=30)
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "database name is not allowlisted" in combined
+    assert "synthetic password" not in combined
+    assert str(secret) not in combined
+    assert not (runtime / "shared-session-state.json").exists()
+    assert_real_state_unchanged(snapshot)
+
+
+@pytest.mark.parametrize(
+    "extra,expected",
+    [
+        (["-TestRuntimeRoot"], "test_runtime_root_requires_test_mode"),
+        (["-TestLauncherLogRoot"], "test_launcher_log_root_requires_test_mode"),
+        (["-FakeSshExe"], "fake_ssh_requires_test_mode"),
+        (["-TestScenario", "post_state_failure"], "test_scenario_requires_test_mode"),
+        (["-TestSyntheticProcesses"], "test_synthetic_processes_requires_test_mode"),
+        (["-TestSkipPreflights"], "test_skip_preflights_requires_test_mode"),
+        (["-TestSkipBrowser"], "test_skip_browser_requires_test_mode"),
+        (["-TestCleanupOutcome", "identity_mismatch"], "test_cleanup_outcome_requires_test_mode"),
+        (["-TestProbeDir"], "test_probe_dir_requires_test_mode"),
+    ],
+)
+def test_test_only_parameters_are_rejected_without_explicit_test_mode(tmp_path, extra, expected):
+    secret = synthetic_secret(tmp_path)
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    value_map = {
+        "-TestRuntimeRoot": str(tmp_path / "runtime"),
+        "-TestLauncherLogRoot": str(tmp_path / "logs"),
+        "-FakeSshExe": str(fake_ssh),
+        "-TestProbeDir": str(tmp_path / "probe"),
+    }
+    args = ["-ValidateOnly", "-SecretPath", str(secret)]
+    for item in extra:
+        args.append(item)
+        if item in value_map:
+            args.append(value_map[item])
+
+    result = run_launcher(args, timeout=30)
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert expected in combined
+    assert "synthetic password" not in combined
+
+
+def test_test_mode_requires_explicit_secret_and_isolated_roots(tmp_path):
+    result = run_launcher(["-ValidateOnly", "-TestMode"], timeout=30)
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "test_mode_requires_explicit_secret_path" in combined
+    assert "synthetic password" not in combined
+
+
+def test_test_mode_with_default_secret_path_is_rejected_before_secret_read(tmp_path):
+    fake_profile = tmp_path / "profile"
+    protected_dir = fake_profile / ".personal_web"
+    protected_dir.mkdir(parents=True)
+    default_secret = protected_dir / "shared-dev-secrets.env"
+    default_secret.write_text(synthetic_secret(tmp_path).read_text(encoding="utf-8"), encoding="utf-8")
+    env = os.environ.copy()
+    env["USERPROFILE"] = str(fake_profile)
+    runtime, logs = isolated_roots(tmp_path)
+
+    result = run_launcher(["-ValidateOnly", "-TestMode", *isolated_args(runtime, logs)], timeout=30, env=env)
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "test_mode_requires_explicit_secret_path" in combined
+    assert "synthetic password" not in combined
+
+
+def test_test_mode_refuses_explicit_default_secret_path(tmp_path):
+    fake_profile = tmp_path / "profile"
+    protected_dir = fake_profile / ".personal_web"
+    protected_dir.mkdir(parents=True)
+    default_secret = protected_dir / "shared-dev-secrets.env"
+    default_secret.write_text(synthetic_secret(tmp_path).read_text(encoding="utf-8"), encoding="utf-8")
+    env = os.environ.copy()
+    env["USERPROFILE"] = str(fake_profile)
+    runtime, logs = isolated_roots(tmp_path)
+
+    result = run_launcher(["-ValidateOnly", "-TestMode", "-SecretPath", str(default_secret), *isolated_args(runtime, logs)], timeout=30, env=env)
+
+    assert result.returncode != 0
+    combined = result.stdout + result.stderr
+    assert "Test-only shared launcher mode cannot use the default protected secret path" in combined
+    assert "synthetic password" not in combined
 
 
 def test_start_shared_dev_rejects_production_like_database_without_secret_value(tmp_path):

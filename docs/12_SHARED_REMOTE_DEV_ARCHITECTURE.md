@@ -137,6 +137,26 @@ contract fixtures, synthetic failure scenarios, and test-only runtime/log root
 overrides only. Synthetic tests must not read, write, delete, or stop anything
 under the real `.runtime/shared-dev` or `.local_logs/launcher` paths.
 
+`-ValidateOnly` is a normal real operational mode and does not imply
+`-TestMode`:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\start-shared-dev.ps1 `
+  -ValidateOnly
+```
+
+By default it resolves the protected secret at
+`C:\Users\<current-user>\.personal_web\shared-dev-secrets.env`, validates the
+canonical contract and safe SSH alias metadata with `ssh -G`, and returns before
+mutex acquisition, stale-state removal, fixed application port checks, virtual
+environment repair, tunnel creation, database/SFTP preflights, backend/frontend
+startup, browser launch, or session-state writes. An explicit `-SecretPath` may
+be used for validation without implying test mode; the file must be a regular
+non-reparse file and errors remain sanitized. Test-only parameters, including
+runtime/log root overrides, fake SSH, simulated preflights, synthetic process
+hooks, failure injection, and mutex pause hooks, require explicit `-TestMode`.
+
 Default browser startup still clears the current session with `?devLogout=1`.
 Passing `keep-session` preserves the existing session.
 
