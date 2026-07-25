@@ -1,9 +1,44 @@
+param(
+  [switch]$TestMode,
+  [string]$TestRuntimeRoot,
+  [string]$TestLauncherLogRoot
+)
+
 $ErrorActionPreference = "Stop"
+$sessionSchemaVersion = 2
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$runtimeDir = Join-Path $repoRoot ".runtime\shared-dev"
+function Resolve-TestableRoot {
+  param(
+    [string]$OverridePath,
+    [string]$ProductionPath,
+    [string]$Name
+  )
+  $production = [System.IO.Path]::GetFullPath($ProductionPath)
+  if (-not $OverridePath) {
+    return $production
+  }
+  if (-not $TestMode) {
+    throw "${Name}_requires_test_mode"
+  }
+  New-Item -ItemType Directory -Force -Path $OverridePath | Out-Null
+  $resolved = (Resolve-Path -LiteralPath $OverridePath).Path
+  $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "${Name}_invalid"
+  }
+  if ($resolved.Equals($production, [System.StringComparison]::OrdinalIgnoreCase) -or
+      $resolved.StartsWith($production + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "${Name}_cannot_use_production_root"
+  }
+  return $resolved
+}
+
+$productionRuntimeDir = Join-Path $repoRoot ".runtime\shared-dev"
+$productionLauncherLogDir = Join-Path $repoRoot ".local_logs\launcher"
+$runtimeDir = Resolve-TestableRoot -OverridePath $TestRuntimeRoot -ProductionPath $productionRuntimeDir -Name "test_runtime_root"
 $statePath = Join-Path $runtimeDir "shared-session-state.json"
-$launcherLogDir = Join-Path $repoRoot ".local_logs\launcher"
+$launcherLogDir = Resolve-TestableRoot -OverridePath $TestLauncherLogRoot -ProductionPath $productionLauncherLogDir -Name "test_launcher_log_root"
 New-Item -ItemType Directory -Force -Path $launcherLogDir | Out-Null
 $stopLogPath = Join-Path $launcherLogDir ("stop-shared-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 
@@ -16,8 +51,8 @@ function Write-SharedStopLog {
 function Invoke-LauncherLogRetention {
   param([string]$LogDir)
   $root = (Resolve-Path -LiteralPath $LogDir).Path
-  $repo = (Resolve-Path -LiteralPath $repoRoot).Path
-  if (-not $root.StartsWith($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+  $item = Get-Item -LiteralPath $root -ErrorAction Stop
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw "launcher_log_root_invalid"
   }
   $cutoff = (Get-Date).AddDays(-7)
@@ -47,7 +82,7 @@ function Wait-ProcessAndPortClosed {
   param([int]$ProcessId, [int]$Port)
   for ($i = 0; $i -lt 10; $i += 1) {
     $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-    $listeners = Get-PortListeners -Port $Port | Where-Object { $_.OwningProcess -eq $ProcessId }
+    $listeners = Get-PortListeners -Port $Port
     if (-not $process -and @($listeners).Count -eq 0) {
       return $true
     }
@@ -99,6 +134,23 @@ function Test-ProcessRecord {
           Select-Object -First 1
         $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.listenerPid)" -ErrorAction SilentlyContinue
         if ($childListener -and $listenerProcess -and [int]$listenerProcess.ParentProcessId -eq [int]$Record.pid) {
+          $childProcess = Get-Process -Id ([int]$Record.listenerPid) -ErrorAction SilentlyContinue
+          if (-not $childProcess) {
+            return "invalid"
+          }
+          if ($Record.listenerStartTimeUtc -and $childProcess.StartTime.ToUniversalTime().ToString("o") -ne [string]$Record.listenerStartTimeUtc) {
+            return "invalid"
+          }
+          try {
+            if ($Record.listenerExecutable -and $childProcess.MainModule.FileName -ne [string]$Record.listenerExecutable) {
+              return "invalid"
+            }
+          } catch {
+            return "invalid"
+          }
+          if ($Record.listenerParentPid -and [int]$Record.listenerParentPid -ne [int]$Record.pid) {
+            return "invalid"
+          }
           return "verified"
         }
       }
@@ -141,19 +193,19 @@ Write-SharedStopLog "Stop log: $stopLogPath"
 Invoke-LauncherLogRetention -LogDir $launcherLogDir
 if (-not (Test-Path -LiteralPath $statePath)) {
   Write-SharedStopLog "No shared session state was found."
-  return
+  exit 0
 }
 
 try {
   $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 } catch {
   Write-SharedStopLog "Shared session state is unreadable; manual review is required."
-  return
+  exit 2
 }
 
-if ($state.schemaVersion -ne 1 -or $state.repositoryRoot -ne $repoRoot -or $state.profile -ne "shared_remote") {
+if ($state.schemaVersion -ne $sessionSchemaVersion -or $state.repositoryRoot -ne $repoRoot -or $state.profile -ne "shared_remote") {
   Write-SharedStopLog "Refusing cleanup because session state is not owned by this repository/profile."
-  return
+  exit 2
 }
 
 $results = @()
@@ -163,8 +215,9 @@ $results += Stop-VerifiedRecord -Record $state.dbTunnel -Name "database tunnel" 
 
 if ($results -contains "refused") {
   Write-SharedStopLog "Shared session state preserved because at least one process was unverifiable."
-  return
+  exit 3
 }
 
 Remove-Item -LiteralPath $statePath -Force
 Write-SharedStopLog "Shared session state removed."
+exit 0

@@ -11,12 +11,15 @@ param(
   [string]$TestContractPath,
   [int]$TestBackendPort = 8000,
   [int]$TestFrontendPort = 4173,
-  [string]$TestScenario
+  [string]$TestScenario,
+  [string]$TestRuntimeRoot,
+  [string]$TestLauncherLogRoot,
+  [int]$TestPauseAfterMutexSeconds = 0
 )
 
 $ErrorActionPreference = "Stop"
 $script:LauncherLogPath = $null
-$sessionSchemaVersion = 1
+$sessionSchemaVersion = 2
 
 function Write-SharedLog {
   param([string]$Message)
@@ -338,8 +341,8 @@ function Invoke-LoggedStep {
 function Invoke-LauncherLogRetention {
   param([string]$LogDir)
   $root = (Resolve-Path -LiteralPath $LogDir).Path
-  $repo = (Resolve-Path -LiteralPath $repoRoot).Path
-  if (-not $root.StartsWith($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+  $item = Get-Item -LiteralPath $root -ErrorAction Stop
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw "launcher_log_root_invalid"
   }
   $cutoff = (Get-Date).AddDays(-7)
@@ -354,6 +357,32 @@ function Invoke-LauncherLogRetention {
       }
   }
   Write-SharedLog "Launcher log retention completed; removed $removed file(s)"
+}
+
+function Resolve-TestableRoot {
+  param(
+    [string]$OverridePath,
+    [string]$ProductionPath,
+    [string]$Name
+  )
+  $production = [System.IO.Path]::GetFullPath($ProductionPath)
+  if (-not $OverridePath) {
+    return $production
+  }
+  if (-not $TestMode) {
+    throw "${Name}_requires_test_mode"
+  }
+  New-Item -ItemType Directory -Force -Path $OverridePath | Out-Null
+  $resolved = (Resolve-Path -LiteralPath $OverridePath).Path
+  $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "${Name}_invalid"
+  }
+  if ($resolved.Equals($production, [System.StringComparison]::OrdinalIgnoreCase) -or
+      $resolved.StartsWith($production + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "${Name}_cannot_use_production_root"
+  }
+  return $resolved
 }
 
 function Ensure-BackendVenv {
@@ -567,8 +596,30 @@ function Test-ProcessRecord {
       $listenerPid = [int]$other[0].OwningProcess
       $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$listenerPid" -ErrorAction SilentlyContinue
       if ($listenerProcess -and [int]$listenerProcess.ParentProcessId -eq $processId) {
+        $childProcess = Get-Process -Id $listenerPid -ErrorAction SilentlyContinue
+        if (-not $childProcess) {
+          return "listener_owned_by_other"
+        }
+        $childStart = $childProcess.StartTime.ToUniversalTime().ToString("o")
+        try {
+          $childExecutable = $childProcess.MainModule.FileName
+        } catch {
+          return "listener_owned_by_other"
+        }
+        if ($Record.listenerStartTimeUtc -and [string]$Record.listenerStartTimeUtc -ne $childStart) {
+          return "identity_mismatch"
+        }
+        if ($Record.listenerExecutable -and [string]$Record.listenerExecutable -ne $childExecutable) {
+          return "identity_mismatch"
+        }
+        if ($Record.listenerParentPid -and [int]$Record.listenerParentPid -ne $processId) {
+          return "identity_mismatch"
+        }
         if ($Record -is [System.Collections.Specialized.OrderedDictionary]) {
           $Record["listenerPid"] = $listenerPid
+          $Record["listenerStartTimeUtc"] = $childStart
+          $Record["listenerExecutable"] = $childExecutable
+          $Record["listenerParentPid"] = $processId
         }
         return "verified"
       }
@@ -628,7 +679,7 @@ function Get-StateClassification {
   } catch {
     return "invalid_or_unverifiable"
   }
-  if ($state.schemaVersion -ne 1 -or $state.repositoryRoot -ne $RepoRoot -or $state.profile -ne "shared_remote") {
+  if ($state.schemaVersion -ne $sessionSchemaVersion -or $state.repositoryRoot -ne $RepoRoot -or $state.profile -ne "shared_remote") {
     return "invalid_or_unverifiable"
   }
   $records = @($state.backend, $state.frontend, $state.dbTunnel)
@@ -653,8 +704,10 @@ function Get-StateClassification {
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$runtimeDir = Join-Path $repoRoot ".runtime\shared-dev"
-$launcherLogDir = Join-Path $repoRoot ".local_logs\launcher"
+$productionRuntimeDir = Join-Path $repoRoot ".runtime\shared-dev"
+$productionLauncherLogDir = Join-Path $repoRoot ".local_logs\launcher"
+$runtimeDir = Resolve-TestableRoot -OverridePath $TestRuntimeRoot -ProductionPath $productionRuntimeDir -Name "test_runtime_root"
+$launcherLogDir = Resolve-TestableRoot -OverridePath $TestLauncherLogRoot -ProductionPath $productionLauncherLogDir -Name "test_launcher_log_root"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 New-Item -ItemType Directory -Force -Path $launcherLogDir | Out-Null
 $script:LauncherLogPath = Join-Path $launcherLogDir ("start-shared-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -696,22 +749,6 @@ $sshExe = Resolve-OpenSshExe -FakePath $FakeSshExe
 Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $dbSshConfigPath -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedDatabaseSshAlias -ExpectedUser $contract.Raw.expectedDatabaseSshUser
 Assert-SshAliasSafe -Resolved (Resolve-SshAliasConfig -SshExe $sshExe -ConfigPath $mediaSshConfigPath -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -UseSyntheticParser:$TestMode) -Alias ([string]$secret["SHARED_DEV_MEDIA_SSH_ALIAS"]) -ExpectedAlias $contract.Raw.expectedMediaSshAlias -ExpectedUser $contract.Raw.expectedMediaSshUser
 
-$classification = Get-StateClassification -Path $statePath -RepoRoot $repoRoot
-if ($classification -eq "active_verified") {
-  throw "A verified shared session is already running; run stop-shared-dev.bat first"
-}
-if ($classification -eq "stale_all_gone") {
-  Remove-Item -LiteralPath $statePath -Force
-  Write-SharedLog "Removed stale shared session state"
-}
-if ($classification -eq "invalid_or_unverifiable") {
-  throw "Existing shared session state needs manual review"
-}
-
-Assert-PortFree -Port $backendPort -Name "Backend"
-Assert-PortFree -Port $frontendPort -Name "Frontend"
-Assert-PortFree -Port $localPort -Name "Shared tunnel"
-
 if ($ValidateOnly -or $DryRun) {
   Write-SharedLog "Validation/dry-run completed without launching processes or writing shared state"
   return
@@ -725,6 +762,29 @@ $stateWrittenByThisRun = $false
 $launcherMutex = $null
 try {
   $launcherMutex = Acquire-LauncherMutex -Name (New-ProjectMutexName -RepoRoot $repoRoot)
+  if ($TestPauseAfterMutexSeconds -gt 0) {
+    if (-not $TestMode -or -not $TestRuntimeRoot -or -not $TestLauncherLogRoot) {
+      throw "test_pause_requires_isolated_test_roots"
+    }
+    Write-SharedLog "Synthetic mutex pause started"
+    Start-Sleep -Seconds $TestPauseAfterMutexSeconds
+  }
+  $classification = Get-StateClassification -Path $statePath -RepoRoot $repoRoot
+  if ($classification -eq "active_verified") {
+    throw "A verified shared session is already running; run stop-shared-dev.bat first"
+  }
+  if ($classification -eq "stale_all_gone") {
+    Remove-Item -LiteralPath $statePath -Force
+    Write-SharedLog "Removed stale shared session state"
+  }
+  if ($classification -eq "invalid_or_unverifiable") {
+    throw "Existing shared session state needs manual review"
+  }
+
+  Assert-PortFree -Port $backendPort -Name "Backend"
+  Assert-PortFree -Port $frontendPort -Name "Frontend"
+  Assert-PortFree -Port $localPort -Name "Shared tunnel"
+
   Ensure-BackendVenv -BackendDir $backendDir -BackendPython $backendPython
   $managedPython = (Resolve-Path -LiteralPath $backendPython).Path
   $sshArguments = @(

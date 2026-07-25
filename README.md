@@ -399,6 +399,10 @@ environment interpreter at `backend\.venv\Scripts\python.exe` without
 `uvicorn --reload`; source changes require `stop-shared-dev.bat` followed by a
 manual restart in this version. It uses an auto-releasing project-scoped Windows
 mutex for mutual exclusion and does not persist raw child stdout/stderr.
+Shared session state uses schema version 2 and includes verified child-listener
+identity fields when Windows venv process topology requires them. The stop
+script returns nonzero when state is unreadable, incompatible, or cleanup needs
+manual review.
 
 The shared secret contract requires the database SSH alias
 `personal-web-shared-db` to resolve to user `personal-web-db-tunnel`, the media
@@ -418,9 +422,10 @@ The shared launcher keeps the existing default guest reset by opening
 `?devLogout=1`; `keep-session` preserves the current browser session. During
 this code-foundation phase, tests use synthetic secret files, temporary
 loopback ports, fake SSH/SFTP clients, invalid-contract fixtures, and synthetic
-failure scenarios only. The real shared server, database, and media storage must
-not be contacted from tests, and the real launcher remains prohibited until the
-next fixed-commit review.
+failure scenarios under injected temporary runtime/log roots only. The real
+shared server, database, media storage, `.runtime\shared-dev`, and
+`.local_logs\launcher` must not be contacted or modified from tests, and the
+real launcher remains prohibited until the next fixed-commit review.
 
 Stop a shared session with:
 

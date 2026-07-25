@@ -89,7 +89,7 @@ loopback-only `-L`.
 The launcher does not write a successful session state until tunnel, DB
 preflight, SFTP preflight, backend readiness, frontend readiness, and no-store
 checks succeed. It records sanitized process metadata under
-`.runtime/shared-dev/shared-session-state.json`: schema version, repository
+`.runtime/shared-dev/shared-session-state.json`: schema version 2, repository
 root, profile, creation time, DB tunnel PID/start time/executable/local
 port/alias, backend listener identity, and frontend listener identity. It never
 records the password, complete database URL, private-key path, host/IP, command
@@ -100,12 +100,16 @@ interpreter at `backend\.venv\Scripts\python.exe`. Shared mode does not use
 `powershell.exe -NoExit`, `cmd.exe /k`, or `uvicorn --reload`. The launcher
 captures process records and verifies PID, process start time, executable,
 `127.0.0.1`, expected port, and listener ownership before recording state.
-On Windows, the venv launcher may own a direct child listener process; that
-child PID is accepted only when it is bound to the captured venv process record.
+On Windows, the venv launcher may own a direct child listener process. That
+child is accepted only when it is bound to the captured venv process record, and
+state records `listenerPid`, `listenerStartTimeUtc`, `listenerExecutable`, and
+`listenerParentPid` for later stop verification.
 Source changes require `stop-shared-dev.bat` followed by a manual shared-mode
 restart in this version.
 
-Before launching, existing state is classified as `absent`, `active_verified`,
+After secret and SSH alias validation, real startup acquires the named mutex
+before state classification, stale-state removal, port checks, venv repair, or
+process launch. While holding the mutex, existing state is classified as `absent`, `active_verified`,
 `stale_all_gone`, or `invalid_or_unverifiable`. Active state refuses a second
 start, stale all-gone state is removed, and ambiguous or unreadable state is
 preserved for manual review. Browser opening happens only after verified state
@@ -124,7 +128,9 @@ backend preflight without uploading, renaming, chmodding, or deleting.
 The real launcher must not be run until the next fixed-commit reviewed
 configuration phase updates the protected secret and SSH/SFTP setup. Tests use
 `-ValidateOnly`, `-DryRun`, synthetic secrets, temporary loopback ports, invalid
-contract fixtures, and synthetic failure scenarios only.
+contract fixtures, synthetic failure scenarios, and test-only runtime/log root
+overrides only. Synthetic tests must not read, write, delete, or stop anything
+under the real `.runtime/shared-dev` or `.local_logs/launcher` paths.
 
 Default browser startup still clears the current session with `?devLogout=1`.
 Passing `keep-session` preserves the existing session.
@@ -137,6 +143,10 @@ frontend, then tunnel. It never kills a process merely because it is named
 After each stop it waits for the process to exit and the matching listener to
 disappear before removing session state. PID reuse or unverifiable records
 preserve state and require manual review.
+Stop exit codes are explicit: `0` means no state or complete safe cleanup, `2`
+means unreadable/incompatible state, and `3` means cleanup was refused because
+identity or port reuse requires manual review. The batch wrapper returns the
+PowerShell exit code.
 
 `scripts/stop-local-dev.ps1` remains compatible with local 8000/4173 cleanup
 and delegates shared session cleanup to the dedicated shared stop script when

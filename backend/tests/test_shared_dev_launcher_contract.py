@@ -17,6 +17,7 @@ from app.core.shared_dev_secrets import SharedDevSecretError, load_shared_dev_se
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "config" / "shared-dev-secret-contract.json"
 STATE_PATH = REPO_ROOT / ".runtime" / "shared-dev" / "shared-session-state.json"
+REAL_LOG_ROOT = REPO_ROOT / ".local_logs" / "launcher"
 
 
 def synthetic_secret(tmp_path: Path, *, db_name: str = "personal_web_shared_dev", local_port: int = 65432) -> Path:
@@ -81,6 +82,39 @@ def free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def isolated_roots(tmp_path: Path) -> tuple[Path, Path]:
+    runtime = tmp_path / "runtime"
+    logs = tmp_path / "launcher-logs"
+    runtime.mkdir()
+    logs.mkdir()
+    return runtime, logs
+
+
+def isolated_args(runtime: Path, logs: Path) -> list[str]:
+    return ["-TestRuntimeRoot", str(runtime), "-TestLauncherLogRoot", str(logs)]
+
+
+def snapshot_real_runtime() -> tuple[bool, str | None, int | None, set[str]]:
+    state_text = STATE_PATH.read_text(encoding="utf-8", errors="ignore") if STATE_PATH.exists() else None
+    state_mtime = STATE_PATH.stat().st_mtime_ns if STATE_PATH.exists() else None
+    logs = set()
+    if REAL_LOG_ROOT.exists():
+        logs = {p.name for p in REAL_LOG_ROOT.iterdir()}
+    return STATE_PATH.exists(), state_text, state_mtime, logs
+
+
+def assert_real_runtime_unchanged(snapshot: tuple[bool, str | None, int | None, set[str]]) -> None:
+    existed, text, mtime, logs = snapshot
+    assert STATE_PATH.exists() is existed
+    if existed:
+        assert STATE_PATH.read_text(encoding="utf-8", errors="ignore") == text
+        assert STATE_PATH.stat().st_mtime_ns == mtime
+    if REAL_LOG_ROOT.exists():
+        assert {p.name for p in REAL_LOG_ROOT.iterdir()} == logs
+    else:
+        assert logs == set()
+
+
 def run_launcher(args: list[str], *, timeout: int = 60, capture: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"), *args],
@@ -94,6 +128,29 @@ def run_launcher(args: list[str], *, timeout: int = 60, capture: bool = True) ->
     )
 
 
+def run_stop(runtime: Path, logs: Path, *, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(REPO_ROOT / "scripts" / "stop-shared-dev.ps1"),
+            "-TestMode",
+            "-TestRuntimeRoot",
+            str(runtime),
+            "-TestLauncherLogRoot",
+            str(logs),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def write_contract(tmp_path: Path, mutator) -> Path:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     mutator(contract)
@@ -102,66 +159,81 @@ def write_contract(tmp_path: Path, mutator) -> Path:
     return path
 
 
+def synthetic_launch_args(
+    secret: Path,
+    fake_ssh: Path,
+    runtime: Path,
+    logs: Path,
+    backend_port: int,
+    frontend_port: int,
+    extra: list[str] | None = None,
+) -> list[str]:
+    args = [
+        "-TestMode",
+        "-SecretPath",
+        str(secret),
+        "-FakeSshExe",
+        str(fake_ssh),
+        "-TestSyntheticProcesses",
+        "-TestSkipPreflights",
+        "-TestSkipBrowser",
+        "-TestBackendPort",
+        str(backend_port),
+        "-TestFrontendPort",
+        str(frontend_port),
+        *isolated_args(runtime, logs),
+    ]
+    if extra:
+        args.extend(extra)
+    return args
+
+
 def test_start_shared_dev_validate_only_uses_synthetic_secret(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
     secret = synthetic_secret(tmp_path)
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
 
-    result = subprocess.run(
+    result = run_launcher(
         [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
             "-ValidateOnly",
             "-SecretPath",
             str(secret),
             "-FakeSshExe",
             str(fake_ssh),
             "-TestMode",
+            *isolated_args(runtime, logs),
         ],
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=True,
         timeout=30,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
     assert "Validation/dry-run completed" in result.stdout
-    assert not (REPO_ROOT / ".runtime" / "shared-dev" / "shared-session-state.json").exists()
+    assert not (runtime / "shared-session-state.json").exists()
     assert "synthetic password" not in result.stdout
     assert "alembic upgrade" not in result.stdout.lower()
     assert "seed_dev_auth_users" not in result.stdout
+    assert_real_runtime_unchanged(snapshot)
 
 
 def test_start_shared_dev_rejects_production_like_database_without_secret_value(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
     secret = synthetic_secret(tmp_path, db_name="personal_web_prod")
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
 
-    result = subprocess.run(
+    result = run_launcher(
         [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
             "-ValidateOnly",
             "-SecretPath",
             str(secret),
             "-FakeSshExe",
             str(fake_ssh),
             "-TestMode",
+            *isolated_args(runtime, logs),
         ],
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=True,
         timeout=30,
-        check=False,
     )
 
     assert result.returncode != 0
@@ -215,39 +287,30 @@ def test_start_shared_batch_keep_session_mapping_is_explicit():
 
 
 def test_start_shared_dry_run_leaves_no_persistent_state(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
     secret = synthetic_secret(tmp_path)
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
-    state_path = REPO_ROOT / ".runtime" / "shared-dev" / "shared-session-state.json"
-    state_path.unlink(missing_ok=True)
 
-    result = subprocess.run(
+    result = run_launcher(
         [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
             "-DryRun",
             "-SecretPath",
             str(secret),
             "-FakeSshExe",
             str(fake_ssh),
             "-TestMode",
+            *isolated_args(runtime, logs),
         ],
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=True,
         timeout=30,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
-    assert not state_path.exists()
+    assert not (runtime / "shared-session-state.json").exists()
 
 
 def test_powershell_parser_canonicalizes_deprecated_media_root_before_required_check(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
     secret = synthetic_secret(tmp_path)
     text = secret.read_text(encoding="utf-8")
     text = text.replace("SHARED_DEV_REMOTE_MEDIA_ROOT=", "SHARED_DEV_MEDIA_REMOTE_ROOT=")
@@ -255,26 +318,17 @@ def test_powershell_parser_canonicalizes_deprecated_media_root_before_required_c
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
 
-    result = subprocess.run(
+    result = run_launcher(
         [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
             "-ValidateOnly",
             "-TestMode",
             "-SecretPath",
             str(secret),
             "-FakeSshExe",
             str(fake_ssh),
+            *isolated_args(runtime, logs),
         ],
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=True,
         timeout=30,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr + result.stdout
@@ -308,6 +362,7 @@ def test_powershell_parser_canonicalizes_deprecated_media_root_before_required_c
     ],
 )
 def test_python_and_powershell_reject_invalid_contracts_with_same_safe_category(tmp_path, case_name, mutator):
+    runtime, logs = isolated_roots(tmp_path)
     contract_path = write_contract(tmp_path, mutator)
     secret = synthetic_secret(tmp_path)
     fake_ssh = tmp_path / "ssh.exe"
@@ -327,6 +382,7 @@ def test_python_and_powershell_reject_invalid_contracts_with_same_safe_category(
             str(fake_ssh),
             "-TestContractPath",
             str(contract_path),
+            *isolated_args(runtime, logs),
         ],
         timeout=30,
     )
@@ -338,23 +394,18 @@ def test_python_and_powershell_reject_invalid_contracts_with_same_safe_category(
 
 
 def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
     tunnel_port = free_port()
     backend_port = free_port()
     frontend_port = free_port()
     secret = synthetic_secret(tmp_path, local_port=tunnel_port)
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
-    state_path = STATE_PATH
-    state_path.unlink(missing_ok=True)
+    state_path = runtime / "shared-session-state.json"
 
-    start = subprocess.run(
+    start = run_launcher(
         [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
             "-TestMode",
             "-SecretPath",
             str(secret),
@@ -367,13 +418,10 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
             str(backend_port),
             "-TestFrontendPort",
             str(frontend_port),
+            *isolated_args(runtime, logs),
         ],
-        cwd=REPO_ROOT,
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
         timeout=60,
-        check=False,
+        capture=False,
     )
 
     try:
@@ -383,55 +431,26 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
         assert "DATABASE_URL" not in state_text
         assert "synthetic password" not in state_text
         state = json.loads(state_text)
+        assert state["schemaVersion"] == 2
         venv_python = str((REPO_ROOT / "backend" / ".venv" / "Scripts" / "python.exe").resolve())
         for record in (state["dbTunnel"], state["backend"], state["frontend"]):
             assert record["executable"] == venv_python
+            if "listenerPid" in record:
+                assert record["listenerStartTimeUtc"]
+                assert record["listenerExecutable"]
+                assert int(record["listenerParentPid"]) == int(record["pid"])
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 assert sock.connect_ex(("127.0.0.1", int(record.get("port") or record["localPort"]))) == 0
         assert "--reload" not in (REPO_ROOT / "scripts" / "start-shared-dev.ps1").read_text(encoding="utf-8")
-        second_start = subprocess.run(
-            [
-                "powershell.exe",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
-                "-ValidateOnly",
-                "-TestMode",
-                "-SecretPath",
-                str(secret),
-                "-FakeSshExe",
-                str(fake_ssh),
-                "-TestBackendPort",
-                str(backend_port),
-                "-TestFrontendPort",
-                str(frontend_port),
-            ],
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        assert second_start.returncode != 0
-        assert "already running" in (second_start.stderr + second_start.stdout)
-        assert "synthetic password" not in second_start.stderr + second_start.stdout
     finally:
-        stop = subprocess.run(
-            ["cmd.exe", "/c", str(REPO_ROOT / "stop-shared-dev.bat")],
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            timeout=60,
-            check=False,
-        )
+        stop = run_stop(runtime, logs)
         assert stop.returncode == 0, stop.stderr + stop.stdout
         assert not state_path.exists()
 
     for port in (tunnel_port, backend_port, frontend_port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             assert sock.connect_ex(("127.0.0.1", port)) != 0
+    assert_real_runtime_unchanged(snapshot)
 
 
 @pytest.mark.parametrize(
@@ -439,6 +458,7 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
     [
         "database_preflight_fail",
         "sftp_preflight_fail",
+        "tunnel_exit_before_listener",
         "backend_exit_before_listener",
         "backend_readiness_timeout",
         "frontend_exit_before_listener",
@@ -448,13 +468,14 @@ def test_start_and_stop_shared_dev_with_direct_synthetic_processes(tmp_path):
     ],
 )
 def test_synthetic_startup_failures_clean_started_processes_and_state(tmp_path, scenario):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
     tunnel_port = free_port()
     backend_port = free_port()
     frontend_port = free_port()
     secret = synthetic_secret(tmp_path, local_port=tunnel_port)
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
-    STATE_PATH.unlink(missing_ok=True)
 
     result = run_launcher(
         [
@@ -472,20 +493,104 @@ def test_synthetic_startup_failures_clean_started_processes_and_state(tmp_path, 
             str(frontend_port),
             "-TestScenario",
             scenario,
+            *isolated_args(runtime, logs),
         ],
         timeout=90,
     )
 
     assert result.returncode != 0
     assert "synthetic password" not in result.stdout + result.stderr
-    assert not STATE_PATH.exists()
+    assert not (runtime / "shared-session-state.json").exists()
     for port in (tunnel_port, backend_port, frontend_port):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             assert sock.connect_ex(("127.0.0.1", port)) != 0
+    assert_real_runtime_unchanged(snapshot)
+
+
+def test_simultaneous_synthetic_launcher_is_refused_by_mutex_before_state_or_processes(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    secret = synthetic_secret(tmp_path, local_port=free_port())
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    backend_port = free_port()
+    frontend_port = free_port()
+    first_args = synthetic_launch_args(
+        secret,
+        fake_ssh,
+        runtime,
+        logs,
+        backend_port,
+        frontend_port,
+        ["-TestPauseAfterMutexSeconds", "20"],
+    )
+    first = subprocess.Popen(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"), *first_args],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    try:
+        time.sleep(2)
+        second = run_launcher(synthetic_launch_args(secret, fake_ssh, runtime, logs, free_port(), free_port()), timeout=15)
+        assert second.returncode != 0
+        assert "launcher_mutex_busy" in (second.stdout + second.stderr)
+        assert not (runtime / "shared-session-state.json").exists()
+    finally:
+        first.terminate()
+        try:
+            first.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            first.kill()
+    assert_real_runtime_unchanged(snapshot)
+
+
+def test_abandoned_mutex_recovery_allows_next_synthetic_launch(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    secret = synthetic_secret(tmp_path, local_port=free_port())
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    backend_port = free_port()
+    frontend_port = free_port()
+    abandoned = subprocess.Popen(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(REPO_ROOT / "scripts" / "start-shared-dev.ps1"),
+            *synthetic_launch_args(secret, fake_ssh, runtime, logs, backend_port, frontend_port, ["-TestPauseAfterMutexSeconds", "20"]),
+        ],
+        cwd=REPO_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    time.sleep(2)
+    abandoned.kill()
+    abandoned.wait(timeout=10)
+
+    result = run_launcher(
+        synthetic_launch_args(secret, fake_ssh, runtime, logs, backend_port, frontend_port),
+        timeout=90,
+        capture=False,
+    )
+    try:
+        assert result.returncode == 0
+        assert (runtime / "shared-session-state.json").exists()
+    finally:
+        stop = run_stop(runtime, logs)
+        assert stop.returncode == 0, stop.stdout + stop.stderr
+    assert_real_runtime_unchanged(snapshot)
 
 
 def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    state_path = runtime / "shared-session-state.json"
     port = free_port()
     listener = subprocess.Popen(
         [
@@ -499,24 +604,17 @@ def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
     )
     try:
         state = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "repositoryRoot": str(REPO_ROOT),
             "profile": "shared_remote",
             "backend": {"pid": 999999, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": port, "role": "backend", "localAddress": "127.0.0.1"},
             "frontend": {"pid": 999998, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/python.exe", "port": free_port(), "role": "frontend", "localAddress": "127.0.0.1"},
             "dbTunnel": {"pid": 999997, "startTimeUtc": "2000-01-01T00:00:00Z", "executable": "C:/missing/ssh.exe", "port": free_port(), "localPort": free_port(), "role": "database tunnel", "localAddress": "127.0.0.1"},
         }
-        STATE_PATH.write_text(json.dumps(state), encoding="utf-8")
-        result = subprocess.run(
-            ["cmd.exe", "/c", str(REPO_ROOT / "stop-shared-dev.bat")],
-            cwd=REPO_ROOT,
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=False,
-        )
-        assert result.returncode == 0
-        assert STATE_PATH.exists()
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+        result = run_stop(runtime, logs, timeout=30)
+        assert result.returncode == 3
+        assert state_path.exists()
         assert listener.poll() is None
     finally:
         listener.terminate()
@@ -524,12 +622,33 @@ def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
             listener.wait(timeout=5)
         except subprocess.TimeoutExpired:
             listener.kill()
-        STATE_PATH.unlink(missing_ok=True)
+        state_path.unlink(missing_ok=True)
+        assert_real_runtime_unchanged(snapshot)
+
+
+def test_stop_exit_codes_for_no_state_and_invalid_state(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    no_state = run_stop(runtime, logs)
+    assert no_state.returncode == 0
+
+    state_path = runtime / "shared-session-state.json"
+    state_path.write_text("{not-json", encoding="utf-8")
+    unreadable = run_stop(runtime, logs)
+    assert unreadable.returncode == 2
+    assert state_path.exists()
+
+    state_path.write_text(json.dumps({"schemaVersion": 1, "repositoryRoot": str(REPO_ROOT), "profile": "shared_remote"}), encoding="utf-8")
+    wrong_schema = run_stop(runtime, logs)
+    assert wrong_schema.returncode == 2
+    assert state_path.exists()
+    state_path.unlink()
+    assert_real_runtime_unchanged(snapshot)
 
 
 def test_launcher_log_retention_deletes_only_old_recognized_files(tmp_path):
-    log_dir = REPO_ROOT / ".local_logs" / "launcher"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    runtime, log_dir = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
     old_start = log_dir / "start-shared-dev-old.log"
     old_stop = log_dir / "stop-shared-dev-old.log"
     recent_start = log_dir / "start-shared-dev-recent.log"
@@ -544,11 +663,12 @@ def test_launcher_log_retention_deletes_only_old_recognized_files(tmp_path):
     secret = synthetic_secret(tmp_path)
     fake_ssh = tmp_path / "ssh.exe"
     fake_ssh.write_text("synthetic", encoding="utf-8")
-    result = run_launcher(["-ValidateOnly", "-TestMode", "-SecretPath", str(secret), "-FakeSshExe", str(fake_ssh)], timeout=30)
+    result = run_launcher(["-ValidateOnly", "-TestMode", "-SecretPath", str(secret), "-FakeSshExe", str(fake_ssh), *isolated_args(runtime, log_dir)], timeout=30)
     assert result.returncode == 0
-    subprocess.run(["cmd.exe", "/c", str(REPO_ROOT / "stop-shared-dev.bat")], cwd=REPO_ROOT, text=True, capture_output=True, timeout=30, check=False)
+    run_stop(runtime, log_dir, timeout=30)
 
     assert not old_start.exists()
     assert not old_stop.exists()
     assert recent_start.exists()
     assert unknown_old.exists()
+    assert_real_runtime_unchanged(snapshot)
