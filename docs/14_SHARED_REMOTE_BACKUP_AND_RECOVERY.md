@@ -190,9 +190,11 @@ The dump restore stage uses `pg_restore --exit-on-error --no-owner
 --no-privileges` against the temporary verification database. A failed restore
 is reported at `B05_DATABASE_RESTORE`.
 
-The media unsafe-entry scan treats "no unsafe entries found" as success. This is
-intentional: the underlying `grep -q` no-match status must not abort the backup
-under `set -euo pipefail`.
+The media unsafe-entry scan treats "no unsafe entries found" as success only
+when the filesystem scan itself completed successfully. A failed scan is
+reported as a backup failure at `B09_MEDIA_SCAN` with `command_category=find`;
+it must never be interpreted as a safe media tree. Unsafe entries are reported
+without logging the full unsafe filename.
 
 Archive validation is centralized in:
 

@@ -488,7 +488,119 @@ exit 0
     assert "SUCCESS" not in result.stdout
 
 
-def test_media_scan_returns_success_when_no_unsafe_entries(tmp_path: Path) -> None:
+def test_media_scan_stage_returns_success_for_empty_safe_directory(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+MEDIA_ROOT="{media_root.as_posix()}"
+run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "stage_start id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+    assert "stage_ok id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+
+
+def test_media_scan_returns_success_for_regular_files_only(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    nested = media_root / "images"
+    nested.mkdir(parents=True)
+    (nested / "photo.png").write_bytes(b"regular media bytes")
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+MEDIA_ROOT="{media_root.as_posix()}"
+run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "stage_ok id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+
+
+def test_media_scan_rejects_symlink_without_stage_ok(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    target = media_root / "target"
+    link = media_root / "link"
+    target.mkdir(parents=True)
+    subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+MEDIA_ROOT="{media_root.as_posix()}"
+run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert "unsafe media filesystem entry found" in result.stderr
+    assert "stage_start id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+    assert "stage_ok id=B09_MEDIA_SCAN" not in result.stderr
+
+
+def test_media_scan_rejects_synthetic_special_entry_without_logging_path(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    synthetic_path = media_root / "synthetic-fifo"
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+MEDIA_ROOT="{media_root.as_posix()}"
+find() {{ printf '%s\\n' "{synthetic_path.as_posix()}"; return 0; }}
+run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert "unsafe media filesystem entry found" in result.stderr
+    assert "synthetic-fifo" not in result.stderr
+    assert "stage_ok id=B09_MEDIA_SCAN" not in result.stderr
+
+
+def test_media_scan_failed_find_preserves_status_and_logs_find_category(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+MEDIA_ROOT="{media_root.as_posix()}"
+find() {{ return 7; }}
+run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 7
+    assert "media filesystem safety scan failed" in result.stderr
+    assert "stage_error id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+    assert "exit=7" in result.stderr
+    assert "command_category=find" in result.stderr
+    assert "stage_ok id=B09_MEDIA_SCAN" not in result.stderr
+
+
+def test_media_scan_fake_find_output_uses_unsafe_entry_classification(tmp_path: Path) -> None:
     media_root = tmp_path / "media"
     media_root.mkdir()
     result = run_bash(
@@ -496,12 +608,49 @@ def test_media_scan_returns_success_when_no_unsafe_entries(tmp_path: Path) -> No
 set -Eeuo pipefail
 source "{SERVER_CREATE.as_posix()}"
 MEDIA_ROOT="{media_root.as_posix()}"
+find() {{ printf '%s\\n' "{(media_root / 'unsafe-socket').as_posix()}"; return 0; }}
 reject_unsafe_media_entries
 ''',
         tmp_path,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode != 0
+    assert "unsafe media filesystem entry found" in result.stderr
+    assert "media filesystem safety scan failed" not in result.stderr
+
+
+def test_failed_media_scan_invokes_exit_cleanup_without_sensitive_logs(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    partial = tmp_path / "20260726T040000Z-AbCd1234.partial"
+    partial.mkdir()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+BACKUP_ROOT="{tmp_path.as_posix()}"
+MEDIA_ROOT="{media_root.as_posix()}"
+partial_dir="{partial.as_posix()}"
+verify_db=""
+verify_extract=""
+trap 'status=$?; cleanup_backup_run "$status"' EXIT
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+fake_password_url_canvas_json_media_content_find() {{ return 7; }}
+find() {{ fake_password_url_canvas_json_media_content_find; }}
+run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 7
+    assert not partial.exists()
+    assert "cleanup completed after failure original_status=7" in result.stderr
+    assert "stage_error id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+    assert "command_category=find" in result.stderr
+    assert "password" not in result.stderr.lower()
+    assert "https://example.invalid" not in result.stderr
+    assert "canvas_json" not in result.stderr.lower()
+    assert "media content" not in result.stderr.lower()
 
 
 def test_fake_postgres_metadata_and_template0_creation_flow(tmp_path: Path) -> None:

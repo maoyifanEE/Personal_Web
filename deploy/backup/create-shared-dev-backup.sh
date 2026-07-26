@@ -45,6 +45,9 @@ command_category() {
     create_verify_database|drop_verify_database|collect_source_database_properties|collect_verify_database_properties|collect_database_metadata_from_restored_dump|compute_canvas_fingerprint_from_restored_dump)
       printf 'psql\n'
       ;;
+    reject_unsafe_media_entries)
+      printf 'find\n'
+      ;;
     run_pg|psql|pg_dump|pg_restore|createdb|dropdb|python3|tar|find|stat|sha256sum|chmod|chown|mv|rm|touch|install|flock)
       printf '%s\n' "$first_word"
       ;;
@@ -362,8 +365,17 @@ PY
 }
 
 reject_unsafe_media_entries() {
-  if find "$MEDIA_ROOT" \( -type l -o -type b -o -type c -o -type p -o -type s \) -print -quit |
-    grep -q .; then
+  local unsafe_entry find_status
+  find_status=0
+  unsafe_entry="$(find "$MEDIA_ROOT" \( -type l -o -type b -o -type c -o -type p -o -type s \) -print -quit)" ||
+    find_status="$?"
+
+  if [[ "$find_status" -ne 0 ]]; then
+    log "ERROR: media filesystem safety scan failed"
+    return "$find_status"
+  fi
+
+  if [[ -n "$unsafe_entry" ]]; then
     fail "unsafe media filesystem entry found"
   fi
   return 0
