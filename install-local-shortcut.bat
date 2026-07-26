@@ -2,12 +2,17 @@
 setlocal
 
 set "REPO_ROOT=%~dp0"
-set "INSTALL_SCRIPT=%REPO_ROOT%scripts\install-local-shortcut.ps1"
+set "INSTALLER=%REPO_ROOT%install-shared-shortcut.bat"
 
-if not exist "%INSTALL_SCRIPT%" (
-  echo Failed to create shortcut.
-  echo Missing script:
-  echo %INSTALL_SCRIPT%
+echo Personal_Web desktop shortcut default is now shared-remote development.
+echo This compatibility installer will create Personal Web.lnk for start-shared-dev.bat.
+echo Local development remains available manually through start-local-dev.bat.
+echo.
+
+if not exist "%INSTALLER%" (
+  echo Failed to create shared development shortcut.
+  echo Missing installer:
+  echo %INSTALLER%
   echo.
   echo Please send a screenshot of this window to ChatGPT.
   echo.
@@ -15,11 +20,11 @@ if not exist "%INSTALL_SCRIPT%" (
   exit /b 1
 )
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_SCRIPT%"
+call "%INSTALLER%"
 
 if errorlevel 1 (
   echo.
-  echo Failed to create shortcut.
+  echo Failed to create shared development shortcut.
   echo Please send a screenshot of this window to ChatGPT.
   echo.
   pause

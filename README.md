@@ -319,43 +319,42 @@ Then open these URLs as needed:
 * `http://127.0.0.1:4173/apps/special-subscription/index.html`
 * `http://127.0.0.1:4173/apps/messages/index.html`
 
-## Local Auth Development Quickstart
+## Shared Development Quickstart
 
 The recommended beginner workflow on Windows is:
 
 ```text
-1. Double-click install-local-shortcut.bat from the project folder.
-2. A desktop shortcut named Personal Web Local is created.
-3. Double-click the desktop icon later to start the local website.
+1. Double-click install-shared-shortcut.bat from the project folder.
+2. A desktop shortcut named Personal Web is created.
+3. Double-click the desktop icon later to start shared-remote development.
 ```
 
-The shortcut starts the same default flow as `start-local-dev.bat`.
+The shortcut starts the same default flow as `start-shared-dev.bat`.
 
-It opens the local homepage with `?devLogout=1`, so old local admin sessions are
+It opens the local homepage with `?devLogout=1`, so old browser sessions are
 cleared by default.
 
 The shortcut itself can be moved anywhere.
 
-If the project folder moves, run `install-local-shortcut.bat` again so the
+If the project folder moves, run `install-shared-shortcut.bat` again so the
 shortcut points to the new project path.
 
-Advanced command fallback:
+Stop a shared development session with:
+
+```powershell
+.\stop-shared-dev.bat
+```
+
+Manual local-database fallback remains available when specifically needed:
 
 ```powershell
 .\start-local-dev.bat
 ```
 
-By default, the local launcher opens:
+Local mode uses the local PostgreSQL development database and filesystem media
+fallback. It is no longer the desktop shortcut default.
 
-```text
-http://127.0.0.1:4173/?devLogout=1
-```
-
-The homepage handles this local-only flag by calling the logout API and then
-cleaning the URL. This prevents an old admin HttpOnly session cookie from making
-the app appear to start as admin automatically.
-
-To keep the existing browser session intentionally:
+To keep the existing browser session intentionally in local mode:
 
 ```powershell
 .\start-local-dev.bat keep-session
@@ -382,7 +381,7 @@ The launcher:
 
 ## Shared Remote Development Profile
 
-An explicit shared-development profile now exists as code foundation only:
+Shared-remote development is the normal daily development profile:
 
 ```text
 PERSONAL_WEB_DATA_PROFILE=shared_remote
@@ -417,9 +416,7 @@ The shared secret contract requires the database SSH alias
 SSH alias `personal-web-shared-media` to resolve to user `personal-web-dev`, and
 the exact remote media root `/srv/personal-web/shared-dev/homepage`.
 
-The real launcher path is implemented, but must be used only after the next
-reviewed configuration phase updates the protected external secret, separate DB
-and media SSH configs, and the future SFTP account:
+Start shared-remote development with:
 
 ```powershell
 .\start-shared-dev.bat
@@ -427,13 +424,10 @@ and media SSH configs, and the future SFTP account:
 ```
 
 The shared launcher keeps the existing default guest reset by opening
-`?devLogout=1`; `keep-session` preserves the current browser session. During
-this code-foundation phase, tests use synthetic secret files, temporary
-loopback ports, fake SSH/SFTP clients, invalid-contract fixtures, and synthetic
-failure scenarios under injected temporary runtime/log roots only. The real
-shared server, database, media storage, `.runtime\shared-dev`, and
-`.local_logs\launcher` must not be contacted or modified from tests, and the
-real launcher remains prohibited until the next fixed-commit review.
+`?devLogout=1`; `keep-session` preserves the current browser session. Automated
+tests use synthetic secret files, temporary loopback ports, fake SSH/SFTP
+clients, invalid-contract fixtures, and synthetic failure scenarios under
+injected temporary runtime/log roots only.
 
 Validate the real shared-development configuration without starting any tunnel
 or application process:
@@ -465,26 +459,31 @@ docs/12_SHARED_REMOTE_DEV_ARCHITECTURE.md
 Create a movable Windows shortcut:
 
 ```powershell
-.\install-local-shortcut.bat
+.\install-shared-shortcut.bat
 ```
 
 Advanced PowerShell equivalent:
 
 ```powershell
-.\scripts\create-local-launch-shortcut.ps1
+.\scripts\create-shared-launch-shortcut.ps1
 ```
 
-This creates `Personal Web Local.lnk` on the Desktop. The shortcut stores the
-absolute target path and working directory, so the shortcut itself can be moved.
+This creates `Personal Web.lnk` on the Desktop and targets
+`start-shared-dev.bat` with no arguments. The shortcut stores the absolute
+target path and working directory, so the shortcut itself can be moved.
 
-Optional keep-session shortcut:
+`install-local-shortcut.bat` remains as a compatibility wrapper. It now creates
+the same shared-remote default shortcut and does not make local mode the desktop
+default.
+
+Manual local fallback:
 
 ```powershell
-.\scripts\create-local-launch-shortcut.ps1 -KeepSession
+.\start-local-dev.bat
 ```
 
-This creates `Personal Web Local Keep Session.lnk` and passes `keep-session` to
-`start-local-dev.bat`. It is not the default.
+The local launcher continues to use the local PostgreSQL database and local
+media fallback. It is not redirected to shared mode.
 
 Optional portable `.cmd` launcher:
 
