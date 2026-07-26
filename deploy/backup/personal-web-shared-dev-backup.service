@@ -1,0 +1,21 @@
+[Unit]
+Description=Personal_Web shared-development database and media backup
+Documentation=file:/opt/personal-web/docs/13_SHARED_REMOTE_BACKUP_AND_RECOVERY.md
+ConditionPathExists=/srv/personal-web/shared-dev/homepage
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/opt/personal-web/deploy/backup/create-shared-dev-backup.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/backups/personal-web/shared-dev /run/lock
+ReadOnlyPaths=/srv/personal-web/shared-dev/homepage
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native

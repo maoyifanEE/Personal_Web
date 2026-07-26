@@ -205,6 +205,7 @@ Personal_Web/
 * `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md`: homepage, login, Hub, Journey canvas, and diagnostics flow specification.
 * `docs/12_HOMEPAGE_REMOTE_PUBLISH_PLAN.md`: Homepage/Journey public publish-bundle and allowlist deployment plan.
 * `docs/13_JOURNEY_CURVE_IMPORT.md`: Journey curve image/JSON import workflow and AI image guidance.
+* `docs/14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md`: shared-development backup and restore-drill plan.
 * `docs/PROJECT_HISTORY.md`: project change history.
 
 Deployment preparation templates:

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Personal_Web shared-development backup timer
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=20m
+Unit=personal-web-shared-dev-backup.service
+
+[Install]
+WantedBy=timers.target
