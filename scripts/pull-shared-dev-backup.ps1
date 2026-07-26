@@ -95,11 +95,37 @@ function Protect-LocalBackupDirectory {
   }
   $acl.SetAccessRuleProtection($true, $false)
   Set-Acl -LiteralPath $Path -AclObject $acl
-  Assert-LocalBackupAcl -Path $Path
+  Assert-LocalBackupAcl -Path $Path -ItemKind "Directory"
+}
+
+function Protect-LocalBackupFile {
+  param([string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "local_backup_file_missing"
+  }
+  $acl = New-Object System.Security.AccessControl.FileSecurity
+  $fullControl = [System.Security.AccessControl.FileSystemRights]"FullControl"
+  foreach ($sidValue in Get-ExpectedBackupAclSids) {
+    $sid = New-Object System.Security.Principal.SecurityIdentifier($sidValue)
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+      $sid,
+      $fullControl,
+      [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $acl.AddAccessRule($rule)
+  }
+  $acl.SetAccessRuleProtection($true, $false)
+  Set-Acl -LiteralPath $Path -AclObject $acl
+  Assert-LocalBackupAcl -Path $Path -ItemKind "File"
 }
 
 function Assert-LocalBackupAcl {
-  param([string]$Path)
+  param(
+    [string]$Path,
+    [ValidateSet("Directory", "File")]
+    [string]$ItemKind = "Directory"
+  )
 
   $item = Get-Item -LiteralPath $Path -Force
   if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -109,20 +135,53 @@ function Assert-LocalBackupAcl {
   if (-not $acl.AreAccessRulesProtected) {
     throw "local_backup_acl_inheritance_enabled"
   }
+  $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
   $expected = @(Get-ExpectedBackupAclSids | Sort-Object)
+  if ($expected -notcontains $ownerSid) {
+    throw "local_backup_owner_unexpected"
+  }
   $actual = @()
+  $expectedRights = [int][System.Security.AccessControl.FileSystemRights]::FullControl
+  $expectedInheritanceFlags = if ($ItemKind -eq "Directory") {
+    [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
+  } else {
+    [System.Security.AccessControl.InheritanceFlags]"None"
+  }
+  $expectedPropagationFlags = [System.Security.AccessControl.PropagationFlags]"None"
   foreach ($rule in $acl.Access) {
+    if ($rule.IsInherited) {
+      throw "local_backup_acl_inherited_rule"
+    }
     if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
-      continue
+      throw "local_backup_acl_non_allow_rule"
     }
     $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
-    if (($rule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne 0) {
-      $actual += $sid
+    if ($expected -notcontains $sid) {
+      throw "local_backup_acl_unexpected_sid"
     }
+    if (($actual | Where-Object { $_ -eq $sid }).Count -gt 0) {
+      throw "local_backup_acl_duplicate_sid"
+    }
+    if ([int]$rule.FileSystemRights -ne $expectedRights) {
+      throw "local_backup_acl_unexpected_rights"
+    }
+    if ($rule.InheritanceFlags -ne $expectedInheritanceFlags -or $rule.PropagationFlags -ne $expectedPropagationFlags) {
+      throw "local_backup_acl_unexpected_flags"
+    }
+    $actual += $sid
   }
   $actual = @($actual | Sort-Object -Unique)
   if (($actual -join "|") -ne ($expected -join "|")) {
     throw "local_backup_acl_unexpected_entries"
+  }
+}
+
+function Assert-DownloadedBackupAcls {
+  param([string]$Directory)
+
+  Assert-LocalBackupAcl -Path $Directory -ItemKind "Directory"
+  foreach ($file in $RequiredFiles) {
+    Assert-LocalBackupAcl -Path (Join-Path $Directory $file) -ItemKind "File"
   }
 }
 
@@ -180,13 +239,15 @@ d="`$root/`$backup_id"
 test -d "`$d"
 test ! -L "`$d"
 test "`$(stat -c '%U:%G:%a:%F' "`$d")" = 'root:root:700:directory'
-expected='SHA256SUMS
-SUCCESS
-homepage-media.tar.gz
-manifest.json
-personal_web_shared_dev.dump'
-actual="`$(find "`$d" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)"
-test "`$actual" = "`$expected"
+python3 - "`$d" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+required = {"personal_web_shared_dev.dump", "homepage-media.tar.gz", "manifest.json", "SHA256SUMS", "SUCCESS"}
+actual = {entry.name for entry in root.iterdir()}
+if actual != required:
+    raise SystemExit("backup file set mismatch")
+PY
 for f in personal_web_shared_dev.dump homepage-media.tar.gz manifest.json SHA256SUMS SUCCESS; do
   p="`$d/`$f"
   test -f "`$p"
@@ -294,7 +355,9 @@ expected_bytes = int(sys.argv[4])
 expected_fingerprint = sys.argv[5]
 
 def safe_name(name):
-    value = name.replace("\\", "/").strip("/")
+    if "\\" in name:
+        raise SystemExit("unsafe_tar_path")
+    value = name.strip("/")
     pure = PurePosixPath(value)
     if not value or name.startswith("/") or ":" in value or any(part in {"", ".", ".."} for part in pure.parts):
         raise SystemExit("unsafe_tar_path")
@@ -309,12 +372,31 @@ else:
 try:
     with tarfile.open(archive, "r:gz") as tar:
         members = tar.getmembers()
+        file_paths = set()
+        dir_paths = set()
         for member in members:
             member.name = safe_name(member.name)
             if member.isdir():
+                if member.name in file_paths:
+                    raise SystemExit("file_directory_conflict")
+                dir_paths.add(member.name)
                 continue
             if not member.isfile():
                 raise SystemExit("unsafe_tar_member")
+            if member.name in file_paths:
+                raise SystemExit("duplicate_tar_path")
+            if member.name in dir_paths:
+                raise SystemExit("file_directory_conflict")
+            parts = PurePosixPath(member.name).parts
+            for index in range(1, len(parts)):
+                if "/".join(parts[:index]) in file_paths:
+                    raise SystemExit("file_directory_conflict")
+            file_paths.add(member.name)
+        for directory in dir_paths:
+            parts = PurePosixPath(directory).parts
+            for index in range(1, len(parts) + 1):
+                if "/".join(parts[:index]) in file_paths:
+                    raise SystemExit("file_directory_conflict")
         for member in members:
             if not member.isfile():
                 continue
@@ -358,7 +440,7 @@ function Verify-DownloadedBackup {
     [string]$SelectedBackupId
   )
 
-  Assert-LocalBackupAcl -Path $Directory
+  Assert-DownloadedBackupAcls -Directory $Directory
   $names = @(Get-ChildItem -LiteralPath $Directory -Force | Select-Object -ExpandProperty Name | Sort-Object)
   if (($names -join "|") -ne (($RequiredFiles | Sort-Object) -join "|")) {
     throw "local_backup_file_set_mismatch"
@@ -452,8 +534,34 @@ function Invoke-LocalRetention {
       continue
     }
     Assert-SafeLocalChild -Root $Root -Child $ordered[$i].FullName | Out-Null
-    Assert-LocalBackupAcl -Path $ordered[$i].FullName
+    Assert-DownloadedBackupAcls -Directory $ordered[$i].FullName
     Remove-Item -LiteralPath $ordered[$i].FullName -Recurse -Force
+  }
+}
+
+function Remove-SafePartialDirectory {
+  param(
+    [string]$Root,
+    [string]$PartialPath
+  )
+
+  if (-not (Test-Path -LiteralPath $PartialPath)) {
+    return
+  }
+  try {
+    Assert-SafeLocalChild -Root $Root -Child $PartialPath | Out-Null
+    $name = Split-Path -Leaf $PartialPath
+    if ($name -notmatch "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}\.partial-[0-9]+-[A-Za-z0-9]{12}$") {
+      throw "local_partial_name_invalid"
+    }
+    Assert-LocalBackupAcl -Path $PartialPath -ItemKind "Directory"
+    Remove-Item -LiteralPath $PartialPath -Recurse -Force
+    if (Test-Path -LiteralPath $PartialPath) {
+      throw "local_partial_cleanup_failed"
+    }
+  } catch {
+    Write-BackupLog ("partial_preserved path={0} reason={1}" -f $PartialPath, $_.Exception.Message)
+    throw
   }
 }
 
@@ -498,19 +606,32 @@ if (Test-Path -LiteralPath $partialDir) {
 New-Item -ItemType Directory -Path $partialDir | Out-Null
 Protect-LocalBackupDirectory -Path $partialDir
 
-Invoke-TrustedSsh -RemoteCommand (Get-RemoteValidationScript -SelectedBackupId $selectedBackupId) | Out-Null
+try {
+  Invoke-TrustedSsh -RemoteCommand (Get-RemoteValidationScript -SelectedBackupId $selectedBackupId) | Out-Null
 
-foreach ($file in $RequiredFiles) {
-  Invoke-TrustedScp -RemoteFile "$ServerBackupRoot/$selectedBackupId/$file" -LocalFile (Join-Path $partialDir $file)
+  foreach ($file in $RequiredFiles) {
+    Invoke-TrustedScp -RemoteFile "$ServerBackupRoot/$selectedBackupId/$file" -LocalFile (Join-Path $partialDir $file)
+    Protect-LocalBackupFile -Path (Join-Path $partialDir $file)
+  }
+
+  $manifest = Verify-DownloadedBackup -Directory $partialDir -SelectedBackupId $selectedBackupId
+  Move-Item -LiteralPath $partialDir -Destination $finalDir
+  Protect-LocalBackupDirectory -Path $finalDir
+  foreach ($file in $RequiredFiles) {
+    Protect-LocalBackupFile -Path (Join-Path $finalDir $file)
+  }
+  Verify-DownloadedBackup -Directory $finalDir -SelectedBackupId $selectedBackupId | Out-Null
+  if (Test-Path -LiteralPath $partialDir) {
+    throw "local_partial_remained_after_finalization"
+  }
+  Invoke-LocalRetention -Root $LocalBackupRoot
+  Write-BackupLog ("downloaded backupId={0} database={1} mediaFiles={2} mediaBytes={3}" -f
+    $selectedBackupId,
+    $manifest.databaseName,
+    $manifest.sourceMediaRegularFileCount,
+    $manifest.sourceMediaLogicalBytes
+  )
+} catch {
+  Remove-SafePartialDirectory -Root $LocalBackupRoot -PartialPath $partialDir
+  throw
 }
-
-$manifest = Verify-DownloadedBackup -Directory $partialDir -SelectedBackupId $selectedBackupId
-Move-Item -LiteralPath $partialDir -Destination $finalDir
-Protect-LocalBackupDirectory -Path $finalDir
-Invoke-LocalRetention -Root $LocalBackupRoot
-Write-BackupLog ("downloaded backupId={0} database={1} mediaFiles={2} mediaBytes={3}" -f
-  $selectedBackupId,
-  $manifest.databaseName,
-  $manifest.sourceMediaRegularFileCount,
-  $manifest.sourceMediaLogicalBytes
-)

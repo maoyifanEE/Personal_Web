@@ -94,6 +94,18 @@ class RemoteBackupEntry:
     is_symlink: bool = False
 
 
+@dataclass(frozen=True)
+class WindowsAclAce:
+    """Sanitized explicit Windows ACL entry."""
+
+    sid: str
+    rights: str
+    access_type: str = "Allow"
+    inheritance_flags: str = "ContainerInherit,ObjectInherit"
+    propagation_flags: str = "None"
+    inherited: bool = False
+
+
 def require_shared_dev_database_name(name: str) -> str:
     """Accept only the shared-development database."""
 
@@ -168,7 +180,9 @@ def ensure_child_name_under_root(root: Path, child_name: str) -> Path:
 
 
 def validate_media_relative_path(path: str) -> str:
-    value = path.strip().replace("\\", "/")
+    if "\\" in path:
+        raise SharedDevBackupContractError("Media archive path must not contain backslashes")
+    value = path.strip()
     if not value or value.startswith("/") or value.startswith("~"):
         raise SharedDevBackupContractError("Media archive paths must be relative")
     pure = PurePosixPath(value)
@@ -250,7 +264,10 @@ def validate_exact_backup_file_set(names: Iterable[str]) -> None:
 def validate_remote_backup_listing(entries: Iterable[RemoteBackupEntry], *, directory: RemoteBackupEntry) -> None:
     if directory.kind != "dir" or directory.is_symlink or directory.owner != "root" or directory.group != "root" or directory.mode != "700":
         raise SharedDevBackupContractError("Remote backup directory metadata is unsafe")
-    entry_map = {entry.name: entry for entry in entries}
+    entry_list = list(entries)
+    entry_map = {entry.name: entry for entry in entry_list}
+    if len(entry_map) != len(entry_list):
+        raise SharedDevBackupContractError("Remote backup directory contains duplicate entries")
     validate_exact_backup_file_set(entry_map)
     for name in REQUIRED_BACKUP_FILES:
         entry = entry_map[name]
@@ -361,6 +378,90 @@ def validate_windows_acl_sids(actual_sids: Iterable[str], *, current_user_sid: s
         raise SharedDevBackupContractError("Backup ACL entries do not match the SID contract")
 
 
+def validate_windows_backup_acl(
+    aces: Iterable[WindowsAclAce],
+    *,
+    current_user_sid: str,
+    inheritance_enabled: bool,
+    owner_sid: str,
+    expected_rights: str = "FullControl",
+    expected_inheritance_flags: str = "ContainerInherit,ObjectInherit",
+    expected_propagation_flags: str = "None",
+) -> None:
+    """Require exact explicit allow ACEs and a safe owner for protected backups."""
+
+    expected_sids = expected_windows_backup_acl_sids(current_user_sid)
+    if inheritance_enabled:
+        raise SharedDevBackupContractError("Backup ACL inheritance must be disabled")
+    if owner_sid not in expected_sids:
+        raise SharedDevBackupContractError("Backup owner is not in the SID contract")
+    seen: set[str] = set()
+    for ace in aces:
+        if ace.inherited:
+            raise SharedDevBackupContractError("Backup ACL must not contain inherited ACEs")
+        if ace.access_type != "Allow":
+            raise SharedDevBackupContractError("Backup ACL contains a non-allow ACE")
+        if ace.sid not in expected_sids:
+            raise SharedDevBackupContractError("Backup ACL contains an unexpected SID")
+        if ace.sid in seen:
+            raise SharedDevBackupContractError("Backup ACL contains duplicate or fragmented ACEs")
+        if ace.rights != expected_rights:
+            raise SharedDevBackupContractError("Backup ACL rights do not match the exact contract")
+        if ace.inheritance_flags != expected_inheritance_flags or ace.propagation_flags != expected_propagation_flags:
+            raise SharedDevBackupContractError("Backup ACL inheritance flags do not match the exact contract")
+        seen.add(ace.sid)
+    if seen != expected_sids:
+        raise SharedDevBackupContractError("Backup ACL entries do not match the SID contract")
+
+
+def validate_windows_backup_item_security(
+    aces: Iterable[WindowsAclAce],
+    *,
+    current_user_sid: str,
+    inheritance_enabled: bool,
+    owner_sid: str,
+    is_reparse_point: bool,
+    expected_rights: str = "FullControl",
+    expected_inheritance_flags: str = "ContainerInherit,ObjectInherit",
+    expected_propagation_flags: str = "None",
+) -> None:
+    if is_reparse_point:
+        raise SharedDevBackupContractError("Backup item must not be a reparse point")
+    validate_windows_backup_acl(
+        aces,
+        current_user_sid=current_user_sid,
+        inheritance_enabled=inheritance_enabled,
+        owner_sid=owner_sid,
+        expected_rights=expected_rights,
+        expected_inheritance_flags=expected_inheritance_flags,
+        expected_propagation_flags=expected_propagation_flags,
+    )
+
+
+def scheduled_task_triggers_match(triggers: list[dict[str, Any]], *, principal: str) -> bool:
+    """Match scheduled task trigger properties without localized ToString text."""
+
+    if len(triggers) != 2:
+        return False
+    daily = [trigger for trigger in triggers if trigger.get("type") == "Daily"]
+    logon = [trigger for trigger in triggers if trigger.get("type") == "Logon"]
+    if len(daily) != 1 or len(logon) != 1:
+        return False
+    daily_trigger = daily[0]
+    logon_trigger = logon[0]
+    return (
+        daily_trigger.get("enabled") is True
+        and str(daily_trigger.get("startBoundary", "")).endswith("T10:00:00")
+        and int(daily_trigger.get("daysInterval", 1)) == 1
+        and not daily_trigger.get("repetitionInterval")
+        and not daily_trigger.get("repetitionDuration")
+        and logon_trigger.get("enabled") is True
+        and logon_trigger.get("userId") in {None, "", principal}
+        and not logon_trigger.get("repetitionInterval")
+        and not logon_trigger.get("repetitionDuration")
+    )
+
+
 def scheduled_task_matches_repository(
     task: dict[str, Any],
     *,
@@ -380,8 +481,11 @@ def scheduled_task_matches_repository(
         and task.get("workingDirectory") == working_directory
         and task.get("principal") == principal
         and task.get("runLevel") == "Limited"
-        and task.get("dailyAt") == "10:00"
-        and task.get("atLogon") is True
+        and (
+            scheduled_task_triggers_match(task["triggers"], principal=principal)
+            if "triggers" in task
+            else task.get("dailyAt") == "10:00" and task.get("atLogon") is True
+        )
         and task.get("wakeToRun") is False
     )
 

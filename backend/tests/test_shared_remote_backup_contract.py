@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
+import sys
 import tarfile
 
 import pytest
@@ -19,6 +24,7 @@ from app.core.shared_dev_backup import (
     RemoteBackupEntry,
     SharedDevBackupContractError,
     MediaInventoryEntry,
+    WindowsAclAce,
     assert_manifest_is_safe,
     ensure_child_name_under_root,
     expected_windows_backup_acl_sids,
@@ -39,6 +45,8 @@ from app.core.shared_dev_backup import (
     validate_remote_backup_listing,
     validate_sha256sums,
     validate_tarinfo_members,
+    validate_windows_backup_acl,
+    validate_windows_backup_item_security,
     validate_windows_acl_sids,
 )
 
@@ -47,6 +55,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_CREATE = REPO_ROOT / "deploy" / "backup" / "create-shared-dev-backup.sh"
 SERVER_VERIFY = REPO_ROOT / "deploy" / "backup" / "verify-shared-dev-backup.sh"
 RESTORE_VERIFY = REPO_ROOT / "deploy" / "backup" / "verify-shared-dev-restore.sh"
+ARCHIVE_VERIFIER = REPO_ROOT / "deploy" / "backup" / "verify-shared-media-archive.py"
 PULL_SCRIPT = REPO_ROOT / "scripts" / "pull-shared-dev-backup.ps1"
 TASK_SCRIPT = REPO_ROOT / "scripts" / "install-shared-dev-backup-pull-task.ps1"
 DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
@@ -54,6 +63,81 @@ DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def git_bash() -> str:
+    for candidate in [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        shutil.which("bash"),
+    ]:
+        if candidate and Path(candidate).exists():
+            return candidate
+    pytest.skip("Git Bash is not available")
+
+
+def run_bash(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    python_exe = Path(sys.executable).as_posix()
+    return subprocess.run(
+        [git_bash(), "-lc", f'python3() {{ "{python_exe}" "$@"; }}\n{script}'],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def write_tar(archive: Path, entries: list[tuple[str, str, bytes]]) -> None:
+    with tarfile.open(archive, "w:gz") as tar:
+        for kind, name, payload in entries:
+            info = tarfile.TarInfo(name)
+            if kind == "file":
+                info.type = tarfile.REGTYPE
+                info.size = len(payload)
+                import io
+
+                tar.addfile(info, io.BytesIO(payload))
+            elif kind == "dir":
+                info.type = tarfile.DIRTYPE
+                tar.addfile(info)
+            elif kind == "symlink":
+                info.type = tarfile.SYMTYPE
+                info.linkname = "target"
+                tar.addfile(info)
+            elif kind == "hardlink":
+                info.type = tarfile.LNKTYPE
+                info.linkname = "target"
+                tar.addfile(info)
+            elif kind == "fifo":
+                info.type = tarfile.FIFOTYPE
+                tar.addfile(info)
+            else:
+                raise AssertionError(kind)
+
+
+def archive_manifest(archive: Path, entries: list[MediaInventoryEntry], *, fingerprint_override: str | None = None) -> dict[str, object]:
+    return {
+        **safe_manifest(),
+        "mediaArchive": {
+            "filename": archive.name,
+            "size": archive.stat().st_size,
+            "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        },
+        "sourceMediaRegularFileCount": len(entries),
+        "sourceMediaLogicalBytes": sum(entry.size for entry in entries),
+        "sourceMediaTreeFingerprint": fingerprint_override or media_tree_fingerprint(entries),
+    }
+
+
+def run_archive_verifier(archive: Path, extract_dir: Path, *, manifest: Path | None = None, inventory: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    extract_dir.mkdir(mode=0o700)
+    args = [sys.executable, str(ARCHIVE_VERIFIER), "--archive", str(archive), "--extract-dir", str(extract_dir)]
+    if manifest:
+        args.extend(["--expect-manifest", str(manifest)])
+    if inventory:
+        args.extend(["--write-inventory", str(inventory)])
+    merged_env = {**os.environ, **(env or {})}
+    return subprocess.run(args, text=True, capture_output=True, check=False, env=merged_env)
 
 
 def safe_manifest() -> dict[str, object]:
@@ -110,6 +194,88 @@ def test_backup_verification_database_name_is_strictly_temporary() -> None:
             require_backup_verify_database_name(unsafe)
 
 
+def test_random_suffix_helper_is_pipefail_safe_under_real_bash(tmp_path: Path) -> None:
+    script_path = SERVER_CREATE.as_posix()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{script_path}"
+for i in $(seq 1 100); do
+  value="$(random_suffix)"
+  [[ "$value" =~ ^[0-9a-f]{{16}}$ ]]
+  printf '%s\\n' "$value"
+done
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    values = result.stdout.splitlines()
+    assert len(values) == 100
+    assert len(set(values)) > 1
+
+
+def test_fake_postgres_metadata_and_template0_creation_flow(tmp_path: Path) -> None:
+    source_props = tmp_path / "source.json"
+    verify_props = tmp_path / "verify.json"
+    dump = tmp_path / "dump.bin"
+    calls = tmp_path / "calls.log"
+    dump.write_bytes(b"fake dump")
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+run_pg() {{
+  printf '%s\\n' "$*" >> "{calls.as_posix()}"
+  case "$1" in
+    psql)
+      printf '%s\\n' '{{"databaseEncoding":"UTF8","databaseCollate":"zh-Hans-CN-x-icu","databaseCtype":"zh-Hans-CN-x-icu"}}'
+      ;;
+    createdb|pg_restore)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}}
+collect_source_database_properties "{source_props.as_posix()}"
+create_verify_database_from_dump personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef "{dump.as_posix()}" "{source_props.as_posix()}" "{verify_props.as_posix()}"
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    call_text = calls.read_text(encoding="utf-8")
+    assert "createdb --template=template0 --encoding=UTF8 --lc-collate=zh-Hans-CN-x-icu --lc-ctype=zh-Hans-CN-x-icu" in call_text
+    assert json.loads(source_props.read_text(encoding="utf-8")) == json.loads(verify_props.read_text(encoding="utf-8"))
+
+
+def test_database_exists_distinguishes_query_failure_and_remaining_db(tmp_path: Path) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+run_pg() {{ return 44; }}
+set +e
+database_exists personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef
+printf 'query=%s\\n' "$?"
+run_pg() {{ printf '1\\n'; }}
+database_exists personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef
+printf 'remaining=%s\\n' "$?"
+run_pg() {{ printf ''; }}
+database_exists personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef
+printf 'absent=%s\\n' "$?"
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "query=2" in result.stdout
+    assert "remaining=0" in result.stdout
+    assert "absent=1" in result.stdout
+
+
 def test_media_archive_paths_reject_symlink_traversal_contract() -> None:
     assert validate_media_relative_path("images/a.png") == "images/a.png"
 
@@ -138,6 +304,96 @@ def test_tar_traversal_rejected_before_extraction() -> None:
 
     with pytest.raises(SharedDevBackupContractError):
         validate_tarinfo_members([member])
+
+
+def test_canonical_archive_verifier_accepts_leading_dash_name(tmp_path: Path) -> None:
+    archive = tmp_path / "homepage-media.tar.gz"
+    write_tar(archive, [("file", "-dash.txt", b"dash")])
+    entries = [MediaInventoryEntry("-dash.txt", 4, hashlib.sha256(b"dash").hexdigest())]
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(archive_manifest(archive, entries)), encoding="utf-8")
+    inventory_path = tmp_path / "inventory.jsonl"
+
+    result = run_archive_verifier(archive, tmp_path / "extract", manifest=manifest_path, inventory=inventory_path)
+
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "extract").exists()
+    assert [json.loads(line)["path"] for line in inventory_path.read_text(encoding="utf-8").splitlines()] == ["-dash.txt"]
+
+
+def test_newline_media_filename_is_unambiguous_in_nul_inventory_contract() -> None:
+    assert validate_media_relative_path("folder/line\nbreak.txt") == "folder/line\nbreak.txt"
+    script = read(SERVER_CREATE)
+    assert "printf '%s\\0' \"$relative_path\"" in script
+    assert "--null --verbatim-files-from --no-recursion" in script
+
+
+@pytest.mark.parametrize(
+    ("kind", "name", "expected"),
+    [
+        ("symlink", "images/link", "symlink"),
+        ("hardlink", "images/hard", "hardlink"),
+        ("fifo", "images/fifo", "fifo"),
+        ("file", "../outside", "traversal"),
+        ("file", "C:/drive.txt", "drive"),
+        ("file", "back\\slash.txt", "backslash"),
+    ],
+)
+def test_canonical_archive_verifier_rejects_malicious_members(tmp_path: Path, kind: str, name: str, expected: str) -> None:
+    archive = tmp_path / "homepage-media.tar.gz"
+    write_tar(archive, [(kind, name, b"bad")])
+
+    result = run_archive_verifier(archive, tmp_path / "extract")
+
+    assert result.returncode != 0
+    assert expected in result.stderr
+    assert not (tmp_path / "extract").exists()
+
+
+def test_canonical_archive_verifier_rejects_duplicate_and_file_directory_conflict(tmp_path: Path) -> None:
+    duplicate = tmp_path / "duplicate.tar.gz"
+    write_tar(duplicate, [("file", "images/a.txt", b"1"), ("file", "images/a.txt", b"2")])
+    conflict = tmp_path / "conflict.tar.gz"
+    write_tar(conflict, [("file", "images", b"1"), ("dir", "images/child", b"")])
+
+    duplicate_result = run_archive_verifier(duplicate, tmp_path / "dup-extract")
+    conflict_result = run_archive_verifier(conflict, tmp_path / "conflict-extract")
+
+    assert duplicate_result.returncode != 0
+    assert "duplicate" in duplicate_result.stderr
+    assert conflict_result.returncode != 0
+    assert "conflict" in conflict_result.stderr
+
+
+def test_canonical_archive_verifier_rejects_manifest_fingerprint_mismatch(tmp_path: Path) -> None:
+    archive = tmp_path / "homepage-media.tar.gz"
+    payload = b"content"
+    write_tar(archive, [("file", "images/a.txt", payload)])
+    entries = [MediaInventoryEntry("images/a.txt", len(payload), hashlib.sha256(payload).hexdigest())]
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(archive_manifest(archive, entries, fingerprint_override="0" * 64)), encoding="utf-8")
+
+    result = run_archive_verifier(archive, tmp_path / "extract", manifest=manifest_path)
+
+    assert result.returncode != 0
+    assert "fingerprint" in result.stderr
+    assert not (tmp_path / "extract").exists()
+
+
+def test_canonical_archive_verifier_reports_cleanup_failure(tmp_path: Path) -> None:
+    archive = tmp_path / "homepage-media.tar.gz"
+    write_tar(archive, [("file", "images/a.txt", b"a")])
+    extract = tmp_path / "extract"
+
+    result = run_archive_verifier(
+        archive,
+        extract,
+        env={"PERSONAL_WEB_ARCHIVE_VERIFY_SIMULATE_CLEANUP_FAILURE": "1"},
+    )
+
+    assert result.returncode != 0
+    assert "cleanup incomplete" in result.stderr
+    shutil.rmtree(extract, ignore_errors=True)
 
 
 def test_partial_and_completed_backup_naming() -> None:
@@ -265,6 +521,14 @@ def test_remote_listing_requires_root_owned_exact_files() -> None:
             [RemoteBackupEntry("SUCCESS", "file", "root", "root", "644"), *entries[:-1]],
             directory=directory,
         )
+    for unsafe_entries in [
+        [*entries, RemoteBackupEntry("extra-dir", "dir", "root", "root", "700")],
+        [*entries, RemoteBackupEntry("extra-link", "file", "root", "root", "600", is_symlink=True)],
+        [*entries, RemoteBackupEntry("extra-fifo", "fifo", "root", "root", "600")],
+        [RemoteBackupEntry("SUCCESS", "file", "root", "root", "600", is_symlink=True), *entries[:-1]],
+    ]:
+        with pytest.raises(SharedDevBackupContractError):
+            validate_remote_backup_listing(unsafe_entries, directory=directory)
 
 
 def test_local_retention_keeps_newest_7_verified_backups() -> None:
@@ -302,6 +566,47 @@ def test_windows_sid_acl_contract_is_exact() -> None:
         validate_windows_acl_sids(expected, current_user_sid=current_user_sid, inheritance_enabled=True)
 
 
+def test_windows_acl_rejects_any_unexpected_allow_rights_or_sid() -> None:
+    current_user_sid = "S-1-5-21-1-2-3-1001"
+    expected_sids = expected_windows_backup_acl_sids(current_user_sid)
+    valid_aces = [WindowsAclAce(sid=sid, rights="FullControl") for sid in expected_sids]
+    validate_windows_backup_acl(
+        valid_aces,
+        current_user_sid=current_user_sid,
+        inheritance_enabled=False,
+        owner_sid=current_user_sid,
+    )
+    for rights in ["Read", "Modify", "WriteData", "ReadAndExecute"]:
+        with pytest.raises(SharedDevBackupContractError):
+            validate_windows_backup_acl(
+                [*valid_aces, WindowsAclAce(sid="S-1-1-0", rights=rights)],
+                current_user_sid=current_user_sid,
+                inheritance_enabled=False,
+                owner_sid=current_user_sid,
+            )
+        with pytest.raises(SharedDevBackupContractError):
+            validate_windows_backup_acl(
+                [WindowsAclAce(sid=current_user_sid, rights=rights), *valid_aces[1:]],
+                current_user_sid=current_user_sid,
+                inheritance_enabled=False,
+                owner_sid=current_user_sid,
+            )
+
+
+def test_windows_backup_item_reparse_point_is_rejected() -> None:
+    current_user_sid = "S-1-5-21-1-2-3-1001"
+    aces = [WindowsAclAce(sid=sid, rights="FullControl") for sid in expected_windows_backup_acl_sids(current_user_sid)]
+
+    with pytest.raises(SharedDevBackupContractError):
+        validate_windows_backup_item_security(
+            aces,
+            current_user_sid=current_user_sid,
+            inheritance_enabled=False,
+            owner_sid=current_user_sid,
+            is_reparse_point=True,
+        )
+
+
 def test_local_run_partial_name_is_unique_and_strict() -> None:
     assert validate_local_run_partial_name("20260726T100000Z-AbCd1234.partial-1234-AbCdEf123456")
     for unsafe in ["20260726T100000Z-AbCd1234.partial", "../x.partial-1-AbCdEf123456"]:
@@ -326,8 +631,10 @@ def test_scheduled_task_exact_ownership_match() -> None:
         "workingDirectory": "D:\\repo",
         "principal": "MACHINE\\user",
         "runLevel": "Limited",
-        "dailyAt": "10:00",
-        "atLogon": True,
+        "triggers": [
+            {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T10:00:00", "daysInterval": 1},
+            {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
+        ],
         "wakeToRun": False,
     }
     assert scheduled_task_matches_repository(
@@ -343,6 +650,21 @@ def test_scheduled_task_exact_ownership_match() -> None:
         ("execute", "cmd.exe"),
         ("arguments", '-NoProfile -ExecutionPolicy Bypass -File "D:\\repo\\scripts\\pull-shared-dev-backup.ps1"; calc'),
         ("principal", "MACHINE\\other"),
+        (
+            "triggers",
+            [
+                {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T10:00:00", "daysInterval": 1},
+                {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
+                {"type": "Boot", "enabled": True, "toString": "Daily 10:00 Logon"},
+            ],
+        ),
+        (
+            "triggers",
+            [
+                {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T09:00:00", "daysInterval": 1, "toString": "Daily 10:00"},
+                {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
+            ],
+        ),
     ]:
         mutated = dict(task)
         mutated[key] = value
@@ -354,6 +676,15 @@ def test_scheduled_task_exact_ownership_match() -> None:
             working_directory="D:\\repo",
             principal="MACHINE\\user",
         )
+
+
+def test_scheduled_task_script_uses_property_matching_update_and_readback() -> None:
+    script = read(TASK_SCRIPT)
+
+    assert ".ToString()" not in script
+    assert "CimClass.CimClassName" in script
+    assert "Set-ScheduledTask" in script
+    assert "scheduled_task_readback_mismatch" in script
 
 
 def test_restore_drill_uses_temporary_database_only() -> None:
@@ -396,14 +727,21 @@ def test_database_manifest_is_dump_derived() -> None:
     assert "create_verify_database_from_dump" in script
     assert "collect_database_metadata_from_restored_dump" in script
     assert "metadataSource\": \"restored_dump" in script
+    assert "collect_source_database_properties" in script
+    assert "--template=template0" in script
+    assert "--lc-collate=\"$db_collate\"" in script
+    assert "--lc-ctype=\"$db_ctype\"" in script
 
 
 def test_media_archive_is_verified_by_extraction_before_manifest() -> None:
     script = read(SERVER_CREATE)
 
     assert "validate_and_extract_media_archive" in script
-    assert "archive inventory mismatch" in script
-    assert "shutil.copyfileobj(source, output)" in script
+    assert "archive inventory mismatch" in read(ARCHIVE_VERIFIER)
+    assert ARCHIVE_VERIFIER.exists()
+    assert "--null --verbatim-files-from --no-recursion" in script
+    assert "media-paths.nul" in script
+    assert "media-paths.txt" not in script
     assert 'filter="data"' not in script
     assert script.index("validate_and_extract_media_archive") < script.index("write_manifest \"$manifest\"")
 
@@ -425,12 +763,23 @@ def test_restore_drill_compares_canvas_metadata_not_only_fingerprint() -> None:
     assert "canvas metadata mismatch" in script
 
 
+def test_restore_drill_uses_canonical_manual_archive_extraction() -> None:
+    script = read(RESTORE_VERIFY)
+
+    assert "verify-shared-media-archive.py" in script
+    assert " --write-inventory " in script
+    assert "tar -x" not in script
+    assert " tar " not in script
+
+
 def test_remote_download_preflight_rejects_symlinks_and_unexpected_files() -> None:
     script = read(PULL_SCRIPT)
 
     assert "test ! -L" in script
     assert "stat -c '%U:%G:%a:%F'" in script
-    assert "backup file set" not in script.lower()
+    assert "Path(sys.argv[1])" in script
+    assert "root.iterdir()" in script
+    assert "backup file set mismatch" in script
     assert "verify-shared-dev-backup.sh" in script
 
 
@@ -443,6 +792,8 @@ def test_windows_archive_verification_checks_logical_bytes_and_fingerprint() -> 
     assert "unsafe_tar_member" in script
     assert "shutil.copyfileobj(source, output)" in script
     assert 'filter="data"' not in script
+    assert "duplicate_tar_path" in script
+    assert "file_directory_conflict" in script
 
 
 def test_systemd_documentation_path_and_capabilities() -> None:
@@ -456,11 +807,20 @@ def test_systemd_documentation_path_and_capabilities() -> None:
 def test_automated_tests_do_not_contact_real_server() -> None:
     test_source = read(Path(__file__))
 
+    forbidden = ["para" + "miko", "psyco" + "pg", "ssh" + ".exe ", "scp" + ".exe "]
+    assert [item for item in forbidden if item in test_source] == []
+
+
+def test_backup_tests_do_not_invoke_local_or_shared_launchers() -> None:
+    test_source = read(Path(__file__))
+
     forbidden = [
-        "subprocess" + ".run",
-        "para" + "miko",
-        "psyco" + "pg",
-        "personal-web-" + "prod",
+        "start-local-dev" + ".bat",
+        "start-local-dev" + ".ps1",
+        "start-shared-dev" + ".bat",
+        "start-shared-dev" + ".ps1",
+        "install-shared-shortcut" + ".bat",
+        "install-local-shortcut" + ".bat",
     ]
     assert [item for item in forbidden if item in test_source] == []
 

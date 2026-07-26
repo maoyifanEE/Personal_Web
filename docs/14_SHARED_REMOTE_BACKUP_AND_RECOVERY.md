@@ -32,6 +32,10 @@ Each completed snapshot directory is named:
 YYYYMMDDTHHMMSSZ-<random-suffix>
 ```
 
+The random suffix is generated with Python `secrets.token_hex(8)`, giving 128
+bits of randomness as exactly 16 lowercase hexadecimal characters. It is not
+generated with a `tr | head` pipeline.
+
 Each completed snapshot contains:
 
 ```text
@@ -103,6 +107,14 @@ The database dump is custom format, equivalent to:
 pg_dump --format=custom --no-owner --no-privileges --dbname=personal_web_shared_dev
 ```
 
+Before creating the dump-verification database, the script queries only safe
+database-level properties from `personal_web_shared_dev`: encoding,
+`datcollate`, and `datctype`. It creates the temporary database with
+`template0` and passes the source encoding, `LC_COLLATE`, and `LC_CTYPE` as
+separate `createdb` arguments, never through `eval` or shell-fragment
+concatenation. After creation it reads the temporary database properties back
+and requires them to match before restoring the dump.
+
 After creating the dump, the script restores it into a unique temporary
 verification database named:
 
@@ -112,7 +124,8 @@ personal_web_shared_dev_backup_verify_<UTC>_<random>
 
 Alembic revision, table counts, canvas metadata, canvas revision, and sanitized
 canvas fingerprint are calculated from that restored dump, not from a later live
-source query. `SUCCESS` is refused if restore, verification, or cleanup fails.
+source query. `SUCCESS` is refused if restore, verification, database-property
+matching, or cleanup fails.
 
 The script rejects production names, does not expose PostgreSQL publicly, and
 does not run migrations or seed scripts.
@@ -124,19 +137,36 @@ The media archive is created from exactly:
 ```
 
 The script rejects source symlinks, device files, FIFOs, sockets, absolute
-archive paths, and traversal paths. It builds the archive from the exact sorted
-inventory path list, validates tar members before extraction, extracts into a
-unique protected verification directory, recalculates extracted path/size/SHA-256
-inventory, and requires exact equality with the source inventory. Media logical
-bytes are the sum of regular file byte lengths, not filesystem allocation size.
+archive paths, and traversal paths. It builds the archive from an exact sorted
+NUL-delimited inventory path list with GNU tar `--null`,
+`--verbatim-files-from`, and `--no-recursion`, so leading-dash filenames and
+filenames containing whitespace or newlines are treated only as filenames.
+Media logical bytes are the sum of regular file byte lengths, not filesystem
+allocation size.
+
+Archive validation is centralized in:
+
+```text
+deploy/backup/verify-shared-media-archive.py
+```
+
+The verifier validates every tar member before writing anything, rejects
+absolute paths, traversal, empty paths, backslashes, drive-like paths, symlinks,
+hardlinks, devices, FIFOs, sockets, duplicate normalized file paths, and
+file/directory conflicts. It manually writes only regular files into a unique
+protected empty verification directory, recalculates extracted path/size/SHA-256
+inventory, file count, logical bytes, and canonical tree fingerprint, compares
+expected inventory or manifest metadata, deletes the verification directory,
+and returns nonzero if cleanup is incomplete. It does not call
+`TarFile.extract()` or `extractall()`.
 
 The manifest stores only safe metadata: backup id, UTC timestamps, source
-hostname, database encoding/collation metadata, Alembic revision, table counts,
-canvas metadata, sanitized canvas fingerprint, dump/archive size and hash,
-media regular-file count, media logical bytes, deterministic media tree
-fingerprint, tool version, and verification result. It must not contain database
-passwords, database URLs, private keys, auth/session values, visitor-message
-contents, audit payloads, canvas JSON, or media bytes.
+hostname, source and verified temporary database encoding/collation metadata,
+Alembic revision, table counts, canvas metadata, sanitized canvas fingerprint,
+dump/archive size and hash, media regular-file count, media logical bytes,
+deterministic media tree fingerprint, tool version, and verification result. It
+must not contain database passwords, database URLs, private keys, auth/session
+values, visitor-message contents, audit payloads, canvas JSON, or media bytes.
 
 `SHA256SUMS` covers:
 
@@ -148,11 +178,16 @@ manifest.json
 
 The server keeps the newest 14 verified successful snapshots and never deletes
 the newest verified backup. A directory is retention-eligible only after strict
-name, direct-child, non-symlink, owner/group, mode, exact file set,
-SHA256SUMS, manifest, dump, archive, and verifier checks pass. Unknown
-directories are ignored. Old `.partial` directories are eligible for cleanup
-only after strict full-name, path, non-symlink, owner/group, mode, and age
-validation.
+name, direct-child, non-symlink, owner/group, mode, exact direct-child entry
+set, SHA256SUMS, manifest, dump, archive content count/bytes/fingerprint, and
+verifier checks pass. Unknown directories are ignored. Old `.partial`
+directories are eligible for cleanup only after strict full-name, path,
+non-symlink, owner/group, mode, and age validation.
+
+Temporary database cleanup uses a helper that distinguishes query failure,
+database still present, database absent, and unexpected query output. A failed
+cleanup query is treated as cleanup failure, never as proof that the database is
+absent.
 
 Concurrency uses a nonblocking server-local `flock`; a second invocation exits
 safely without deleting a stale lock file.
@@ -203,8 +238,16 @@ logical bytes and tree fingerprint, and atomically moves the verified directory
 into place.
 
 Local ACLs are SID-based rather than localized-name based. The only expected
-allow entries are the current user SID, Local System `S-1-5-18`, and Builtin
-Administrators `S-1-5-32-544`; inheritance is disabled and the ACL is read back.
+explicit allow entries are the current user SID, Local System `S-1-5-18`, and
+Builtin Administrators `S-1-5-32-544`; each entry must be exactly FullControl,
+inheritance is disabled, reparse points are rejected, ownership must be one of
+the expected SIDs, and the ACL is read back for the backup root, partial
+directory, downloaded files, finalized directory, and retained files.
+
+If download or verification fails, the script removes only the exact
+run-specific partial directory after path, reparse, and ACL checks. If those
+checks fail, the partial is preserved and reported rather than deleting an
+unknown directory.
 
 If the newest backup already exists locally and verifies, the script reports
 `already_current` and does not redownload or modify it.
@@ -224,9 +267,13 @@ Personal_Web Shared Backup Pull
 ```
 
 The task runs in the current user context with no stored Windows password, no
-highest-privilege requirement, a daily trigger around 10:00 local time, and a
-logon trigger. It does not wake the computer and does not start application
-services. This code-only phase does not register the task.
+highest-privilege requirement, exactly one enabled daily trigger at 10:00 local
+time, and exactly one enabled current-user logon trigger. Ownership checks
+inspect Scheduled Task CIM properties, not localized `ToString()` output. An
+existing task is updated only after exact ownership verification, using
+`Set-ScheduledTask`, and the task is read back and revalidated after install or
+update. It does not wake the computer and does not start application services.
+This code-only phase does not register the task.
 
 ## Restore Drill
 
@@ -243,11 +290,12 @@ uniquely named temporary database:
 personal_web_shared_dev_restore_verify_<timestamp>_<random>
 ```
 
-It validates tar members before extraction, restores the custom dump only into
-that temporary database, compares Alembic revision, table counts, canvas
-metadata/fingerprint, extracts the media archive under a unique temporary
-directory, compares regular-file count, logical bytes, and deterministic media
-tree fingerprint, then drops the temporary database and deletes extracted media.
+It uses the canonical archive verifier for validation and manually controlled
+temporary extraction, writes a safe extracted inventory for comparison, restores
+the custom dump only into that temporary database, compares Alembic revision,
+table counts, canvas metadata/fingerprint, compares media regular-file count,
+logical bytes, and deterministic media tree fingerprint, then drops the
+temporary database and deletes temporary inventory/extraction artifacts.
 
 Cleanup preserves the original verification exit status, attempts to remove only
 the exact temporary database and media directory, verifies both are gone, and

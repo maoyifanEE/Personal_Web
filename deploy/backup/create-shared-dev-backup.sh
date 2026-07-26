@@ -11,6 +11,8 @@ PARTIAL_RETENTION_DAYS=3
 LOCK_FILE="/run/lock/personal-web-shared-dev-backup.lock"
 REQUIRED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json SHA256SUMS SUCCESS)
 HASHED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
 
 log() {
   printf '[personal-web shared backup] %s\n' "$1" >&2
@@ -26,7 +28,14 @@ run_pg() {
 }
 
 random_suffix() {
-  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12
+  local value
+  value="$(python3 - <<'PY'
+import secrets
+print(secrets.token_hex(8))
+PY
+)"
+  [[ "$value" =~ ^[0-9a-f]{16}$ ]] || return 1
+  printf '%s\n' "$value"
 }
 
 require_safe_backup_id() {
@@ -36,6 +45,21 @@ require_safe_backup_id() {
 require_safe_verify_db() {
   [[ "$1" =~ ^personal_web_shared_dev_backup_verify_[0-9]{8}T[0-9]{6}Z_[A-Za-z0-9]{8,32}$ ]] ||
     fail "unsafe verification database name"
+}
+
+database_exists() {
+  local name="$1"
+  require_safe_verify_db "$name"
+  local output
+  if ! output="$(run_pg psql --dbname=postgres --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --command "select 1 from pg_database where datname = '$name'")"; then
+    return 2
+  fi
+  case "$output" in
+    "1") return 0 ;;
+    "") return 1 ;;
+    *) return 3 ;;
+  esac
 }
 
 require_direct_child() {
@@ -58,10 +82,14 @@ require_regular_root_file_0600() {
 
 require_exact_file_set() {
   local dir="$1"
-  local expected actual
-  expected="$(printf '%s\n' "${REQUIRED_FILES[@]}" | sort)"
-  actual="$(find "$dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)"
-  [[ "$actual" == "$expected" ]] || fail "backup file set mismatch"
+  python3 - "$dir" <<'PY' || fail "backup file set mismatch"
+from pathlib import Path
+import sys
+required = {"personal_web_shared_dev.dump", "homepage-media.tar.gz", "manifest.json", "SHA256SUMS", "SUCCESS"}
+actual = {entry.name for entry in Path(sys.argv[1]).iterdir()}
+if actual != required:
+    raise SystemExit(1)
+PY
 }
 
 require_shared_sources() {
@@ -80,11 +108,90 @@ create_dump_from_source() {
   [[ -s "$dump" ]] || fail "dump missing or empty"
 }
 
+collect_source_database_properties() {
+  local out="$1"
+  run_pg psql --dbname=postgres --no-align --tuples-only --set=ON_ERROR_STOP=1 <<'SQL' > "$out"
+select jsonb_build_object(
+  'databaseEncoding', pg_encoding_to_char(encoding),
+  'databaseCollate', datcollate,
+  'databaseCtype', datctype
+)
+from pg_database
+where datname = 'personal_web_shared_dev';
+SQL
+  python3 - "$out" <<'PY'
+import json
+import sys
+from pathlib import Path
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for key in ("databaseEncoding", "databaseCollate", "databaseCtype"):
+    value = data.get(key)
+    if not isinstance(value, str) or not value or "\x00" in value or "\n" in value or "\r" in value or len(value) > 256:
+        raise SystemExit(f"unsafe database property: {key}")
+PY
+}
+
+read_database_property() {
+  local file="$1"
+  local key="$2"
+  python3 - "$file" "$key" <<'PY'
+import json
+import sys
+from pathlib import Path
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = data.get(sys.argv[2])
+if not isinstance(value, str) or not value or "\x00" in value or "\n" in value or "\r" in value or len(value) > 256:
+    raise SystemExit("unsafe database property")
+print(value)
+PY
+}
+
+collect_verify_database_properties() {
+  local verify_db="$1"
+  local out="$2"
+  require_safe_verify_db "$verify_db"
+  run_pg psql --dbname=postgres --no-align --tuples-only --set=ON_ERROR_STOP=1 \
+    --command "select jsonb_build_object('databaseEncoding', pg_encoding_to_char(encoding), 'databaseCollate', datcollate, 'databaseCtype', datctype) from pg_database where datname = '$verify_db';" > "$out"
+  python3 - "$out" <<'PY'
+import json
+import sys
+from pathlib import Path
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for key in ("databaseEncoding", "databaseCollate", "databaseCtype"):
+    value = data.get(key)
+    if not isinstance(value, str) or not value or "\x00" in value or "\n" in value or "\r" in value or len(value) > 256:
+        raise SystemExit(f"unsafe database property: {key}")
+PY
+}
+
+compare_database_properties() {
+  local source_props="$1"
+  local verify_props="$2"
+  python3 - "$source_props" "$verify_props" <<'PY'
+import json
+import sys
+from pathlib import Path
+source = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+verify = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+for key in ("databaseEncoding", "databaseCollate", "databaseCtype"):
+    if source.get(key) != verify.get(key):
+        raise SystemExit(f"database property mismatch: {key}")
+PY
+}
+
 create_verify_database_from_dump() {
   local verify_db="$1"
   local dump="$2"
+  local source_props="$3"
+  local verify_props="$4"
   require_safe_verify_db "$verify_db"
-  run_pg createdb "$verify_db"
+  local db_encoding db_collate db_ctype
+  db_encoding="$(read_database_property "$source_props" databaseEncoding)"
+  db_collate="$(read_database_property "$source_props" databaseCollate)"
+  db_ctype="$(read_database_property "$source_props" databaseCtype)"
+  run_pg createdb --template=template0 --encoding="$db_encoding" --lc-collate="$db_collate" --lc-ctype="$db_ctype" "$verify_db"
+  collect_verify_database_properties "$verify_db" "$verify_props"
+  compare_database_properties "$source_props" "$verify_props"
   run_pg pg_restore --no-owner --no-privileges --dbname="$verify_db" < "$dump"
 }
 
@@ -92,10 +199,14 @@ drop_verify_database() {
   local verify_db="$1"
   require_safe_verify_db "$verify_db"
   run_pg dropdb --if-exists "$verify_db"
-  if run_pg psql --dbname=postgres --tuples-only --no-align \
-    --command "select 1 from pg_database where datname = '$verify_db'" | grep -q 1; then
-    fail "verification database cleanup incomplete"
-  fi
+  local exists_status=0
+  database_exists "$verify_db" || exists_status=$?
+  case "$exists_status" in
+    1) return 0 ;;
+    0) log "verification database cleanup incomplete name=$verify_db"; return 1 ;;
+    2) log "verification database cleanup query failed name=$verify_db"; return 2 ;;
+    *) log "verification database cleanup query returned unexpected output name=$verify_db"; return 3 ;;
+  esac
 }
 
 collect_database_metadata_from_restored_dump() {
@@ -149,12 +260,19 @@ collect_source_media_inventory() {
   (cd "$MEDIA_ROOT" && find . -type f -printf '%P\0' | sort -z) |
     while IFS= read -r -d '' relative_path; do
       [[ -n "$relative_path" ]] || continue
-      [[ "$relative_path" != /* && "$relative_path" != *".."* ]] || fail "unsafe relative media path"
+      python3 - "$relative_path" <<'PY' || fail "unsafe relative media path"
+from pathlib import PurePosixPath
+import sys
+path = sys.argv[1]
+pure = PurePosixPath(path)
+if path.startswith("/") or "\\" in path or ":" in path or any(part in {"", ".", ".."} for part in pure.parts):
+    raise SystemExit(1)
+PY
       local file_path="$MEDIA_ROOT/$relative_path"
       local size sha
       size="$(stat --printf='%s' "$file_path")"
       sha="$(sha256sum "$file_path" | awk '{print $1}')"
-      printf '%s\n' "$relative_path" >> "$paths_file"
+      printf '%s\0' "$relative_path" >> "$paths_file"
       python3 - "$relative_path" "$size" "$sha" <<'PY' >> "$inventory"
 import json
 import sys
@@ -167,7 +285,7 @@ PY
 create_media_archive_from_inventory() {
   local archive="$1"
   local paths_file="$2"
-  (cd "$MEDIA_ROOT" && tar --files-from="$paths_file" --create --gzip --file "$archive")
+  (cd "$MEDIA_ROOT" && tar --null --verbatim-files-from --no-recursion --files-from="$paths_file" --create --gzip --file "$archive")
   [[ -s "$archive" ]] || fail "media archive missing or empty"
 }
 
@@ -175,66 +293,7 @@ validate_and_extract_media_archive() {
   local archive="$1"
   local inventory="$2"
   local extract_dir="$3"
-  python3 - "$archive" "$inventory" "$extract_dir" <<'PY'
-import hashlib
-import json
-import shutil
-import sys
-import tarfile
-from pathlib import Path, PurePosixPath
-
-archive = Path(sys.argv[1])
-inventory_path = Path(sys.argv[2])
-extract_dir = Path(sys.argv[3])
-expected = [json.loads(line) for line in inventory_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-expected.sort(key=lambda item: item["path"])
-
-def safe_name(name):
-    value = name.replace("\\", "/").strip("/")
-    pure = PurePosixPath(value)
-    if not value or name.startswith("/") or any(part in {"", ".", ".."} for part in pure.parts) or ":" in value:
-        raise SystemExit("unsafe tar member path")
-    return pure.as_posix()
-
-if extract_dir.exists() and any(extract_dir.iterdir()):
-    raise SystemExit("verification extraction directory is not empty")
-extract_dir.mkdir(parents=True, exist_ok=True)
-with tarfile.open(archive, "r:gz") as tar:
-    members = tar.getmembers()
-    for member in members:
-        member.name = safe_name(member.name)
-        if member.isdir():
-            continue
-        if not member.isfile():
-            raise SystemExit("unsafe tar member type")
-    for member in members:
-        if member.isfile():
-            target = (extract_dir / member.name).resolve()
-            if extract_dir.resolve() not in [target.parent, *target.parents]:
-                raise SystemExit("tar extraction escaped verification root")
-    for member in members:
-        if not member.isfile():
-            continue
-        target = (extract_dir / member.name).resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        source = tar.extractfile(member)
-        if source is None:
-            raise SystemExit("tar regular member could not be read")
-        with source, target.open("wb") as output:
-            shutil.copyfileobj(source, output)
-actual = []
-for path in sorted(extract_dir.rglob("*")):
-    if path.is_symlink() or not path.is_file():
-        raise SystemExit("unsafe extracted member")
-    data = path.read_bytes()
-    actual.append({"path": path.relative_to(extract_dir).as_posix(), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-actual.sort(key=lambda item: item["path"])
-if actual != expected:
-    raise SystemExit("archive inventory mismatch")
-shutil.rmtree(extract_dir)
-if extract_dir.exists():
-    raise SystemExit("archive verification cleanup incomplete")
-PY
+  python3 "$ARCHIVE_VERIFIER" --archive "$archive" --extract-dir "$extract_dir" --expect-inventory "$inventory" >/dev/null
 }
 
 write_manifest() {
@@ -242,22 +301,29 @@ write_manifest() {
   local backup_id="$2"
   local created_utc="$3"
   local completed_utc="$4"
-  local db_meta_file="$5"
-  local inventory_file="$6"
-  local dump_file="$7"
-  local archive_file="$8"
-  python3 - "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$db_meta_file" "$inventory_file" "$dump_file" "$archive_file" <<'PY'
+  local source_props_file="$5"
+  local verify_props_file="$6"
+  local db_meta_file="$7"
+  local inventory_file="$8"
+  local dump_file="$9"
+  local archive_file="${10}"
+  python3 - "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_props_file" "$verify_props_file" "$db_meta_file" "$inventory_file" "$dump_file" "$archive_file" <<'PY'
 import hashlib
 import json
 import socket
 import sys
 from pathlib import Path
 
-manifest_path, backup_id, created_utc, completed_utc, db_meta_path, inventory_path, dump_path, archive_path = sys.argv[1:]
+manifest_path, backup_id, created_utc, completed_utc, source_props_path, verify_props_path, db_meta_path, inventory_path, dump_path, archive_path = sys.argv[1:]
+source_props = json.loads(Path(source_props_path).read_text(encoding="utf-8"))
+verify_props = json.loads(Path(verify_props_path).read_text(encoding="utf-8"))
 db_meta = json.loads(Path(db_meta_path).read_text(encoding="utf-8"))
 entries = [json.loads(line) for line in Path(inventory_path).read_text(encoding="utf-8").splitlines() if line.strip()]
 entries.sort(key=lambda item: item["path"])
 tree_fingerprint = hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+for key in ("databaseEncoding", "databaseCollate", "databaseCtype"):
+    if source_props.get(key) != verify_props.get(key) or source_props.get(key) != db_meta.get(key):
+        raise SystemExit(f"database metadata mismatch: {key}")
 def file_meta(path):
     data_path = Path(path)
     digest = hashlib.sha256()
@@ -272,9 +338,11 @@ manifest = {
     "completedAtUtc": completed_utc,
     "sourceHostname": socket.gethostname(),
     "databaseName": "personal_web_shared_dev",
-    "databaseEncoding": db_meta.get("databaseEncoding"),
-    "databaseCollate": db_meta.get("databaseCollate"),
-    "databaseCtype": db_meta.get("databaseCtype"),
+    "databaseEncoding": source_props.get("databaseEncoding"),
+    "databaseCollate": source_props.get("databaseCollate"),
+    "databaseCtype": source_props.get("databaseCtype"),
+    "sourceDatabaseProperties": source_props,
+    "verifiedDatabaseProperties": verify_props,
     "alembicRevision": db_meta.get("alembicRevision"),
     "tableCounts": db_meta.get("tableCounts") or {},
     "canvasMetadata": db_meta.get("canvasMetadata") or [],
@@ -286,7 +354,12 @@ manifest = {
     "sourceMediaLogicalBytes": sum(int(item["size"]) for item in entries),
     "sourceMediaTreeFingerprint": tree_fingerprint,
     "toolVersion": "shared-remote-backup-v1",
-    "verification": {"ok": True, "metadataSource": "restored_dump", "mediaSource": "verified_archive"},
+    "verification": {
+        "ok": True,
+        "metadataSource": "restored_dump",
+        "mediaSource": "verified_archive",
+        "databasePropertiesMatched": True,
+    },
 }
 if manifest["alembicRevision"] != "20260712_0006":
     raise SystemExit("unexpected alembic revision")
@@ -310,6 +383,12 @@ verify_completed_backup() {
   [[ "$actual" == "$expected" ]] || fail "SHA256SUMS file set mismatch"
   (cd "$backup_dir" && sha256sum --check SHA256SUMS >/dev/null)
   run_pg pg_restore --list < "$backup_dir/personal_web_shared_dev.dump" >/dev/null
+  local archive_verify_dir
+  archive_verify_dir="$(mktemp -d "/tmp/personal-web-backup-final-media-verify.$(basename "$backup_dir").XXXXXX")"
+  python3 "$ARCHIVE_VERIFIER" \
+    --archive "$backup_dir/homepage-media.tar.gz" \
+    --extract-dir "$archive_verify_dir" \
+    --expect-manifest "$backup_dir/manifest.json" >/dev/null
   python3 - "$backup_dir" <<'PY'
 import hashlib
 import json
@@ -331,6 +410,48 @@ for filename, key in [("personal_web_shared_dev.dump", "databaseDump"), ("homepa
     if meta.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
         raise SystemExit("manifest file hash mismatch")
 PY
+}
+
+cleanup_backup_run() {
+  local original_status="$1"
+  local cleanup_status=0
+  set +e
+  if [[ -n "${verify_db:-}" ]]; then
+    drop_verify_database "$verify_db" >/dev/null 2>&1 || cleanup_status=1
+    local exists_status=0
+    database_exists "$verify_db" >/dev/null 2>&1 || exists_status=$?
+    case "$exists_status" in
+      1) ;;
+      0)
+        log "cleanup incomplete: temporary database remains name=$verify_db"
+        cleanup_status=1
+        ;;
+      2|3)
+        log "cleanup incomplete: temporary database query failed name=$verify_db"
+        cleanup_status=1
+        ;;
+      *)
+        log "cleanup incomplete: temporary database query returned unexpected status name=$verify_db"
+        cleanup_status=1
+        ;;
+    esac
+  fi
+  if [[ -n "${verify_extract:-}" ]]; then
+    case "$verify_extract" in /tmp/personal-web-backup-media-verify.*) rm -rf --one-file-system "$verify_extract" >/dev/null 2>&1 || cleanup_status=1 ;; *) cleanup_status=1 ;; esac
+    [[ -e "$verify_extract" ]] && { log "cleanup incomplete: verification extraction directory remains path=$verify_extract"; cleanup_status=1; }
+  fi
+  if [[ -n "${partial_dir:-}" ]]; then
+    case "$partial_dir" in "$BACKUP_ROOT"/*.partial) rm -rf --one-file-system "$partial_dir" >/dev/null 2>&1 || cleanup_status=1 ;; *) cleanup_status=1 ;; esac
+    [[ -e "$partial_dir" ]] && { log "cleanup incomplete: partial backup directory remains path=$partial_dir"; cleanup_status=1; }
+  fi
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    log "cleanup failed original_status=$original_status"
+    exit 1
+  fi
+  if [[ "$original_status" -ne 0 ]]; then
+    log "cleanup completed after failure original_status=$original_status"
+    exit "$original_status"
+  fi
 }
 
 is_verified_completed_backup_dir() {
@@ -379,7 +500,7 @@ main() {
   require_root_dir_0700 "$BACKUP_ROOT"
   require_shared_sources
   local created_utc backup_id suffix partial_dir completed_dir verify_db verify_extract
-  local db_meta inventory paths_file dump archive manifest
+  local source_db_props verify_db_props db_meta inventory paths_file dump archive manifest
   created_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   suffix="$(random_suffix)"
   backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$suffix"
@@ -392,25 +513,28 @@ main() {
   require_direct_child "$partial_dir"
   require_direct_child "$completed_dir"
   install -d -m 0700 -o root -g root "$partial_dir"
+  source_db_props="$partial_dir/source-database-properties.json"
+  verify_db_props="$partial_dir/verify-database-properties.json"
   db_meta="$partial_dir/database-metadata.json"
   inventory="$partial_dir/media-inventory.jsonl"
-  paths_file="$partial_dir/media-paths.txt"
+  paths_file="$partial_dir/media-paths.nul"
   dump="$partial_dir/personal_web_shared_dev.dump"
   archive="$partial_dir/homepage-media.tar.gz"
   manifest="$partial_dir/manifest.json"
-  trap 'set +e; drop_verify_database "$verify_db" >/dev/null 2>&1; rm -rf --one-file-system "$verify_extract" "$partial_dir" >/dev/null 2>&1' EXIT
+  trap 'status=$?; cleanup_backup_run "$status"' EXIT
+  collect_source_database_properties "$source_db_props"
   create_dump_from_source "$dump"
-  create_verify_database_from_dump "$verify_db" "$dump"
+  create_verify_database_from_dump "$verify_db" "$dump" "$source_db_props" "$verify_db_props"
   collect_database_metadata_from_restored_dump "$verify_db" "$db_meta"
-  drop_verify_database "$verify_db"
+  drop_verify_database "$verify_db" || fail "verification database cleanup incomplete"
   reject_unsafe_media_entries
   collect_source_media_inventory "$inventory" "$paths_file"
   create_media_archive_from_inventory "$archive" "$paths_file"
   validate_and_extract_media_archive "$archive" "$inventory" "$verify_extract"
   local completed_utc
   completed_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$db_meta" "$inventory" "$dump" "$archive"
-  rm -f "$db_meta" "$inventory" "$paths_file"
+  write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_db_props" "$verify_db_props" "$db_meta" "$inventory" "$dump" "$archive"
+  rm -f "$source_db_props" "$verify_db_props" "$db_meta" "$inventory" "$paths_file"
   (cd "$partial_dir" && sha256sum "${HASHED_FILES[@]}" > SHA256SUMS)
   touch "$partial_dir/SUCCESS"
   chmod 0600 "$dump" "$archive" "$manifest" "$partial_dir/SHA256SUMS" "$partial_dir/SUCCESS"
@@ -418,9 +542,12 @@ main() {
   verify_completed_backup "$partial_dir"
   mv "$partial_dir" "$completed_dir"
   chmod 0700 "$completed_dir"
+  verify_completed_backup "$completed_dir"
   trap - EXIT
   apply_retention
   log "backup completed: $backup_id"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

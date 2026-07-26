@@ -4,6 +4,8 @@ set -Eeuo pipefail
 BACKUP_ROOT="/var/backups/personal-web/shared-dev"
 REQUIRED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json SHA256SUMS SUCCESS)
 HASHED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
 
 fail() {
   printf '[personal-web shared backup verify] ERROR: %s\n' "$1" >&2
@@ -20,25 +22,6 @@ require_regular_root_file_0600() {
   [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:600" ]] || fail "file owner or mode is unsafe"
 }
 
-validate_tar_archive() {
-  local archive="$1"
-  python3 - "$archive" <<'PY'
-import sys
-import tarfile
-from pathlib import PurePosixPath
-
-archive = sys.argv[1]
-with tarfile.open(archive, "r:gz") as tar:
-    for member in tar.getmembers():
-        name = member.name.replace("\\", "/").strip("/")
-        pure = PurePosixPath(name)
-        if not name or member.name.startswith("/") or ":" in name or any(part in {"", ".", ".."} for part in pure.parts):
-            raise SystemExit("unsafe tar member path")
-        if not (member.isfile() or member.isdir()):
-            raise SystemExit("unsafe tar member type")
-PY
-}
-
 backup_id="${1:-}"
 [[ "$backup_id" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}$ ]] || fail "unsafe backup id"
 backup_dir="$BACKUP_ROOT/$backup_id"
@@ -48,9 +31,14 @@ case "$backup_dir" in "$BACKUP_ROOT"/*) ;; *) fail "backup path escaped root" ;;
 [[ "$(stat -c '%U:%G:%a' "$BACKUP_ROOT")" == "root:root:700" ]] || fail "backup root owner or mode is unsafe"
 [[ "$(stat -c '%U:%G:%a' "$backup_dir")" == "root:root:700" ]] || fail "backup directory owner or mode is unsafe"
 
-expected="$(printf '%s\n' "${REQUIRED_FILES[@]}" | sort)"
-actual="$(find "$backup_dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)"
-[[ "$actual" == "$expected" ]] || fail "backup file set mismatch"
+python3 - "$backup_dir" <<'PY' || fail "backup file set mismatch"
+from pathlib import Path
+import sys
+required = {"personal_web_shared_dev.dump", "homepage-media.tar.gz", "manifest.json", "SHA256SUMS", "SUCCESS"}
+actual = {entry.name for entry in Path(sys.argv[1]).iterdir()}
+if actual != required:
+    raise SystemExit(1)
+PY
 for file in "${REQUIRED_FILES[@]}"; do
   require_regular_root_file_0600 "$backup_dir/$file"
 done
@@ -60,7 +48,11 @@ hashed_expected="$(printf '%s\n' "${HASHED_FILES[@]}" | sort)"
 [[ "$hashed_actual" == "$hashed_expected" ]] || fail "SHA256SUMS file set mismatch"
 (cd "$backup_dir" && sha256sum --check SHA256SUMS >/dev/null)
 run_pg pg_restore --list < "$backup_dir/personal_web_shared_dev.dump" >/dev/null
-validate_tar_archive "$backup_dir/homepage-media.tar.gz"
+archive_verify_dir="$(mktemp -d "/tmp/personal-web-backup-standalone-media-verify.${backup_id}.XXXXXX")"
+python3 "$ARCHIVE_VERIFIER" \
+  --archive "$backup_dir/homepage-media.tar.gz" \
+  --extract-dir "$archive_verify_dir" \
+  --expect-manifest "$backup_dir/manifest.json" >/dev/null
 
 python3 - "$backup_dir" "$backup_id" <<'PY'
 import hashlib

@@ -20,18 +20,46 @@ function Normalize-ExeName {
 function Test-TriggerContract {
   param($Task)
 
-  $hasDaily = $false
-  $hasLogon = $false
+  if ($Task.Triggers.Count -ne 2) {
+    return $false
+  }
+  $dailyTriggers = @()
+  $logonTriggers = @()
   foreach ($trigger in $Task.Triggers) {
-    $triggerText = $trigger.ToString()
-    if ($triggerText -match "Daily" -and $triggerText -match "10:00") {
-      $hasDaily = $true
+    $className = [string]$trigger.CimClass.CimClassName
+    if ($className -eq "MSFT_TaskDailyTrigger") {
+      $dailyTriggers += $trigger
+      continue
     }
-    if ($triggerText -match "Logon") {
-      $hasLogon = $true
+    if ($className -eq "MSFT_TaskLogonTrigger") {
+      $logonTriggers += $trigger
+      continue
+    }
+    return $false
+  }
+  if ($dailyTriggers.Count -ne 1 -or $logonTriggers.Count -ne 1) {
+    return $false
+  }
+  $daily = $dailyTriggers[0]
+  $logon = $logonTriggers[0]
+  if ($daily.Enabled -ne $true -or $logon.Enabled -ne $true) {
+    return $false
+  }
+  if ([string]$daily.StartBoundary -notmatch "T10:00:00") {
+    return $false
+  }
+  if ($daily.DaysInterval -and [int]$daily.DaysInterval -ne 1) {
+    return $false
+  }
+  foreach ($trigger in @($daily, $logon)) {
+    if ($trigger.Repetition -and ($trigger.Repetition.Interval -or $trigger.Repetition.Duration)) {
+      return $false
     }
   }
-  return $hasDaily -and $hasLogon
+  if ($logon.UserId -and [string]$logon.UserId -ne $currentUser) {
+    return $false
+  }
+  return $true
 }
 
 function Test-ExistingTaskBelongsToRepository {
@@ -65,6 +93,9 @@ function Test-ExistingTaskBelongsToRepository {
   if ($Task.Settings.WakeToRun) {
     return $false
   }
+  if ($Task.Settings.StartWhenAvailable -ne $true) {
+    return $false
+  }
   return $true
 }
 
@@ -96,9 +127,14 @@ $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interact
 $definition = New-ScheduledTask -Action $taskAction -Trigger @($dailyTrigger, $logonTrigger) -Settings $settings -Principal $principal
 
 if ($existing) {
-  Register-ScheduledTask -TaskName $TaskName -InputObject $definition | Out-Null
+  Set-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger @($dailyTrigger, $logonTrigger) -Settings $settings -Principal $principal | Out-Null
   Write-Host "Personal_Web shared backup pull task updated."
 } else {
   Register-ScheduledTask -TaskName $TaskName -InputObject $definition | Out-Null
   Write-Host "Personal_Web shared backup pull task installed."
+}
+
+$readBack = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+if (-not (Test-ExistingTaskBelongsToRepository -Task $readBack)) {
+  throw "scheduled_task_readback_mismatch"
 }
