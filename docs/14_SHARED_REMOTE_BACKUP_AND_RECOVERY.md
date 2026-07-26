@@ -32,9 +32,9 @@ Each completed snapshot directory is named:
 YYYYMMDDTHHMMSSZ-<random-suffix>
 ```
 
-The random suffix is generated with Python `secrets.token_hex(8)`, giving 128
-bits of randomness as exactly 16 lowercase hexadecimal characters. It is not
-generated with a `tr | head` pipeline.
+The backup ID random suffix is generated with Python `secrets.token_hex(8)`,
+giving 64 bits of randomness as exactly 16 lowercase hexadecimal characters.
+It is not generated with a `tr | head` pipeline.
 
 Each completed snapshot contains:
 
@@ -123,13 +123,21 @@ After creating the dump, the script restores it into a unique temporary
 verification database named:
 
 ```text
-personal_web_shared_dev_backup_verify_<UTC>_<random>
+pw_bk_v_<YYYYMMDDTHHMMSSZ>_<32-lowercase-hex>
 ```
+
+That name is exactly 57 ASCII bytes, below PostgreSQL's default 63-byte
+identifier limit (`NAMEDATALEN - 1`), and includes 128 bits of randomness from
+`secrets.token_hex(16)`. The script validates the byte length before
+`createdb`, logs only the safe temporary name and byte length, and then queries
+`pg_database.datname` to require an exact byte-for-byte read-back before any
+`pg_restore`. PostgreSQL truncation, zero rows, multiple/unexpected rows, or a
+query failure is a hard failure.
 
 Alembic revision, table counts, canvas metadata, canvas revision, and sanitized
 canvas fingerprint are calculated from that restored dump, not from a later live
 source query. `SUCCESS` is refused if restore, verification, database-property
-matching, or cleanup fails.
+matching, exact temporary-name read-back, or cleanup fails.
 
 Canvas fingerprinting is centralized in:
 
@@ -137,14 +145,21 @@ Canvas fingerprinting is centralized in:
 deploy/backup/compute-shared-canvas-fingerprint.py
 ```
 
-The helper accepts only strictly named temporary backup/restore verification
-databases, executes PostgreSQL through `runuser --user postgres -- psql`, and
-prints only a SHA-256 fingerprint. For each canvas row it includes
+The helper accepts only strictly named compact temporary backup/restore
+verification databases (`pw_bk_v_...` or `pw_rs_v_...`), enforces the 63-byte
+PostgreSQL identifier limit before invoking `psql`, executes PostgreSQL through
+`runuser --user postgres -- psql`, and prints only a SHA-256 fingerprint. For
+each canvas row it includes
 `canvas_key`, `schema_version`, `revision`, `updated_at`, and canonicalized
 `canvas_data`. `canvas_data` JSON is parsed, serialized with sorted object keys
 and compact separators while preserving array order, then included in an
 ordered canonical record array sorted by `canvas_key`. Raw canvas JSON is not
 written to the manifest and is not printed to logs.
+
+Legacy failed-run patterns such as
+`personal_web_shared_dev_backup_verify_%` and
+`personal_web_shared_dev_restore_verify_%` are inspection-only residual search
+patterns for follow-up operations. They are not valid creation targets.
 
 The script rejects production names, does not expose PostgreSQL publicly, and
 does not run migrations or seed scripts.
@@ -314,8 +329,13 @@ It selects a verified backup under a nonblocking restore-drill lock, creates a
 uniquely named temporary database:
 
 ```text
-personal_web_shared_dev_restore_verify_<timestamp>_<random>
+pw_rs_v_<YYYYMMDDTHHMMSSZ>_<32-lowercase-hex>
 ```
+
+The restore temporary database name follows the same 57-byte, 128-bit-random,
+strict read-back contract as the backup verification database. It is validated
+before `createdb`, then queried from `pg_database.datname` and must match
+exactly before the dump is restored.
 
 If the nonblocking restore lock is unavailable, the drill prints a sanitized
 message, performs no verification work, creates no temporary database or media

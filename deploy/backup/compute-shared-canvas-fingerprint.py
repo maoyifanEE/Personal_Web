@@ -17,14 +17,19 @@ import sys
 from typing import Any
 
 
-TEMP_DATABASE_RE = re.compile(
-    r"^personal_web_shared_dev_(?:backup|restore)_verify_\d{8}T\d{6}Z_[A-Za-z0-9]{8,32}$"
-)
+POSTGRES_IDENTIFIER_MAX_BYTES = 63
+TEMP_DATABASE_RE = re.compile(r"^pw_(?:bk|rs)_v_\d{8}T\d{6}Z_[0-9a-f]{32}$")
 
 
 def require_temporary_database(name: str) -> str:
     if name in {"personal_web_shared_dev", "personal_web_prod"} or "prod" in name.lower():
         raise ValueError("canvas fingerprint requires a temporary verification database")
+    try:
+        encoded = name.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("canvas fingerprint database name must be ASCII") from exc
+    if len(encoded) > POSTGRES_IDENTIFIER_MAX_BYTES:
+        raise ValueError("canvas fingerprint database name exceeds PostgreSQL identifier length")
     if not TEMP_DATABASE_RE.fullmatch(name):
         raise ValueError("canvas fingerprint database name is not temporary")
     return name

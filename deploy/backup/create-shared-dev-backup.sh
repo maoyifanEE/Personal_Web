@@ -14,6 +14,8 @@ HASHED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
 CANVAS_FINGERPRINT_HELPER="$SCRIPT_DIR/compute-shared-canvas-fingerprint.py"
+POSTGRES_IDENTIFIER_MAX_BYTES=63
+TEMP_DB_NAME_BYTES=57
 
 log() {
   printf '[personal-web shared backup] %s\n' "$1" >&2
@@ -32,10 +34,10 @@ random_suffix() {
   local value
   value="$(python3 - <<'PY'
 import secrets
-print(secrets.token_hex(8))
+print(secrets.token_hex(16))
 PY
 )"
-  [[ "$value" =~ ^[0-9a-f]{16}$ ]] || return 1
+  [[ "$value" =~ ^[0-9a-f]{32}$ ]] || return 1
   printf '%s\n' "$value"
 }
 
@@ -44,8 +46,14 @@ require_safe_backup_id() {
 }
 
 require_safe_verify_db() {
-  [[ "$1" =~ ^personal_web_shared_dev_backup_verify_[0-9]{8}T[0-9]{6}Z_[A-Za-z0-9]{8,32}$ ]] ||
+  [[ "$1" =~ ^pw_bk_v_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{32}$ ]] ||
     fail "unsafe verification database name"
+  [[ "$1" != "personal_web_shared_dev" && "$1" != "personal_web_prod" && "$1" != *prod* ]] ||
+    fail "authoritative database target rejected"
+  local byte_length
+  byte_length="$(printf '%s' "$1" | wc -c | tr -d ' ')"
+  [[ "$byte_length" == "$TEMP_DB_NAME_BYTES" && "$byte_length" -le "$POSTGRES_IDENTIFIER_MAX_BYTES" ]] ||
+    fail "verification database name exceeds PostgreSQL identifier length"
 }
 
 database_exists() {
@@ -61,6 +69,19 @@ database_exists() {
     "") return 1 ;;
     *) return 3 ;;
   esac
+}
+
+verify_database_created_exactly() {
+  local name="$1"
+  require_safe_verify_db "$name"
+  local output
+  if ! output="$(run_pg psql --dbname=postgres --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --command "select datname from pg_database where datname = '$name'")"; then
+    fail "verification database exact-name query failed"
+  fi
+  if [[ "$output" != "$name" ]]; then
+    fail "verification database exact-name readback mismatch"
+  fi
 }
 
 require_direct_child() {
@@ -190,7 +211,9 @@ create_verify_database_from_dump() {
   db_encoding="$(read_database_property "$source_props" databaseEncoding)"
   db_collate="$(read_database_property "$source_props" databaseCollate)"
   db_ctype="$(read_database_property "$source_props" databaseCtype)"
+  log "creating verification database name=$verify_db bytes=$(printf '%s' "$verify_db" | wc -c | tr -d ' ')"
   run_pg createdb --template=template0 --encoding="$db_encoding" --lc-collate="$db_collate" --lc-ctype="$db_ctype" "$verify_db"
+  verify_database_created_exactly "$verify_db"
   collect_verify_database_properties "$verify_db" "$verify_props"
   compare_database_properties "$source_props" "$verify_props"
   run_pg pg_restore --no-owner --no-privileges --dbname="$verify_db" < "$dump"
@@ -514,7 +537,7 @@ main() {
   suffix="$(random_suffix)"
   backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$suffix"
   require_safe_backup_id "$backup_id"
-  verify_db="personal_web_shared_dev_backup_verify_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
+  verify_db="pw_bk_v_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
   require_safe_verify_db "$verify_db"
   verify_extract="$(mktemp -d "/tmp/personal-web-backup-media-verify.${backup_id}.XXXXXX")"
   partial_dir="$BACKUP_ROOT/$backup_id.partial"

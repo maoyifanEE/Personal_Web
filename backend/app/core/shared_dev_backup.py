@@ -25,6 +25,7 @@ SERVER_BACKUP_ROOT = "/var/backups/personal-web/shared-dev"
 LOCAL_BACKUP_KEEP_COUNT = 7
 SERVER_BACKUP_KEEP_COUNT = 14
 SERVER_PARTIAL_RETENTION_DAYS = 3
+POSTGRES_IDENTIFIER_MAX_BYTES = 63
 REQUIRED_BACKUP_FILES = frozenset(
     {
         "personal_web_shared_dev.dump",
@@ -38,8 +39,8 @@ HASHED_BACKUP_FILES = frozenset({"personal_web_shared_dev.dump", "homepage-media
 COMPLETED_BACKUP_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9]{8,32}$")
 PARTIAL_BACKUP_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9]{8,32}\.partial$")
 LOCAL_RUN_PARTIAL_RE = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9]{8,32}\.partial-\d+-[A-Za-z0-9]{8,32}$")
-RESTORE_DATABASE_RE = re.compile(r"^personal_web_shared_dev_restore_verify_\d{8}T\d{6}Z_[A-Za-z0-9]{8,32}$")
-BACKUP_VERIFY_DATABASE_RE = re.compile(r"^personal_web_shared_dev_backup_verify_\d{8}T\d{6}Z_[A-Za-z0-9]{8,32}$")
+BACKUP_VERIFY_DATABASE_RE = re.compile(r"^pw_bk_v_\d{8}T\d{6}Z_[0-9a-f]{32}$")
+RESTORE_DATABASE_RE = re.compile(r"^pw_rs_v_\d{8}T\d{6}Z_[0-9a-f]{32}$")
 WINDOWS_LOCAL_SYSTEM_SID = "S-1-5-18"
 WINDOWS_BUILTIN_ADMINISTRATORS_SID = "S-1-5-32-544"
 
@@ -120,20 +121,43 @@ def require_shared_dev_database_name(name: str) -> str:
 def reject_authoritative_or_production_restore_target(name: str) -> str:
     """Accept only temporary restore-drill database names."""
 
-    if name in {SHARED_DEV_DATABASE_NAME, "personal_web_prod"} or "prod" in name.lower():
-        raise SharedDevBackupContractError("Restore verification must use a temporary database")
-    if not RESTORE_DATABASE_RE.fullmatch(name):
-        raise SharedDevBackupContractError("Restore verification database name is not temporary")
-    return name
+    return require_temporary_database_name(name, kind="restore")
 
 
 def require_backup_verify_database_name(name: str) -> str:
     """Accept only backup-internal temporary verification databases."""
 
+    return require_temporary_database_name(name, kind="backup")
+
+
+def require_temporary_database_name(name: str, *, kind: str) -> str:
+    """Accept only compact PostgreSQL temporary verification database names.
+
+    PostgreSQL's default identifier limit is NAMEDATALEN - 1, or 63 bytes. The
+    backup tooling enforces that conservative limit before `createdb` and then
+    verifies the stored name exactly, so server-side truncation cannot pass.
+    """
+
+    if not isinstance(name, str) or not name:
+        raise SharedDevBackupContractError("Temporary database name is empty")
     if name in {SHARED_DEV_DATABASE_NAME, "personal_web_prod"} or "prod" in name.lower():
-        raise SharedDevBackupContractError("Backup verification must use a temporary database")
-    if not BACKUP_VERIFY_DATABASE_RE.fullmatch(name):
-        raise SharedDevBackupContractError("Backup verification database name is not temporary")
+        raise SharedDevBackupContractError("Temporary database must not target authoritative or production data")
+    try:
+        encoded = name.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise SharedDevBackupContractError("Temporary database name must be ASCII") from exc
+    if len(encoded) > POSTGRES_IDENTIFIER_MAX_BYTES:
+        raise SharedDevBackupContractError("Temporary database name exceeds PostgreSQL identifier length")
+    if any(ord(char) < 32 or char in {'"', "'", " ", "\t", "\r", "\n", "/", "\\", ":", ";"} for char in name):
+        raise SharedDevBackupContractError("Temporary database name contains unsafe characters")
+    if kind == "backup":
+        pattern = BACKUP_VERIFY_DATABASE_RE
+    elif kind == "restore":
+        pattern = RESTORE_DATABASE_RE
+    else:
+        raise SharedDevBackupContractError("Unknown temporary database kind")
+    if not pattern.fullmatch(name):
+        raise SharedDevBackupContractError("Temporary database name is not in the compact verification namespace")
     return name
 
 

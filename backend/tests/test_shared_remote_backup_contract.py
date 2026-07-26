@@ -18,6 +18,7 @@ import pytest
 from app.core.shared_dev_backup import (
     BACKUP_SCHEMA_VERSION,
     LOCAL_BACKUP_KEEP_COUNT,
+    POSTGRES_IDENTIFIER_MAX_BYTES,
     SERVER_BACKUP_KEEP_COUNT,
     SHARED_DEV_DATABASE_NAME,
     SHARED_DEV_REMOTE_MEDIA_ROOT,
@@ -36,6 +37,7 @@ from app.core.shared_dev_backup import (
     require_backup_verify_database_name,
     require_shared_dev_database_name,
     require_shared_dev_media_root,
+    require_temporary_database_name,
     server_retention_delete_candidates,
     scheduled_task_matches_repository,
     scheduled_daily_boundary_is_exact_10,
@@ -64,6 +66,11 @@ CANVAS_FINGERPRINT = REPO_ROOT / "deploy" / "backup" / "compute-shared-canvas-fi
 PULL_SCRIPT = REPO_ROOT / "scripts" / "pull-shared-dev-backup.ps1"
 TASK_SCRIPT = REPO_ROOT / "scripts" / "install-shared-dev-backup-pull-task.ps1"
 DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
+BACKUP_TEMP_DB = "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef"
+RESTORE_TEMP_DB = "pw_rs_v_20260726T033000Z_0123456789abcdef0123456789abcdef"
+LEGACY_BACKUP_TEMP_DB = "personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef"
+LEGACY_RESTORE_TEMP_DB = "personal_web_shared_dev_restore_verify_20260726T033000Z_0123456789abcdef"
+TRUNCATED_LEGACY_BACKUP_TEMP_DB = "personal_web_shared_dev_backup_verify_20260726T101954Z_2867ffca"
 
 
 def read(path: Path) -> str:
@@ -200,11 +207,50 @@ def test_backup_paths_cannot_escape_root(tmp_path: Path) -> None:
 
 
 def test_backup_verification_database_name_is_strictly_temporary() -> None:
-    assert require_backup_verify_database_name("personal_web_shared_dev_backup_verify_20260726T033000Z_AbCd1234")
+    assert require_backup_verify_database_name(BACKUP_TEMP_DB) == BACKUP_TEMP_DB
 
-    for unsafe in ["personal_web_shared_dev", "personal_web_prod", "personal_web_shared_dev_backup_verify_latest"]:
+    for unsafe in [
+        "personal_web_shared_dev",
+        "personal_web_prod",
+        "pw_bk_v_20260726T033000Z_ABCDEF0123456789ABCDEF0123456789",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef",
+        "pw_bk_v_20260726T033000_0123456789abcdef0123456789abcdef",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdeg",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef;",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef_extra",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdeé",
+        LEGACY_BACKUP_TEMP_DB,
+        TRUNCATED_LEGACY_BACKUP_TEMP_DB,
+    ]:
         with pytest.raises(SharedDevBackupContractError):
             require_backup_verify_database_name(unsafe)
+
+
+def test_compact_temporary_database_name_contracts() -> None:
+    assert require_temporary_database_name(BACKUP_TEMP_DB, kind="backup") == BACKUP_TEMP_DB
+    assert reject_authoritative_or_production_restore_target(RESTORE_TEMP_DB) == RESTORE_TEMP_DB
+    assert len(BACKUP_TEMP_DB.encode("utf-8")) == 57
+    assert len(RESTORE_TEMP_DB.encode("utf-8")) == 57
+    assert len(BACKUP_TEMP_DB.encode("utf-8")) <= POSTGRES_IDENTIFIER_MAX_BYTES
+    assert re.fullmatch(r"^pw_bk_v_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{32}$", BACKUP_TEMP_DB)
+    assert re.fullmatch(r"^pw_rs_v_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{32}$", RESTORE_TEMP_DB)
+
+    unsafe_values = [
+        "personal_web_shared_dev",
+        "personal_web_prod",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcprod",
+        LEGACY_BACKUP_TEMP_DB,
+        LEGACY_RESTORE_TEMP_DB,
+        TRUNCATED_LEGACY_BACKUP_TEMP_DB,
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef" + "0" * 7,
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef\n",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef;",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef'",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdeé",
+    ]
+    for value in unsafe_values:
+        with pytest.raises(SharedDevBackupContractError):
+            require_temporary_database_name(value, kind="backup")
 
 
 def test_random_suffix_helper_is_pipefail_safe_under_real_bash(tmp_path: Path) -> None:
@@ -215,7 +261,7 @@ set -Eeuo pipefail
 source "{script_path}"
 for i in $(seq 1 100); do
   value="$(random_suffix)"
-  [[ "$value" =~ ^[0-9a-f]{{16}}$ ]]
+  [[ "$value" =~ ^[0-9a-f]{{32}}$ ]]
   printf '%s\\n' "$value"
 done
 ''',
@@ -225,7 +271,43 @@ done
     assert result.returncode == 0, result.stderr
     values = result.stdout.splitlines()
     assert len(values) == 100
-    assert len(set(values)) > 1
+    assert len(set(values)) == 100
+
+
+def test_real_bash_generates_unique_compact_temporary_database_names(tmp_path: Path) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+for i in $(seq 1 100); do
+  suffix="$(random_suffix)"
+  name="pw_bk_v_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
+  require_safe_verify_db "$name"
+  [[ "$name" =~ ^pw_bk_v_[0-9]{{8}}T[0-9]{{6}}Z_[0-9a-f]{{32}}$ ]]
+  [[ "$(printf '%s' "$name" | wc -c | tr -d ' ')" == "57" ]]
+  printf 'backup=%s\\n' "$name"
+done
+source "{RESTORE_VERIFY.as_posix()}"
+for i in $(seq 1 100); do
+  suffix="$(random_suffix)"
+  name="pw_rs_v_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
+  require_safe_restore_db "$name"
+  [[ "$name" =~ ^pw_rs_v_[0-9]{{8}}T[0-9]{{6}}Z_[0-9a-f]{{32}}$ ]]
+  [[ "$(printf '%s' "$name" | wc -c | tr -d ' ')" == "57" ]]
+  printf 'restore=%s\\n' "$name"
+done
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    backup_names = [line.removeprefix("backup=") for line in result.stdout.splitlines() if line.startswith("backup=")]
+    restore_names = [line.removeprefix("restore=") for line in result.stdout.splitlines() if line.startswith("restore=")]
+    assert len(backup_names) == 100
+    assert len(restore_names) == 100
+    assert len(set(backup_names)) == 100
+    assert len(set(restore_names)) == 100
+    assert all(len(name.encode("utf-8")) <= POSTGRES_IDENTIFIER_MAX_BYTES for name in backup_names + restore_names)
 
 
 def test_systemd_does_not_skip_missing_required_paths() -> None:
@@ -310,7 +392,10 @@ run_pg() {{
   printf '%s\\n' "$*" >> "{calls.as_posix()}"
   case "$1" in
     psql)
-      printf '%s\\n' '{{"databaseEncoding":"UTF8","databaseCollate":"zh-Hans-CN-x-icu","databaseCtype":"zh-Hans-CN-x-icu"}}'
+      case "$*" in
+        *"select datname from pg_database"*) printf '%s\\n' "{BACKUP_TEMP_DB}" ;;
+        *) printf '%s\\n' '{{"databaseEncoding":"UTF8","databaseCollate":"zh-Hans-CN-x-icu","databaseCtype":"zh-Hans-CN-x-icu"}}' ;;
+      esac
       ;;
     createdb|pg_restore)
       return 0
@@ -321,7 +406,7 @@ run_pg() {{
   esac
 }}
 collect_source_database_properties "{source_props.as_posix()}"
-create_verify_database_from_dump personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef "{dump.as_posix()}" "{source_props.as_posix()}" "{verify_props.as_posix()}"
+create_verify_database_from_dump {BACKUP_TEMP_DB} "{dump.as_posix()}" "{source_props.as_posix()}" "{verify_props.as_posix()}"
 ''',
         tmp_path,
     )
@@ -329,7 +414,46 @@ create_verify_database_from_dump personal_web_shared_dev_backup_verify_20260726T
     assert result.returncode == 0, result.stderr
     call_text = calls.read_text(encoding="utf-8")
     assert "createdb --template=template0 --encoding=UTF8 --lc-collate=zh-Hans-CN-x-icu --lc-ctype=zh-Hans-CN-x-icu" in call_text
+    assert f"select datname from pg_database where datname = '{BACKUP_TEMP_DB}'" in call_text
     assert json.loads(source_props.read_text(encoding="utf-8")) == json.loads(verify_props.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize(
+    ("readback", "expected_error"),
+    [
+        ("", "readback mismatch"),
+        (TRUNCATED_LEGACY_BACKUP_TEMP_DB, "readback mismatch"),
+        (f"{BACKUP_TEMP_DB}\\n{BACKUP_TEMP_DB}", "readback mismatch"),
+    ],
+)
+def test_backup_createdb_exact_name_readback_rejects_unexpected_output(tmp_path: Path, readback: str, expected_error: str) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+run_pg() {{ printf '%s\\n' "{readback}"; }}
+verify_database_created_exactly {BACKUP_TEMP_DB}
+''',
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+
+
+def test_backup_createdb_exact_name_query_failure_fails(tmp_path: Path) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+run_pg() {{ return 44; }}
+verify_database_created_exactly {BACKUP_TEMP_DB}
+''',
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert "exact-name query failed" in result.stderr
 
 
 def test_database_exists_distinguishes_query_failure_and_remaining_db(tmp_path: Path) -> None:
@@ -339,13 +463,13 @@ set -Eeuo pipefail
 source "{SERVER_CREATE.as_posix()}"
 run_pg() {{ return 44; }}
 set +e
-database_exists personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef
+database_exists {BACKUP_TEMP_DB}
 printf 'query=%s\\n' "$?"
 run_pg() {{ printf '1\\n'; }}
-database_exists personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef
+database_exists {BACKUP_TEMP_DB}
 printf 'remaining=%s\\n' "$?"
 run_pg() {{ printf ''; }}
-database_exists personal_web_shared_dev_backup_verify_20260726T033000Z_0123456789abcdef
+database_exists {BACKUP_TEMP_DB}
 printf 'absent=%s\\n' "$?"
 ''',
         tmp_path,
@@ -554,7 +678,19 @@ def test_canvas_fingerprint_rejects_malformed_canvas_json_string() -> None:
 
 def test_canvas_fingerprint_helper_rejects_authoritative_database_names() -> None:
     helper = load_canvas_helper()
-    for name in ["personal_web_shared_dev", "personal_web_prod", "personal_web_shared_dev_backup_verify_latest"]:
+    assert helper.require_temporary_database(BACKUP_TEMP_DB) == BACKUP_TEMP_DB
+    assert helper.require_temporary_database(RESTORE_TEMP_DB) == RESTORE_TEMP_DB
+    for name in [
+        "personal_web_shared_dev",
+        "personal_web_prod",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcprod",
+        LEGACY_BACKUP_TEMP_DB,
+        LEGACY_RESTORE_TEMP_DB,
+        TRUNCATED_LEGACY_BACKUP_TEMP_DB,
+        "pw_bk_v_20260726T033000Z_0123456789abcdef",
+        "pw_bk_v_20260726T033000Z_0123456789ABCDEF0123456789ABCDEF",
+        "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdeé",
+    ]:
         with pytest.raises(ValueError):
             helper.require_temporary_database(name)
 
@@ -942,13 +1078,54 @@ def test_scheduled_task_script_uses_property_matching_update_and_readback() -> N
 
 
 def test_restore_drill_uses_temporary_database_only() -> None:
-    assert reject_authoritative_or_production_restore_target("personal_web_shared_dev_restore_verify_20260726T033000Z_AbCd1234")
+    assert reject_authoritative_or_production_restore_target(RESTORE_TEMP_DB) == RESTORE_TEMP_DB
 
     with pytest.raises(SharedDevBackupContractError):
         reject_authoritative_or_production_restore_target("personal_web_shared_dev")
     with pytest.raises(SharedDevBackupContractError):
         reject_authoritative_or_production_restore_target("personal_web_prod")
-    assert "personal_web_shared_dev_restore_verify_" in read(RESTORE_VERIFY)
+    with pytest.raises(SharedDevBackupContractError):
+        reject_authoritative_or_production_restore_target(LEGACY_RESTORE_TEMP_DB)
+    assert "pw_rs_v_" in read(RESTORE_VERIFY)
+    assert "personal_web_shared_dev_restore_verify_" not in read(RESTORE_VERIFY)
+
+
+@pytest.mark.parametrize(
+    ("readback", "expected_error"),
+    [
+        ("", "readback mismatch"),
+        ("pw_rs_v_20260726T033000Z_0123456789abcdef0123456789abcde", "readback mismatch"),
+        (f"{RESTORE_TEMP_DB}\\n{RESTORE_TEMP_DB}", "readback mismatch"),
+    ],
+)
+def test_restore_createdb_exact_name_readback_rejects_unexpected_output(tmp_path: Path, readback: str, expected_error: str) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{RESTORE_VERIFY.as_posix()}"
+run_pg() {{ printf '%s\\n' "{readback}"; }}
+verify_database_created_exactly {RESTORE_TEMP_DB}
+''',
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+
+
+def test_restore_createdb_exact_name_query_failure_fails(tmp_path: Path) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{RESTORE_VERIFY.as_posix()}"
+run_pg() {{ return 44; }}
+verify_database_created_exactly {RESTORE_TEMP_DB}
+''',
+        tmp_path,
+    )
+
+    assert result.returncode != 0
+    assert "exact-name query failed" in result.stderr
 
 
 def test_restore_lock_contention_is_non_success_and_does_no_work(tmp_path: Path) -> None:

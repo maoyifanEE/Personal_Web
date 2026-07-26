@@ -8,6 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
 CANVAS_FINGERPRINT_HELPER="$SCRIPT_DIR/compute-shared-canvas-fingerprint.py"
 RESTORE_LOCK_UNAVAILABLE_EXIT=75
+POSTGRES_IDENTIFIER_MAX_BYTES=63
+TEMP_DB_NAME_BYTES=57
 
 fail() {
   printf '[personal-web restore verify] ERROR: %s\n' "$1" >&2
@@ -22,18 +24,22 @@ random_suffix() {
   local value
   value="$(python3 - <<'PY'
 import secrets
-print(secrets.token_hex(8))
+print(secrets.token_hex(16))
 PY
 )"
-  [[ "$value" =~ ^[0-9a-f]{16}$ ]] || return 1
+  [[ "$value" =~ ^[0-9a-f]{32}$ ]] || return 1
   printf '%s\n' "$value"
 }
 
 require_safe_restore_db() {
-  [[ "$1" =~ ^personal_web_shared_dev_restore_verify_[0-9]{8}T[0-9]{6}Z_[A-Za-z0-9a-f]{16}$ ]] ||
+  [[ "$1" =~ ^pw_rs_v_[0-9]{8}T[0-9]{6}Z_[0-9a-f]{32}$ ]] ||
     fail "restore database name is not temporary"
-  [[ "$1" != "personal_web_shared_dev" && "$1" != "personal_web_prod" ]] ||
+  [[ "$1" != "personal_web_shared_dev" && "$1" != "personal_web_prod" && "$1" != *prod* ]] ||
     fail "authoritative database target rejected"
+  local byte_length
+  byte_length="$(printf '%s' "$1" | wc -c | tr -d ' ')"
+  [[ "$byte_length" == "$TEMP_DB_NAME_BYTES" && "$byte_length" -le "$POSTGRES_IDENTIFIER_MAX_BYTES" ]] ||
+    fail "restore database name exceeds PostgreSQL identifier length"
 }
 
 database_exists() {
@@ -49,6 +55,19 @@ database_exists() {
     "") return 1 ;;
     *) return 3 ;;
   esac
+}
+
+verify_database_created_exactly() {
+  local name="$1"
+  require_safe_restore_db "$name"
+  local output
+  if ! output="$(run_pg psql --dbname=postgres --tuples-only --no-align --set=ON_ERROR_STOP=1 \
+    --command "select datname from pg_database where datname = '$name'")"; then
+    fail "restore database exact-name query failed"
+  fi
+  if [[ "$output" != "$name" ]]; then
+    fail "restore database exact-name readback mismatch"
+  fi
 }
 
 read_manifest_database_property() {
@@ -74,7 +93,9 @@ create_restore_database_from_manifest() {
   db_encoding="$(read_manifest_database_property "$manifest" databaseEncoding)"
   db_collate="$(read_manifest_database_property "$manifest" databaseCollate)"
   db_ctype="$(read_manifest_database_property "$manifest" databaseCtype)"
+  printf '[personal-web restore verify] creating restore database name=%s bytes=%s\n' "$restore_db_name" "$(printf '%s' "$restore_db_name" | wc -c | tr -d ' ')" >&2
   run_pg createdb --template=template0 --encoding="$db_encoding" --lc-collate="$db_collate" --lc-ctype="$db_ctype" "$restore_db_name"
+  verify_database_created_exactly "$restore_db_name"
 }
 
 cleanup_restore() {
@@ -140,7 +161,7 @@ main() {
   local backup_dir="$BACKUP_ROOT/$backup_id"
   local suffix
   suffix="$(random_suffix)"
-  restore_db="personal_web_shared_dev_restore_verify_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
+  restore_db="pw_rs_v_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
   restore_media_dir="$(mktemp -d "/tmp/personal-web-shared-media-restore-verify.${suffix}.XXXXXX")"
   restore_media_inventory="$(mktemp "/tmp/personal-web-shared-media-restore-inventory.${suffix}.XXXXXX")"
   restore_canvas_fingerprint="$(mktemp "/tmp/personal-web-shared-canvas-fingerprint.${suffix}.XXXXXX")"
