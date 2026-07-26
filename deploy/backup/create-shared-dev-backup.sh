@@ -9,6 +9,8 @@ EXPECTED_ALEMBIC_REVISION="20260712_0006"
 KEEP_SUCCESSFUL=14
 PARTIAL_RETENTION_DAYS=3
 LOCK_FILE="/run/lock/personal-web-shared-dev-backup.lock"
+REQUIRED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json SHA256SUMS SUCCESS)
+HASHED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json)
 
 log() {
   printf '[personal-web shared backup] %s\n' "$1" >&2
@@ -19,35 +21,90 @@ fail() {
   exit 1
 }
 
+run_pg() {
+  runuser --user postgres -- "$@"
+}
+
+random_suffix() {
+  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12
+}
+
 require_safe_backup_id() {
-  local backup_id="$1"
-  [[ "$backup_id" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}$ ]] || fail "unsafe backup id"
+  [[ "$1" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}$ ]] || fail "unsafe backup id"
+}
+
+require_safe_verify_db() {
+  [[ "$1" =~ ^personal_web_shared_dev_backup_verify_[0-9]{8}T[0-9]{6}Z_[A-Za-z0-9]{8,32}$ ]] ||
+    fail "unsafe verification database name"
 }
 
 require_direct_child() {
   local path="$1"
-  case "$path" in
-    "$BACKUP_ROOT"/*) ;;
-    *) fail "backup path escaped root" ;;
-  esac
+  case "$path" in "$BACKUP_ROOT"/*) ;; *) fail "backup path escaped root" ;; esac
   [[ "${path#"$BACKUP_ROOT"/}" != *"/"* ]] || fail "backup path is not a direct child"
+}
+
+require_root_dir_0700() {
+  local path="$1"
+  [[ -d "$path" && ! -L "$path" ]] || fail "required directory is missing or unsafe"
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:700" ]] || fail "directory owner or mode is unsafe"
+}
+
+require_regular_root_file_0600() {
+  local path="$1"
+  [[ -f "$path" && ! -L "$path" ]] || fail "required file is missing or unsafe"
+  [[ "$(stat -c '%U:%G:%a' "$path")" == "root:root:600" ]] || fail "file owner or mode is unsafe"
+}
+
+require_exact_file_set() {
+  local dir="$1"
+  local expected actual
+  expected="$(printf '%s\n' "${REQUIRED_FILES[@]}" | sort)"
+  actual="$(find "$dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)"
+  [[ "$actual" == "$expected" ]] || fail "backup file set mismatch"
 }
 
 require_shared_sources() {
   [[ "$DATABASE_NAME" == "personal_web_shared_dev" ]] || fail "unexpected database name"
   [[ "$DATABASE_NAME" != *prod* ]] || fail "production database rejected"
   [[ "$MEDIA_ROOT" == "/srv/personal-web/shared-dev/homepage" ]] || fail "unexpected media root"
-  [[ -d "$MEDIA_ROOT" ]] || fail "media root missing"
-  psql --dbname=postgres --tuples-only --no-align \
+  [[ -d "$MEDIA_ROOT" && ! -L "$MEDIA_ROOT" ]] || fail "media root missing or unsafe"
+  run_pg psql --dbname=postgres --tuples-only --no-align \
     --command "select datname from pg_database where datname = 'personal_web_shared_dev'" |
     grep -qx "personal_web_shared_dev" || fail "source database missing"
 }
 
-collect_database_metadata() {
-  local out="$1"
-  psql --dbname="$DATABASE_NAME" --no-align --tuples-only --set=ON_ERROR_STOP=1 <<'SQL' > "$out"
+create_dump_from_source() {
+  local dump="$1"
+  run_pg pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE_NAME" > "$dump"
+  [[ -s "$dump" ]] || fail "dump missing or empty"
+}
+
+create_verify_database_from_dump() {
+  local verify_db="$1"
+  local dump="$2"
+  require_safe_verify_db "$verify_db"
+  run_pg createdb "$verify_db"
+  run_pg pg_restore --no-owner --no-privileges --dbname="$verify_db" < "$dump"
+}
+
+drop_verify_database() {
+  local verify_db="$1"
+  require_safe_verify_db "$verify_db"
+  run_pg dropdb --if-exists "$verify_db"
+  if run_pg psql --dbname=postgres --tuples-only --no-align \
+    --command "select 1 from pg_database where datname = '$verify_db'" | grep -q 1; then
+    fail "verification database cleanup incomplete"
+  fi
+}
+
+collect_database_metadata_from_restored_dump() {
+  local verify_db="$1"
+  local out="$2"
+  require_safe_verify_db "$verify_db"
+  run_pg psql --dbname="$verify_db" --no-align --tuples-only --set=ON_ERROR_STOP=1 <<'SQL' > "$out"
 select jsonb_build_object(
-  'databaseName', current_database(),
+  'databaseName', 'personal_web_shared_dev',
   'databaseEncoding', pg_encoding_to_char(encoding),
   'databaseCollate', datcollate,
   'databaseCtype', datctype,
@@ -65,8 +122,13 @@ select jsonb_build_object(
     from homepage_canvas_states
   ),
   'canvasFingerprint', (
-    select md5(coalesce(string_agg(to_jsonb(t)::text, E'\n' order by to_jsonb(t)::text), ''))
-    from homepage_canvas_states t
+    select md5(coalesce(string_agg(jsonb_build_object(
+      'canvasKey', canvas_key,
+      'schemaVersion', schema_version,
+      'revision', revision,
+      'updatedAt', updated_at
+    )::text, E'\n' order by canvas_key), ''))
+    from homepage_canvas_states
   )
 )
 from pg_database
@@ -79,8 +141,11 @@ reject_unsafe_media_entries() {
     grep -q . && fail "unsafe media filesystem entry found"
 }
 
-collect_media_inventory() {
+collect_source_media_inventory() {
   local inventory="$1"
+  local paths_file="$2"
+  : > "$inventory"
+  : > "$paths_file"
   (cd "$MEDIA_ROOT" && find . -type f -printf '%P\0' | sort -z) |
     while IFS= read -r -d '' relative_path; do
       [[ -n "$relative_path" ]] || continue
@@ -89,6 +154,7 @@ collect_media_inventory() {
       local size sha
       size="$(stat --printf='%s' "$file_path")"
       sha="$(sha256sum "$file_path" | awk '{print $1}')"
+      printf '%s\n' "$relative_path" >> "$paths_file"
       python3 - "$relative_path" "$size" "$sha" <<'PY' >> "$inventory"
 import json
 import sys
@@ -98,10 +164,77 @@ PY
     done
 }
 
-create_media_archive() {
+create_media_archive_from_inventory() {
   local archive="$1"
-  (cd "$MEDIA_ROOT" && find . -type f -printf '%P\0' | sort -z | tar --null --files-from=- --create --gzip --file "$archive")
-  tar -tzf "$archive" >/dev/null
+  local paths_file="$2"
+  (cd "$MEDIA_ROOT" && tar --files-from="$paths_file" --create --gzip --file "$archive")
+  [[ -s "$archive" ]] || fail "media archive missing or empty"
+}
+
+validate_and_extract_media_archive() {
+  local archive="$1"
+  local inventory="$2"
+  local extract_dir="$3"
+  python3 - "$archive" "$inventory" "$extract_dir" <<'PY'
+import hashlib
+import json
+import shutil
+import sys
+import tarfile
+from pathlib import Path, PurePosixPath
+
+archive = Path(sys.argv[1])
+inventory_path = Path(sys.argv[2])
+extract_dir = Path(sys.argv[3])
+expected = [json.loads(line) for line in inventory_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+expected.sort(key=lambda item: item["path"])
+
+def safe_name(name):
+    value = name.replace("\\", "/").strip("/")
+    pure = PurePosixPath(value)
+    if not value or name.startswith("/") or any(part in {"", ".", ".."} for part in pure.parts) or ":" in value:
+        raise SystemExit("unsafe tar member path")
+    return pure.as_posix()
+
+if extract_dir.exists() and any(extract_dir.iterdir()):
+    raise SystemExit("verification extraction directory is not empty")
+extract_dir.mkdir(parents=True, exist_ok=True)
+with tarfile.open(archive, "r:gz") as tar:
+    members = tar.getmembers()
+    for member in members:
+        member.name = safe_name(member.name)
+        if member.isdir():
+            continue
+        if not member.isfile():
+            raise SystemExit("unsafe tar member type")
+    for member in members:
+        if member.isfile():
+            target = (extract_dir / member.name).resolve()
+            if extract_dir.resolve() not in [target.parent, *target.parents]:
+                raise SystemExit("tar extraction escaped verification root")
+    for member in members:
+        if not member.isfile():
+            continue
+        target = (extract_dir / member.name).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = tar.extractfile(member)
+        if source is None:
+            raise SystemExit("tar regular member could not be read")
+        with source, target.open("wb") as output:
+            shutil.copyfileobj(source, output)
+actual = []
+for path in sorted(extract_dir.rglob("*")):
+    if path.is_symlink() or not path.is_file():
+        raise SystemExit("unsafe extracted member")
+    data = path.read_bytes()
+    actual.append({"path": path.relative_to(extract_dir).as_posix(), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+actual.sort(key=lambda item: item["path"])
+if actual != expected:
+    raise SystemExit("archive inventory mismatch")
+shutil.rmtree(extract_dir)
+if extract_dir.exists():
+    raise SystemExit("archive verification cleanup incomplete")
+PY
 }
 
 write_manifest() {
@@ -127,7 +260,11 @@ entries.sort(key=lambda item: item["path"])
 tree_fingerprint = hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 def file_meta(path):
     data_path = Path(path)
-    return {"filename": data_path.name, "size": data_path.stat().st_size, "sha256": hashlib.sha256(data_path.read_bytes()).hexdigest()}
+    digest = hashlib.sha256()
+    with data_path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"filename": data_path.name, "size": data_path.stat().st_size, "sha256": digest.hexdigest()}
 manifest = {
     "schemaVersion": 1,
     "backupId": backup_id,
@@ -149,42 +286,88 @@ manifest = {
     "sourceMediaLogicalBytes": sum(int(item["size"]) for item in entries),
     "sourceMediaTreeFingerprint": tree_fingerprint,
     "toolVersion": "shared-remote-backup-v1",
-    "verification": {"ok": True},
+    "verification": {"ok": True, "metadataSource": "restored_dump", "mediaSource": "verified_archive"},
 }
 if manifest["alembicRevision"] != "20260712_0006":
     raise SystemExit("unexpected alembic revision")
+if not manifest["canvasFingerprint"]:
+    raise SystemExit("missing canvas fingerprint")
 Path(manifest_path).write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 PY
 }
 
 verify_completed_backup() {
   local backup_dir="$1"
-  test -s "$backup_dir/personal_web_shared_dev.dump" || fail "dump missing or empty"
-  test -s "$backup_dir/homepage-media.tar.gz" || fail "media archive missing or empty"
-  pg_restore --list "$backup_dir/personal_web_shared_dev.dump" >/dev/null
-  tar -tzf "$backup_dir/homepage-media.tar.gz" | awk 'BEGIN{ok=1} /^\\// || /(^|\\/)\\.\\.($|\\/)/ {ok=0} END{exit ok ? 0 : 1}' ||
-    fail "unsafe path in media archive"
+  require_root_dir_0700 "$backup_dir"
+  require_exact_file_set "$backup_dir"
+  for file in "${REQUIRED_FILES[@]}"; do
+    require_regular_root_file_0600 "$backup_dir/$file"
+  done
+  local expected
+  expected="$(printf '%s\n' "${HASHED_FILES[@]}" | sort)"
+  local actual
+  actual="$(awk '{print $2}' "$backup_dir/SHA256SUMS" | sort)"
+  [[ "$actual" == "$expected" ]] || fail "SHA256SUMS file set mismatch"
   (cd "$backup_dir" && sha256sum --check SHA256SUMS >/dev/null)
+  run_pg pg_restore --list < "$backup_dir/personal_web_shared_dev.dump" >/dev/null
+  python3 - "$backup_dir" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+
+backup_dir = Path(__import__("sys").argv[1])
+manifest = json.loads((backup_dir / "manifest.json").read_text(encoding="utf-8"))
+if manifest.get("backupId") != backup_dir.name.removesuffix(".partial"):
+    raise SystemExit("manifest backup id mismatch")
+if manifest.get("databaseName") != "personal_web_shared_dev":
+    raise SystemExit("manifest database mismatch")
+if manifest.get("sourceMediaRoot") != "/srv/personal-web/shared-dev/homepage":
+    raise SystemExit("manifest media root mismatch")
+for filename, key in [("personal_web_shared_dev.dump", "databaseDump"), ("homepage-media.tar.gz", "mediaArchive")]:
+    path = backup_dir / filename
+    meta = manifest.get(key) or {}
+    if meta.get("filename") != filename or int(meta.get("size", -1)) != path.stat().st_size:
+        raise SystemExit("manifest file metadata mismatch")
+    if meta.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
+        raise SystemExit("manifest file hash mismatch")
+PY
+}
+
+is_verified_completed_backup_dir() {
+  local dir="$1"
+  [[ -d "$dir" && ! -L "$dir" ]] || return 1
+  [[ "$(basename "$dir")" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}$ ]] || return 1
+  require_direct_child "$dir" || return 1
+  require_root_dir_0700 "$dir" || return 1
+  verify_completed_backup "$dir" || return 1
 }
 
 apply_retention() {
-  mapfile -t successful < <(
+  mapfile -t candidates < <(
     find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended \
-      -regex ".*/[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}" \
-      -exec test -f '{}/SUCCESS' ';' -print | sort
+      -regex ".*/[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}" | sort
   )
+  local successful=()
+  for candidate in "${candidates[@]}"; do
+    if is_verified_completed_backup_dir "$candidate"; then
+      successful+=("$candidate")
+    fi
+  done
   local count="${#successful[@]}"
   if (( count > KEEP_SUCCESSFUL )); then
     local delete_count=$((count - KEEP_SUCCESSFUL))
     for ((i = 0; i < delete_count; i++)); do
-      require_direct_child "${successful[$i]}"
+      [[ "${successful[$i]}" != "${successful[$count - 1]}" ]] || continue
       rm -rf --one-file-system "${successful[$i]}"
     done
   fi
-  find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name '*.partial' -mtime +"$PARTIAL_RETENTION_DAYS" -print0 |
+  find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended \
+    -regex ".*/[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}\\.partial" \
+    -mtime +"$PARTIAL_RETENTION_DAYS" -print0 |
     while IFS= read -r -d '' partial; do
       require_direct_child "$partial"
-      [[ "$(stat -c '%U' "$partial")" == "root" ]] || continue
+      [[ -d "$partial" && ! -L "$partial" ]] || continue
+      [[ "$(stat -c '%U:%G:%a' "$partial")" == "root:root:700" ]] || continue
       rm -rf --one-file-system "$partial"
     done
 }
@@ -192,12 +375,18 @@ apply_retention() {
 main() {
   exec 9>"$LOCK_FILE"
   flock -n 9 || { log "another backup run is already active"; exit 0; }
+  [[ -d "$BACKUP_ROOT" ]] || fail "backup root must be installed before service start"
+  require_root_dir_0700 "$BACKUP_ROOT"
   require_shared_sources
-  install -d -m 0700 -o root -g root "$BACKUP_ROOT"
-  local created_utc backup_id partial_dir completed_dir db_meta inventory dump archive manifest
+  local created_utc backup_id suffix partial_dir completed_dir verify_db verify_extract
+  local db_meta inventory paths_file dump archive manifest
   created_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)"
+  suffix="$(random_suffix)"
+  backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$suffix"
   require_safe_backup_id "$backup_id"
+  verify_db="personal_web_shared_dev_backup_verify_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
+  require_safe_verify_db "$verify_db"
+  verify_extract="$(mktemp -d "/tmp/personal-web-backup-media-verify.${backup_id}.XXXXXX")"
   partial_dir="$BACKUP_ROOT/$backup_id.partial"
   completed_dir="$BACKUP_ROOT/$backup_id"
   require_direct_child "$partial_dir"
@@ -205,25 +394,31 @@ main() {
   install -d -m 0700 -o root -g root "$partial_dir"
   db_meta="$partial_dir/database-metadata.json"
   inventory="$partial_dir/media-inventory.jsonl"
+  paths_file="$partial_dir/media-paths.txt"
   dump="$partial_dir/personal_web_shared_dev.dump"
   archive="$partial_dir/homepage-media.tar.gz"
   manifest="$partial_dir/manifest.json"
-  pg_dump --format=custom --no-owner --no-privileges --dbname="$DATABASE_NAME" --file="$dump"
-  collect_database_metadata "$db_meta"
+  trap 'set +e; drop_verify_database "$verify_db" >/dev/null 2>&1; rm -rf --one-file-system "$verify_extract" "$partial_dir" >/dev/null 2>&1' EXIT
+  create_dump_from_source "$dump"
+  create_verify_database_from_dump "$verify_db" "$dump"
+  collect_database_metadata_from_restored_dump "$verify_db" "$db_meta"
+  drop_verify_database "$verify_db"
   reject_unsafe_media_entries
-  collect_media_inventory "$inventory"
-  create_media_archive "$archive"
+  collect_source_media_inventory "$inventory" "$paths_file"
+  create_media_archive_from_inventory "$archive" "$paths_file"
+  validate_and_extract_media_archive "$archive" "$inventory" "$verify_extract"
   local completed_utc
   completed_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$db_meta" "$inventory" "$dump" "$archive"
-  (cd "$partial_dir" && sha256sum personal_web_shared_dev.dump homepage-media.tar.gz manifest.json > SHA256SUMS)
-  chmod 0600 "$dump" "$archive" "$manifest" "$partial_dir/SHA256SUMS"
-  rm -f "$db_meta" "$inventory"
-  verify_completed_backup "$partial_dir"
+  rm -f "$db_meta" "$inventory" "$paths_file"
+  (cd "$partial_dir" && sha256sum "${HASHED_FILES[@]}" > SHA256SUMS)
   touch "$partial_dir/SUCCESS"
-  chmod 0600 "$partial_dir/SUCCESS"
+  chmod 0600 "$dump" "$archive" "$manifest" "$partial_dir/SHA256SUMS" "$partial_dir/SUCCESS"
+  chown root:root "$dump" "$archive" "$manifest" "$partial_dir/SHA256SUMS" "$partial_dir/SUCCESS"
+  verify_completed_backup "$partial_dir"
   mv "$partial_dir" "$completed_dir"
   chmod 0700 "$completed_dir"
+  trap - EXIT
   apply_retention
   log "backup completed: $backup_id"
 }

@@ -1,7 +1,8 @@
 [Unit]
 Description=Personal_Web shared-development database and media backup
-Documentation=file:/opt/personal-web/docs/13_SHARED_REMOTE_BACKUP_AND_RECOVERY.md
+Documentation=file:/opt/personal-web/docs/14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md
 ConditionPathExists=/srv/personal-web/shared-dev/homepage
+ConditionPathIsDirectory=/var/backups/personal-web/shared-dev
 
 [Service]
 Type=oneshot
@@ -15,7 +16,9 @@ ProtectHome=true
 ProtectSystem=strict
 ReadWritePaths=/var/backups/personal-web/shared-dev /run/lock
 ReadOnlyPaths=/srv/personal-web/shared-dev/homepage
-CapabilityBoundingSet=
+# runuser requires UID/GID transition to the postgres OS account while the
+# root-owned service keeps backup files 0600 through shell redirection.
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_READ_SEARCH
 RestrictSUIDSGID=true
 LockPersonality=true
 SystemCallArchitectures=native

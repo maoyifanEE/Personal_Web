@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import tarfile
 from typing import Any, Iterable
 
 
@@ -22,9 +23,24 @@ SHARED_DEV_REMOTE_MEDIA_ROOT = "/srv/personal-web/shared-dev/homepage"
 SERVER_BACKUP_ROOT = "/var/backups/personal-web/shared-dev"
 LOCAL_BACKUP_KEEP_COUNT = 7
 SERVER_BACKUP_KEEP_COUNT = 14
+SERVER_PARTIAL_RETENTION_DAYS = 3
+REQUIRED_BACKUP_FILES = frozenset(
+    {
+        "personal_web_shared_dev.dump",
+        "homepage-media.tar.gz",
+        "manifest.json",
+        "SHA256SUMS",
+        "SUCCESS",
+    }
+)
+HASHED_BACKUP_FILES = frozenset({"personal_web_shared_dev.dump", "homepage-media.tar.gz", "manifest.json"})
 COMPLETED_BACKUP_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9]{8,32}$")
 PARTIAL_BACKUP_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9]{8,32}\.partial$")
-RESTORE_DATABASE_RE = re.compile(r"^personal_web_shared_dev_restore_verify_\d{8}T\d{6}Z$")
+LOCAL_RUN_PARTIAL_RE = re.compile(r"^\d{8}T\d{6}Z-[A-Za-z0-9]{8,32}\.partial-\d+-[A-Za-z0-9]{8,32}$")
+RESTORE_DATABASE_RE = re.compile(r"^personal_web_shared_dev_restore_verify_\d{8}T\d{6}Z_[A-Za-z0-9]{8,32}$")
+BACKUP_VERIFY_DATABASE_RE = re.compile(r"^personal_web_shared_dev_backup_verify_\d{8}T\d{6}Z_[A-Za-z0-9]{8,32}$")
+WINDOWS_LOCAL_SYSTEM_SID = "S-1-5-18"
+WINDOWS_BUILTIN_ADMINISTRATORS_SID = "S-1-5-32-544"
 
 SECRET_FIELD_MARKERS = (
     "password",
@@ -57,6 +73,27 @@ class MediaInventoryEntry:
     sha256: str
 
 
+@dataclass(frozen=True)
+class BackupFileMetadata:
+    """File metadata used for manifest and SHA cross-checks."""
+
+    filename: str
+    size: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class RemoteBackupEntry:
+    """Sanitized remote lstat metadata for one server backup entry."""
+
+    name: str
+    kind: str
+    owner: str
+    group: str
+    mode: str
+    is_symlink: bool = False
+
+
 def require_shared_dev_database_name(name: str) -> str:
     """Accept only the shared-development database."""
 
@@ -74,6 +111,16 @@ def reject_authoritative_or_production_restore_target(name: str) -> str:
         raise SharedDevBackupContractError("Restore verification must use a temporary database")
     if not RESTORE_DATABASE_RE.fullmatch(name):
         raise SharedDevBackupContractError("Restore verification database name is not temporary")
+    return name
+
+
+def require_backup_verify_database_name(name: str) -> str:
+    """Accept only backup-internal temporary verification databases."""
+
+    if name in {SHARED_DEV_DATABASE_NAME, "personal_web_prod"} or "prod" in name.lower():
+        raise SharedDevBackupContractError("Backup verification must use a temporary database")
+    if not BACKUP_VERIFY_DATABASE_RE.fullmatch(name):
+        raise SharedDevBackupContractError("Backup verification database name is not temporary")
     return name
 
 
@@ -98,6 +145,12 @@ def validate_backup_id(name: str, *, partial: bool = False) -> str:
     pattern = PARTIAL_BACKUP_ID_RE if partial else COMPLETED_BACKUP_ID_RE
     if not pattern.fullmatch(name):
         raise SharedDevBackupContractError("Backup id does not match the strict naming contract")
+    return name
+
+
+def validate_local_run_partial_name(name: str) -> str:
+    if not LOCAL_RUN_PARTIAL_RE.fullmatch(name):
+        raise SharedDevBackupContractError("Local partial name does not match the strict workflow contract")
     return name
 
 
@@ -126,6 +179,36 @@ def validate_media_relative_path(path: str) -> str:
     return pure.as_posix()
 
 
+def validate_tar_member(name: str, *, member_type: str) -> str:
+    """Validate a tar member before extraction.
+
+    `member_type` is a portable type label such as file, dir, symlink, hardlink,
+    device, fifo, or unknown.
+    """
+
+    normalized = validate_media_relative_path(name.rstrip("/")) if name.rstrip("/") else ""
+    if member_type == "dir":
+        if not normalized:
+            raise SharedDevBackupContractError("Archive root directory entry is not required")
+        return normalized
+    if member_type != "file":
+        raise SharedDevBackupContractError("Media archive contains a non-regular member")
+    return normalized
+
+
+def validate_tarinfo_members(members: Iterable[tarfile.TarInfo]) -> list[str]:
+    safe_files: list[str] = []
+    for member in members:
+        if member.isfile():
+            safe_files.append(validate_tar_member(member.name, member_type="file"))
+            continue
+        if member.isdir():
+            validate_tar_member(member.name, member_type="dir")
+            continue
+        raise SharedDevBackupContractError("Media archive contains a non-regular member")
+    return safe_files
+
+
 def media_tree_fingerprint(entries: Iterable[MediaInventoryEntry]) -> str:
     normalized = [
         {"path": validate_media_relative_path(entry.path), "size": int(entry.size), "sha256": entry.sha256.lower()}
@@ -147,6 +230,8 @@ def validate_sha256sums(text: str, expected_files: dict[str, str]) -> None:
         if not match:
             raise SharedDevBackupContractError("SHA256SUMS contains an invalid line")
         digest, filename = match.groups()
+        if filename not in HASHED_BACKUP_FILES:
+            raise SharedDevBackupContractError("SHA256SUMS contains an unexpected file")
         if filename in seen:
             raise SharedDevBackupContractError("SHA256SUMS contains duplicate files")
         seen[filename] = digest.lower()
@@ -155,6 +240,24 @@ def validate_sha256sums(text: str, expected_files: dict[str, str]) -> None:
     for filename, digest in expected_files.items():
         if seen[filename] != digest.lower():
             raise SharedDevBackupContractError("SHA256SUMS digest mismatch")
+
+
+def validate_exact_backup_file_set(names: Iterable[str]) -> None:
+    if set(names) != REQUIRED_BACKUP_FILES:
+        raise SharedDevBackupContractError("Backup directory file set mismatch")
+
+
+def validate_remote_backup_listing(entries: Iterable[RemoteBackupEntry], *, directory: RemoteBackupEntry) -> None:
+    if directory.kind != "dir" or directory.is_symlink or directory.owner != "root" or directory.group != "root" or directory.mode != "700":
+        raise SharedDevBackupContractError("Remote backup directory metadata is unsafe")
+    entry_map = {entry.name: entry for entry in entries}
+    validate_exact_backup_file_set(entry_map)
+    for name in REQUIRED_BACKUP_FILES:
+        entry = entry_map[name]
+        if entry.kind != "file" or entry.is_symlink:
+            raise SharedDevBackupContractError("Remote backup file metadata is unsafe")
+        if entry.owner != "root" or entry.group != "root" or entry.mode != "600":
+            raise SharedDevBackupContractError("Remote backup file permissions are unsafe")
 
 
 def assert_manifest_is_safe(manifest: dict[str, Any]) -> None:
@@ -172,6 +275,51 @@ def assert_manifest_is_safe(manifest: dict[str, Any]) -> None:
             raise SharedDevBackupContractError("Backup manifest contains unsafe metadata")
         if isinstance(value, str) and ("postgresql://" in value or "postgresql+psycopg://" in value):
             raise SharedDevBackupContractError("Backup manifest contains a database URL")
+
+
+def validate_manifest_cross_checks(
+    manifest: dict[str, Any],
+    *,
+    backup_id: str,
+    file_metadata: dict[str, BackupFileMetadata],
+    sha256sums: dict[str, str],
+    media_entries: Iterable[MediaInventoryEntry],
+) -> None:
+    """Cross-check manifest, payload file metadata, SHA256SUMS, and media inventory."""
+
+    assert_manifest_is_safe(manifest)
+    if manifest.get("backupId") != validate_backup_id(backup_id):
+        raise SharedDevBackupContractError("Manifest backup id mismatch")
+    if set(sha256sums) != HASHED_BACKUP_FILES:
+        raise SharedDevBackupContractError("SHA256SUMS file set mismatch")
+    if manifest.get("alembicRevision") != "20260712_0006":
+        raise SharedDevBackupContractError("Manifest Alembic revision mismatch")
+    if not manifest.get("canvasFingerprint"):
+        raise SharedDevBackupContractError("Manifest canvas fingerprint is missing")
+    if "tableCounts" not in manifest or not isinstance(manifest["tableCounts"], dict):
+        raise SharedDevBackupContractError("Manifest table counts are missing")
+    validate_sha256sums("\n".join(f"{digest}  {name}" for name, digest in sha256sums.items()), sha256sums)
+    for key, manifest_key in [
+        ("personal_web_shared_dev.dump", "databaseDump"),
+        ("homepage-media.tar.gz", "mediaArchive"),
+    ]:
+        meta = file_metadata[key]
+        manifest_meta = manifest.get(manifest_key) or {}
+        if manifest_meta.get("filename") != key:
+            raise SharedDevBackupContractError("Manifest payload filename mismatch")
+        if int(manifest_meta.get("size", -1)) != int(meta.size):
+            raise SharedDevBackupContractError("Manifest payload size mismatch")
+        if str(manifest_meta.get("sha256", "")).lower() != meta.sha256.lower():
+            raise SharedDevBackupContractError("Manifest payload hash mismatch")
+        if sha256sums.get(key, "").lower() != meta.sha256.lower():
+            raise SharedDevBackupContractError("SHA256SUMS payload hash mismatch")
+    entries = list(media_entries)
+    if int(manifest.get("sourceMediaRegularFileCount", -1)) != len(entries):
+        raise SharedDevBackupContractError("Manifest media count mismatch")
+    if int(manifest.get("sourceMediaLogicalBytes", -1)) != sum(int(entry.size) for entry in entries):
+        raise SharedDevBackupContractError("Manifest media logical bytes mismatch")
+    if manifest.get("sourceMediaTreeFingerprint") != media_tree_fingerprint(entries):
+        raise SharedDevBackupContractError("Manifest media fingerprint mismatch")
 
 
 def walk_manifest(value: Any, prefix: str = "") -> Iterable[tuple[str, Any]]:
@@ -198,6 +346,44 @@ def retention_delete_candidates(successful_backup_ids: list[str], *, keep: int) 
     if len(ordered) <= keep:
         return []
     return ordered[: len(ordered) - keep]
+
+
+def expected_windows_backup_acl_sids(current_user_sid: str) -> frozenset[str]:
+    if not current_user_sid.startswith("S-"):
+        raise SharedDevBackupContractError("Current user SID is invalid")
+    return frozenset({current_user_sid, WINDOWS_LOCAL_SYSTEM_SID, WINDOWS_BUILTIN_ADMINISTRATORS_SID})
+
+
+def validate_windows_acl_sids(actual_sids: Iterable[str], *, current_user_sid: str, inheritance_enabled: bool) -> None:
+    if inheritance_enabled:
+        raise SharedDevBackupContractError("Backup ACL inheritance must be disabled")
+    if frozenset(actual_sids) != expected_windows_backup_acl_sids(current_user_sid):
+        raise SharedDevBackupContractError("Backup ACL entries do not match the SID contract")
+
+
+def scheduled_task_matches_repository(
+    task: dict[str, Any],
+    *,
+    task_name: str,
+    powershell_exe: str,
+    pull_script: str,
+    working_directory: str,
+    principal: str,
+) -> bool:
+    """Return true only for an exact scheduled task ownership match."""
+
+    expected_args = f'-NoProfile -ExecutionPolicy Bypass -File "{pull_script}"'
+    return (
+        task.get("name") == task_name
+        and str(task.get("execute", "")).lower() == powershell_exe.lower()
+        and task.get("arguments") == expected_args
+        and task.get("workingDirectory") == working_directory
+        and task.get("principal") == principal
+        and task.get("runLevel") == "Limited"
+        and task.get("dailyAt") == "10:00"
+        and task.get("atLogon") is True
+        and task.get("wakeToRun") is False
+    )
 
 
 def local_retention_delete_candidates(successful_backup_ids: list[str]) -> list[str]:

@@ -61,6 +61,16 @@ server-side backups and keeps the newest 7 verified snapshots.
 The server backup root and completed snapshot directories are root-owned and
 mode `0700`. Backup files are mode `0600`.
 
+Because the systemd service uses `ProtectSystem=strict`, installation must
+create the backup root before enabling the timer:
+
+```text
+install -d -m 0700 -o root -g root /var/backups/personal-web/shared-dev
+```
+
+The service fails safely if the root does not already exist as `root:root`
+`0700`.
+
 The old-computer backup root disables inherited ACLs and allows only the current
 Windows user, SYSTEM, and local Administrators.
 
@@ -75,16 +85,37 @@ The server template is:
 deploy/backup/create-shared-dev-backup.sh
 ```
 
-It uses server-local PostgreSQL tools and trusted local administration context.
+It uses server-local PostgreSQL tools through the PostgreSQL administration OS
+identity:
+
+```text
+runuser --user postgres -- <postgres-command>
+```
+
+The service process remains root-owned so the root shell can open `0600` backup
+files while PostgreSQL commands run as `postgres`. It never assumes a database
+role named `root`, never puts a database password on a command line, never uses
+the application password, and never modifies `pg_hba.conf`.
+
 The database dump is custom format, equivalent to:
 
 ```text
 pg_dump --format=custom --no-owner --no-privileges --dbname=personal_web_shared_dev
 ```
 
-The script rejects production names, does not use the application password on a
-command line, does not expose PostgreSQL publicly, and does not run migrations
-or seed scripts.
+After creating the dump, the script restores it into a unique temporary
+verification database named:
+
+```text
+personal_web_shared_dev_backup_verify_<UTC>_<random>
+```
+
+Alembic revision, table counts, canvas metadata, canvas revision, and sanitized
+canvas fingerprint are calculated from that restored dump, not from a later live
+source query. `SUCCESS` is refused if restore, verification, or cleanup fails.
+
+The script rejects production names, does not expose PostgreSQL publicly, and
+does not run migrations or seed scripts.
 
 The media archive is created from exactly:
 
@@ -92,9 +123,12 @@ The media archive is created from exactly:
 /srv/personal-web/shared-dev/homepage
 ```
 
-The script rejects symlinks, device files, FIFOs, sockets, absolute archive
-paths, and traversal paths. Media logical bytes are the sum of regular file byte
-lengths, not filesystem allocation size.
+The script rejects source symlinks, device files, FIFOs, sockets, absolute
+archive paths, and traversal paths. It builds the archive from the exact sorted
+inventory path list, validates tar members before extraction, extracts into a
+unique protected verification directory, recalculates extracted path/size/SHA-256
+inventory, and requires exact equality with the source inventory. Media logical
+bytes are the sum of regular file byte lengths, not filesystem allocation size.
 
 The manifest stores only safe metadata: backup id, UTC timestamps, source
 hostname, database encoding/collation metadata, Alembic revision, table counts,
@@ -112,9 +146,13 @@ homepage-media.tar.gz
 manifest.json
 ```
 
-The server keeps the newest 14 successful snapshots and never deletes the newest
-verified backup. Unknown directories are ignored. Old `.partial` directories are
-eligible for cleanup only after strict name/path/ownership validation.
+The server keeps the newest 14 verified successful snapshots and never deletes
+the newest verified backup. A directory is retention-eligible only after strict
+name, direct-child, non-symlink, owner/group, mode, exact file set,
+SHA256SUMS, manifest, dump, archive, and verifier checks pass. Unknown
+directories are ignored. Old `.partial` directories are eligible for cleanup
+only after strict full-name, path, non-symlink, owner/group, mode, and age
+validation.
 
 Concurrency uses a nonblocking server-local `flock`; a second invocation exits
 safely without deleting a stale lock file.
@@ -129,8 +167,11 @@ deploy/backup/personal-web-shared-dev-backup.timer
 ```
 
 The service is `Type=oneshot`. It does not restart PostgreSQL, Nginx, SSH, or
-the backend. The timer is daily at approximately 03:30 Asia/Shanghai with
-`Persistent=true` and a modest randomized delay.
+the backend. It keeps `CAP_SETUID` and `CAP_SETGID` so `runuser` can enter the
+`postgres` OS identity, and keeps `CAP_DAC_READ_SEARCH` for root-controlled
+read access to the protected shared media tree and backup root. The timer is
+daily at approximately 03:30 Asia/Shanghai with `Persistent=true` and a modest
+randomized delay.
 
 This code-only phase does not install, start, or enable the timer.
 
@@ -151,11 +192,19 @@ personal-web-prod
 It does not use the shared database password, `personal-web-shared-db`,
 `personal-web-shared-media`, or the old local PostgreSQL database. It discovers
 only completed server backups under the server backup root, requires `SUCCESS`,
-validates strict backup names and restrictive ownership/mode, downloads only the
-required files into a `.partial` local directory, verifies `SHA256SUMS`, parses
-`manifest.json`, checks `pg_restore --list` when PostgreSQL tooling is
-available, checks the media archive listing, and atomically moves the verified
-directory into place.
+validates strict backup names, remote non-symlink directory metadata, exact
+remote file set, remote file owner/group/mode, and server verifier success
+before downloading. It downloads only the required files into a unique
+run-specific `.partial-<pid>-<random>` local directory, verifies `SHA256SUMS`,
+parses `manifest.json`, cross-checks manifest payload hashes and sizes, checks
+`pg_restore --list` when PostgreSQL tooling is available, validates tar members
+before extraction, extracts into a protected verification directory, verifies
+logical bytes and tree fingerprint, and atomically moves the verified directory
+into place.
+
+Local ACLs are SID-based rather than localized-name based. The only expected
+allow entries are the current user SID, Local System `S-1-5-18`, and Builtin
+Administrators `S-1-5-32-544`; inheritance is disabled and the ACL is read back.
 
 If the newest backup already exists locally and verifies, the script reports
 `already_current` and does not redownload or modify it.
@@ -187,16 +236,23 @@ The server restore-drill template is:
 deploy/backup/verify-shared-dev-restore.sh
 ```
 
-It selects a verified backup, creates a uniquely named temporary database:
+It selects a verified backup under a nonblocking restore-drill lock, creates a
+uniquely named temporary database:
 
 ```text
-personal_web_shared_dev_restore_verify_<timestamp>
+personal_web_shared_dev_restore_verify_<timestamp>_<random>
 ```
 
-It restores the custom dump only into that temporary database, compares Alembic
-revision and table counts, extracts the media archive under a unique temporary
+It validates tar members before extraction, restores the custom dump only into
+that temporary database, compares Alembic revision, table counts, canvas
+metadata/fingerprint, extracts the media archive under a unique temporary
 directory, compares regular-file count, logical bytes, and deterministic media
 tree fingerprint, then drops the temporary database and deletes extracted media.
+
+Cleanup preserves the original verification exit status, attempts to remove only
+the exact temporary database and media directory, verifies both are gone, and
+returns nonzero if cleanup is incomplete. `OK` is printed only after both
+verification and cleanup succeed.
 
 The drill must never restore into `personal_web_shared_dev` or
 `personal_web_prod`, never start the application against the temporary database,
