@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -37,6 +38,9 @@ from app.core.shared_dev_backup import (
     require_shared_dev_media_root,
     server_retention_delete_candidates,
     scheduled_task_matches_repository,
+    scheduled_daily_boundary_is_exact_10,
+    scheduled_task_logon_type_is_interactive,
+    scheduled_task_settings_match,
     validate_backup_id,
     validate_exact_backup_file_set,
     validate_local_run_partial_name,
@@ -56,6 +60,7 @@ SERVER_CREATE = REPO_ROOT / "deploy" / "backup" / "create-shared-dev-backup.sh"
 SERVER_VERIFY = REPO_ROOT / "deploy" / "backup" / "verify-shared-dev-backup.sh"
 RESTORE_VERIFY = REPO_ROOT / "deploy" / "backup" / "verify-shared-dev-restore.sh"
 ARCHIVE_VERIFIER = REPO_ROOT / "deploy" / "backup" / "verify-shared-media-archive.py"
+CANVAS_FINGERPRINT = REPO_ROOT / "deploy" / "backup" / "compute-shared-canvas-fingerprint.py"
 PULL_SCRIPT = REPO_ROOT / "scripts" / "pull-shared-dev-backup.ps1"
 TASK_SCRIPT = REPO_ROOT / "scripts" / "install-shared-dev-backup-pull-task.ps1"
 DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
@@ -63,6 +68,14 @@ DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def load_canvas_helper():
+    spec = importlib.util.spec_from_file_location("compute_shared_canvas_fingerprint", CANVAS_FINGERPRINT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def git_bash() -> str:
@@ -213,6 +226,74 @@ done
     values = result.stdout.splitlines()
     assert len(values) == 100
     assert len(set(values)) > 1
+
+
+def test_systemd_does_not_skip_missing_required_paths() -> None:
+    service = read(REPO_ROOT / "deploy" / "backup" / "personal-web-shared-dev-backup.service")
+
+    assert "ConditionPathExists" not in service
+    assert "ConditionPathIsDirectory" not in service
+    assert "ProtectSystem=strict" in service
+    assert "ReadOnlyPaths=/srv/personal-web/shared-dev/homepage" in service
+    assert "ReadWritePaths=/var/backups/personal-web/shared-dev /run/lock" in service
+
+
+def test_backup_script_missing_roots_fail_without_success_marker(tmp_path: Path) -> None:
+    missing_root = tmp_path / "missing-backup-root"
+    missing_media = tmp_path / "missing-media-root"
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+flock() {{ return 0; }}
+LOCK_FILE="{(tmp_path / 'backup.lock').as_posix()}"
+BACKUP_ROOT="{missing_root.as_posix()}"
+MEDIA_ROOT="{missing_media.as_posix()}"
+set +e
+( main )
+code="$?"
+printf 'code=%s\\n' "$code"
+find "{tmp_path.as_posix()}" -name SUCCESS -print
+exit 0
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "code=0" not in result.stdout
+    assert "backup root must be installed" in result.stderr
+    assert "SUCCESS" not in result.stdout
+
+
+def test_backup_script_missing_media_and_unsafe_roots_fail_before_success(tmp_path: Path) -> None:
+    backup_root = tmp_path / "backup-root"
+    media_root = tmp_path / "media-root"
+    backup_root.mkdir()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+BACKUP_ROOT="{backup_root.as_posix()}"
+MEDIA_ROOT="{media_root.as_posix()}"
+set +e
+( require_shared_sources )
+printf 'missing_media=%s\\n' "$?"
+( require_root_dir_0700 "{backup_root.as_posix()}" )
+printf 'unsafe_backup_root=%s\\n' "$?"
+mkdir -p "{media_root.as_posix()}"
+( require_root_dir_0700 "{media_root.as_posix()}" )
+printf 'unsafe_media_root=%s\\n' "$?"
+find "{tmp_path.as_posix()}" -name SUCCESS -print
+exit 0
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "missing_media=0" not in result.stdout
+    assert "unsafe_backup_root=0" not in result.stdout
+    assert "unsafe_media_root=0" not in result.stdout
+    assert "SUCCESS" not in result.stdout
 
 
 def test_fake_postgres_metadata_and_template0_creation_flow(tmp_path: Path) -> None:
@@ -394,6 +475,110 @@ def test_canonical_archive_verifier_reports_cleanup_failure(tmp_path: Path) -> N
     assert result.returncode != 0
     assert "cleanup incomplete" in result.stderr
     shutil.rmtree(extract, ignore_errors=True)
+
+
+def canvas_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "canvas_key": "default",
+            "schema_version": "sketch-canvas-v1",
+            "revision": 7,
+            "updated_at": "2026-07-26T10:00:00+00:00",
+            "canvas_data": {"nodes": [{"id": 2, "label": "B"}], "strokes": [{"points": [1, 2, 3]}]},
+        }
+    ]
+
+
+def test_canvas_fingerprint_is_stable_and_object_key_order_independent() -> None:
+    helper = load_canvas_helper()
+    rows_a = canvas_rows()
+    rows_b = [
+        {
+            "revision": 7,
+            "updated_at": "2026-07-26T10:00:00+00:00",
+            "schema_version": "sketch-canvas-v1",
+            "canvas_data": {"strokes": [{"points": [1, 2, 3]}], "nodes": [{"label": "B", "id": 2}]},
+            "canvas_key": "default",
+        }
+    ]
+
+    assert helper.canonical_canvas_fingerprint(rows_a) == helper.canonical_canvas_fingerprint(rows_b)
+
+
+def test_canvas_fingerprint_changes_for_array_content_revision_and_schema() -> None:
+    helper = load_canvas_helper()
+    original = canvas_rows()
+    array_changed = canvas_rows()
+    array_changed[0]["canvas_data"] = {"nodes": [{"id": 2, "label": "B"}], "strokes": [{"points": [3, 2, 1]}]}
+    content_changed = canvas_rows()
+    content_changed[0]["canvas_data"] = {"nodes": [{"id": 3, "label": "B"}], "strokes": [{"points": [1, 2, 3]}]}
+    revision_changed = canvas_rows()
+    revision_changed[0]["revision"] = 8
+    schema_changed = canvas_rows()
+    schema_changed[0]["schema_version"] = "sketch-canvas-v2"
+    original_fp = helper.canonical_canvas_fingerprint(original)
+
+    assert helper.canonical_canvas_fingerprint(array_changed) != original_fp
+    assert helper.canonical_canvas_fingerprint(content_changed) != original_fp
+    assert helper.canonical_canvas_fingerprint(revision_changed) != original_fp
+    assert helper.canonical_canvas_fingerprint(schema_changed) != original_fp
+
+
+def test_restore_altered_canvas_data_fails_even_when_revision_is_unchanged() -> None:
+    helper = load_canvas_helper()
+    manifest_fingerprint = helper.canonical_canvas_fingerprint(canvas_rows())
+    restored_rows = canvas_rows()
+    restored_rows[0]["canvas_data"] = {"nodes": [{"id": 999, "label": "B"}], "strokes": [{"points": [1, 2, 3]}]}
+
+    assert restored_rows[0]["revision"] == canvas_rows()[0]["revision"]
+    assert len(restored_rows) == len(canvas_rows())
+    assert helper.canonical_canvas_fingerprint(restored_rows) != manifest_fingerprint
+
+
+def test_canvas_fingerprint_sorts_multiple_canvases_stably() -> None:
+    helper = load_canvas_helper()
+    first = [
+        {**canvas_rows()[0], "canvas_key": "z"},
+        {**canvas_rows()[0], "canvas_key": "a", "revision": 1},
+    ]
+    second = list(reversed(first))
+
+    assert helper.canonical_canvas_fingerprint(first) == helper.canonical_canvas_fingerprint(second)
+
+
+def test_canvas_fingerprint_rejects_malformed_canvas_json_string() -> None:
+    helper = load_canvas_helper()
+    with pytest.raises(json.JSONDecodeError):
+        helper.canonical_canvas_fingerprint([{**canvas_rows()[0], "canvas_data": "{not-json"}])
+
+
+def test_canvas_fingerprint_helper_rejects_authoritative_database_names() -> None:
+    helper = load_canvas_helper()
+    for name in ["personal_web_shared_dev", "personal_web_prod", "personal_web_shared_dev_backup_verify_latest"]:
+        with pytest.raises(ValueError):
+            helper.require_temporary_database(name)
+
+
+def test_canvas_fingerprint_is_not_raw_canvas_json_in_manifest_or_logs() -> None:
+    create_script = read(SERVER_CREATE)
+    restore_script = read(RESTORE_VERIFY)
+    manifest = safe_manifest()
+
+    assert "compute-shared-canvas-fingerprint.py" in create_script
+    assert "compute-shared-canvas-fingerprint.py" in restore_script
+    assert "canvas_data" not in json.dumps(manifest)
+    assert "canvas_data" not in create_script.lower().split("collect_database_metadata_from_restored_dump", 1)[1]
+    assert "print(fingerprint)" in read(CANVAS_FINGERPRINT)
+
+
+def test_backup_and_restore_use_dump_restored_content_aware_canvas_fingerprint() -> None:
+    create_script = read(SERVER_CREATE)
+    restore_script = read(RESTORE_VERIFY)
+
+    assert "compute_canvas_fingerprint_from_restored_dump \"$verify_db\"" in create_script
+    assert create_script.index("create_verify_database_from_dump") < create_script.index("compute_canvas_fingerprint_from_restored_dump")
+    assert "compute_canvas_fingerprint_from_restore \"$restore_db\"" in restore_script
+    assert "canvas fingerprint mismatch" in restore_script
 
 
 def test_partial_and_completed_backup_naming() -> None:
@@ -631,10 +816,18 @@ def test_scheduled_task_exact_ownership_match() -> None:
         "workingDirectory": "D:\\repo",
         "principal": "MACHINE\\user",
         "runLevel": "Limited",
+        "logonType": "Interactive",
         "triggers": [
             {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T10:00:00", "daysInterval": 1},
             {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
         ],
+        "settings": {
+            "startWhenAvailable": True,
+            "wakeToRun": False,
+            "disallowStartIfOnBatteries": True,
+            "stopIfGoingOnBatteries": False,
+            "multipleInstances": "IgnoreNew",
+        },
         "wakeToRun": False,
     }
     assert scheduled_task_matches_repository(
@@ -650,6 +843,11 @@ def test_scheduled_task_exact_ownership_match() -> None:
         ("execute", "cmd.exe"),
         ("arguments", '-NoProfile -ExecutionPolicy Bypass -File "D:\\repo\\scripts\\pull-shared-dev-backup.ps1"; calc'),
         ("principal", "MACHINE\\other"),
+        ("logonType", "S4U"),
+        ("logonType", "Password"),
+        ("logonType", "ServiceAccount"),
+        ("logonType", None),
+        ("settings", None),
         (
             "triggers",
             [
@@ -665,6 +863,16 @@ def test_scheduled_task_exact_ownership_match() -> None:
                 {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
             ],
         ),
+        (
+            "settings",
+            {
+                "startWhenAvailable": True,
+                "wakeToRun": False,
+                "disallowStartIfOnBatteries": False,
+                "stopIfGoingOnBatteries": False,
+                "multipleInstances": "IgnoreNew",
+            },
+        ),
     ]:
         mutated = dict(task)
         mutated[key] = value
@@ -678,6 +886,47 @@ def test_scheduled_task_exact_ownership_match() -> None:
         )
 
 
+def test_scheduled_task_daily_boundary_is_exact_time() -> None:
+    assert scheduled_daily_boundary_is_exact_10("2026-07-26T10:00:00")
+    assert scheduled_daily_boundary_is_exact_10("2026-07-26T10:00:00+08:00")
+    for value in ["2026-07-26T01:00:00", "2026-07-26T10:00:01", "2026-07-26T10:00:00.500", "not-a-date T10:00:00"]:
+        assert not scheduled_daily_boundary_is_exact_10(value)
+
+
+def test_scheduled_task_logon_type_and_settings_contracts() -> None:
+    assert scheduled_task_logon_type_is_interactive("Interactive")
+    assert scheduled_task_logon_type_is_interactive("InteractiveToken")
+    assert scheduled_task_logon_type_is_interactive("3")
+    for value in ["S4U", "Password", "ServiceAccount", None]:
+        assert not scheduled_task_logon_type_is_interactive(value)
+    assert scheduled_task_settings_match(
+        {
+            "startWhenAvailable": True,
+            "wakeToRun": False,
+            "disallowStartIfOnBatteries": True,
+            "stopIfGoingOnBatteries": False,
+            "multipleInstances": "IgnoreNew",
+        }
+    )
+    assert not scheduled_task_settings_match(None)
+    for key, value in [
+        ("startWhenAvailable", False),
+        ("wakeToRun", True),
+        ("disallowStartIfOnBatteries", False),
+        ("stopIfGoingOnBatteries", True),
+        ("multipleInstances", "Parallel"),
+    ]:
+        settings = {
+            "startWhenAvailable": True,
+            "wakeToRun": False,
+            "disallowStartIfOnBatteries": True,
+            "stopIfGoingOnBatteries": False,
+            "multipleInstances": "IgnoreNew",
+        }
+        settings[key] = value
+        assert not scheduled_task_settings_match(settings)
+
+
 def test_scheduled_task_script_uses_property_matching_update_and_readback() -> None:
     script = read(TASK_SCRIPT)
 
@@ -685,6 +934,11 @@ def test_scheduled_task_script_uses_property_matching_update_and_readback() -> N
     assert "CimClass.CimClassName" in script
     assert "Set-ScheduledTask" in script
     assert "scheduled_task_readback_mismatch" in script
+    assert "Test-InteractiveLogonType -Value $Task.Principal.LogonType" in script
+    assert "Test-ExactDailyStartBoundary" in script
+    assert "DisallowStartIfOnBatteries" in script
+    assert "StopIfGoingOnBatteries" in script
+    assert "MultipleInstances" in script
 
 
 def test_restore_drill_uses_temporary_database_only() -> None:
@@ -695,6 +949,42 @@ def test_restore_drill_uses_temporary_database_only() -> None:
     with pytest.raises(SharedDevBackupContractError):
         reject_authoritative_or_production_restore_target("personal_web_prod")
     assert "personal_web_shared_dev_restore_verify_" in read(RESTORE_VERIFY)
+
+
+def test_restore_lock_contention_is_non_success_and_does_no_work(tmp_path: Path) -> None:
+    calls = tmp_path / "calls.log"
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{RESTORE_VERIFY.as_posix()}"
+LOCK_FILE="{(tmp_path / 'restore.lock').as_posix()}"
+BACKUP_ROOT="{(tmp_path / 'backups').as_posix()}"
+run_pg() {{ printf '%s\\n' "$*" >> "{calls.as_posix()}"; return 0; }}
+flock() {{ [[ "${{LOCK_BUSY:-}}" == "1" ]] && return 1; return 0; }}
+set +e
+LOCK_BUSY=1
+( main 20260726T033000Z-AbCd1234 ) > "{(tmp_path / 'second.out').as_posix()}" 2> "{(tmp_path / 'second.err').as_posix()}"
+second="$?"
+[[ -e "{calls.as_posix()}" ]] && printf 'second_calls=1\\n' || printf 'second_calls=0\\n'
+rm -f "{calls.as_posix()}"
+LOCK_BUSY=0
+( main 20260726T033000Z-AbCd1234 ) > "{(tmp_path / 'later.out').as_posix()}" 2> "{(tmp_path / 'later.err').as_posix()}"
+later="$?"
+printf 'second=%s\\nlater=%s\\n' "$second" "$later"
+find "{tmp_path.as_posix()}" -name 'personal-web-shared-media-restore-verify*' -o -name 'personal-web-shared-media-restore-inventory*' -o -name 'personal-web-shared-canvas-fingerprint*'
+exit 0
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "second=75" in result.stdout
+    assert "later=75" not in result.stdout
+    assert "second_calls=0" in result.stdout
+    assert "OK:" not in (tmp_path / "second.out").read_text(encoding="utf-8")
+    assert "lock unavailable" in (tmp_path / "second.err").read_text(encoding="utf-8")
+    assert "personal-web-shared-media-restore" not in result.stdout
+    assert "personal-web-shared-canvas-fingerprint" not in result.stdout
 
 
 def test_scripts_do_not_start_application_services_or_run_migrations() -> None:
@@ -801,7 +1091,10 @@ def test_systemd_documentation_path_and_capabilities() -> None:
 
     assert "docs/14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md" in service
     assert "CAP_SETUID CAP_SETGID" in service
-    assert "ConditionPathIsDirectory=/var/backups/personal-web/shared-dev" in service
+    assert "ConditionPathExists" not in service
+    assert "ConditionPathIsDirectory" not in service
+    assert "ReadOnlyPaths=/srv/personal-web/shared-dev/homepage" in service
+    assert "ReadWritePaths=/var/backups/personal-web/shared-dev /run/lock" in service
 
 
 def test_automated_tests_do_not_contact_real_server() -> None:
@@ -826,7 +1119,7 @@ def test_backup_tests_do_not_invoke_local_or_shared_launchers() -> None:
 
 
 def test_no_hardcoded_current_user_path_in_backup_sources() -> None:
-    paths = [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, PULL_SCRIPT, TASK_SCRIPT, DOC, Path(__file__)]
+    paths = [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, ARCHIVE_VERIFIER, CANVAS_FINGERPRINT, PULL_SCRIPT, TASK_SCRIPT, DOC, Path(__file__)]
     offenders = [str(path.relative_to(REPO_ROOT)) for path in paths if re.search(r"C:[/\\\\]Users[/\\\\]maoyi", read(path))]
 
     assert offenders == []

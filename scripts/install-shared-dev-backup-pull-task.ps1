@@ -17,6 +17,37 @@ function Normalize-ExeName {
   return [System.IO.Path]::GetFileName($Value).ToLowerInvariant()
 }
 
+function Test-InteractiveLogonType {
+  param($Value)
+
+  if ($null -eq $Value) {
+    return $false
+  }
+  $text = [string]$Value
+  return $text -in @("Interactive", "InteractiveToken", "3")
+}
+
+function Test-ExactDailyStartBoundary {
+  param([string]$Value)
+
+  if (-not $Value) {
+    return $false
+  }
+  try {
+    $parsed = [datetime]::Parse(
+      $Value,
+      [System.Globalization.CultureInfo]::InvariantCulture,
+      [System.Globalization.DateTimeStyles]::NoCurrentDateDefault
+    )
+  } catch {
+    return $false
+  }
+  return ($parsed.Hour -eq 10 -and
+    $parsed.Minute -eq 0 -and
+    $parsed.Second -eq 0 -and
+    $parsed.Millisecond -eq 0)
+}
+
 function Test-TriggerContract {
   param($Task)
 
@@ -45,7 +76,7 @@ function Test-TriggerContract {
   if ($daily.Enabled -ne $true -or $logon.Enabled -ne $true) {
     return $false
   }
-  if ([string]$daily.StartBoundary -notmatch "T10:00:00") {
+  if (-not (Test-ExactDailyStartBoundary -Value ([string]$daily.StartBoundary))) {
     return $false
   }
   if ($daily.DaysInterval -and [int]$daily.DaysInterval -ne 1) {
@@ -96,6 +127,18 @@ function Test-ExistingTaskBelongsToRepository {
   if ($Task.Settings.StartWhenAvailable -ne $true) {
     return $false
   }
+  if ($Task.Settings.DisallowStartIfOnBatteries -ne $true) {
+    return $false
+  }
+  if ($Task.Settings.StopIfGoingOnBatteries -ne $false) {
+    return $false
+  }
+  if ($Task.Settings.MultipleInstances -and [string]$Task.Settings.MultipleInstances -ne "IgnoreNew") {
+    return $false
+  }
+  if (-not (Test-InteractiveLogonType -Value $Task.Principal.LogonType)) {
+    return $false
+  }
   return $true
 }
 
@@ -122,7 +165,7 @@ if ($existing -and -not (Test-ExistingTaskBelongsToRepository -Task $existing)) 
 $taskAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $expectedArguments -WorkingDirectory $repoRoot
 $dailyTrigger = New-ScheduledTaskTrigger -Daily -At 10:00
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries:$false -WakeToRun:$false
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopIfGoingOnBatteries -AllowStartIfOnBatteries:$false -WakeToRun:$false -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
 $definition = New-ScheduledTask -Action $taskAction -Trigger @($dailyTrigger, $logonTrigger) -Settings $settings -Principal $principal
 

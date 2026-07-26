@@ -6,6 +6,8 @@ EXPECTED_ALEMBIC_REVISION="20260712_0006"
 LOCK_FILE="/run/lock/personal-web-shared-dev-restore-verify.lock"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
+CANVAS_FINGERPRINT_HELPER="$SCRIPT_DIR/compute-shared-canvas-fingerprint.py"
+RESTORE_LOCK_UNAVAILABLE_EXIT=75
 
 fail() {
   printf '[personal-web restore verify] ERROR: %s\n' "$1" >&2
@@ -107,6 +109,10 @@ cleanup_restore() {
     rm -f -- "$restore_media_inventory" >/dev/null 2>&1 || cleanup_status=1
     [[ -e "$restore_media_inventory" ]] && cleanup_status=1
   fi
+  if [[ -n "${restore_canvas_fingerprint:-}" ]]; then
+    rm -f -- "$restore_canvas_fingerprint" >/dev/null 2>&1 || cleanup_status=1
+    [[ -e "$restore_canvas_fingerprint" ]] && cleanup_status=1
+  fi
   if [[ "$cleanup_status" -ne 0 ]]; then
     printf '[personal-web restore verify] cleanup incomplete\n' >&2
     exit 1
@@ -116,9 +122,19 @@ cleanup_restore() {
   fi
 }
 
+compute_canvas_fingerprint_from_restore() {
+  local restore_db_name="$1"
+  local out="$2"
+  require_safe_restore_db "$restore_db_name"
+  python3 "$CANVAS_FINGERPRINT_HELPER" --database "$restore_db_name" > "$out"
+}
+
 main() {
   exec 9>"$LOCK_FILE"
-  flock -n 9 || { printf '[personal-web restore verify] another restore drill is already active\n' >&2; return 0; }
+  flock -n 9 || {
+    printf '[personal-web restore verify] restore drill lock unavailable; verification not performed\n' >&2
+    exit "$RESTORE_LOCK_UNAVAILABLE_EXIT"
+  }
   local backup_id="${1:-}"
   [[ "$backup_id" =~ ^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}$ ]] || fail "unsafe backup id"
   local backup_dir="$BACKUP_ROOT/$backup_id"
@@ -127,6 +143,7 @@ main() {
   restore_db="personal_web_shared_dev_restore_verify_$(date -u +%Y%m%dT%H%M%SZ)_$suffix"
   restore_media_dir="$(mktemp -d "/tmp/personal-web-shared-media-restore-verify.${suffix}.XXXXXX")"
   restore_media_inventory="$(mktemp "/tmp/personal-web-shared-media-restore-inventory.${suffix}.XXXXXX")"
+  restore_canvas_fingerprint="$(mktemp "/tmp/personal-web-shared-canvas-fingerprint.${suffix}.XXXXXX")"
   require_safe_restore_db "$restore_db"
   trap 'status=$?; cleanup_restore "$status"' EXIT
   [[ -f "$backup_dir/SUCCESS" ]] || fail "SUCCESS marker is missing"
@@ -139,13 +156,14 @@ main() {
     --write-inventory "$restore_media_inventory" >/dev/null
   create_restore_database_from_manifest "$restore_db" "$backup_dir/manifest.json"
   run_pg pg_restore --no-owner --no-privileges --dbname="$restore_db" < "$backup_dir/personal_web_shared_dev.dump"
-  python3 - "$backup_dir/manifest.json" "$restore_media_inventory" "$restore_db" <<'PY'
+  compute_canvas_fingerprint_from_restore "$restore_db" "$restore_canvas_fingerprint"
+  python3 - "$backup_dir/manifest.json" "$restore_media_inventory" "$restore_canvas_fingerprint" "$restore_db" <<'PY'
 import json
 from pathlib import Path
 import subprocess
 import sys
 
-manifest_path, media_inventory_path, restore_db = sys.argv[1:]
+manifest_path, media_inventory_path, canvas_fingerprint_path, restore_db = sys.argv[1:]
 manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
 media_entries = [json.loads(line) for line in Path(media_inventory_path).read_text(encoding="utf-8").splitlines() if line.strip()]
 if restore_db in {"personal_web_shared_dev", "personal_web_prod"}:
@@ -162,7 +180,7 @@ for table in tables:
 if counts != manifest.get("tableCounts"):
     raise SystemExit("table count mismatch")
 canvas_meta = subprocess.check_output(psql_base + ["--command", "select coalesce(jsonb_agg(jsonb_build_object('canvasKey', canvas_key, 'revision', revision, 'updatedAt', updated_at) order by canvas_key), '[]'::jsonb)::text from homepage_canvas_states"], text=True).strip()
-canvas_fingerprint = subprocess.check_output(psql_base + ["--command", "select md5(coalesce(string_agg(jsonb_build_object('canvasKey', canvas_key, 'schemaVersion', schema_version, 'revision', revision, 'updatedAt', updated_at)::text, E'\\n' order by canvas_key), '')) from homepage_canvas_states"], text=True).strip()
+canvas_fingerprint = Path(canvas_fingerprint_path).read_text(encoding="utf-8").strip()
 if not canvas_fingerprint or canvas_fingerprint != manifest.get("canvasFingerprint"):
     raise SystemExit("canvas fingerprint mismatch")
 try:

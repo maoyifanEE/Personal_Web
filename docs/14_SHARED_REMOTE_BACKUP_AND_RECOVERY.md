@@ -72,8 +72,12 @@ create the backup root before enabling the timer:
 install -d -m 0700 -o root -g root /var/backups/personal-web/shared-dev
 ```
 
-The service fails safely if the root does not already exist as `root:root`
-`0700`.
+The systemd unit intentionally does not use `ConditionPathExists` or
+`ConditionPathIsDirectory` for the required backup/media paths. Missing or
+unsafe paths must run the script, fail visibly with a nonzero service result,
+and leave no `SUCCESS` marker. The script itself validates that the backup root
+exists as `root:root` `0700` and that the media root exists as the exact
+shared-development media directory.
 
 The old-computer backup root disables inherited ACLs and allows only the current
 Windows user, SYSTEM, and local Administrators.
@@ -126,6 +130,21 @@ Alembic revision, table counts, canvas metadata, canvas revision, and sanitized
 canvas fingerprint are calculated from that restored dump, not from a later live
 source query. `SUCCESS` is refused if restore, verification, database-property
 matching, or cleanup fails.
+
+Canvas fingerprinting is centralized in:
+
+```text
+deploy/backup/compute-shared-canvas-fingerprint.py
+```
+
+The helper accepts only strictly named temporary backup/restore verification
+databases, executes PostgreSQL through `runuser --user postgres -- psql`, and
+prints only a SHA-256 fingerprint. For each canvas row it includes
+`canvas_key`, `schema_version`, `revision`, `updated_at`, and canonicalized
+`canvas_data`. `canvas_data` JSON is parsed, serialized with sorted object keys
+and compact separators while preserving array order, then included in an
+ordered canonical record array sorted by `canvas_key`. Raw canvas JSON is not
+written to the manifest and is not printed to logs.
 
 The script rejects production names, does not expose PostgreSQL publicly, and
 does not run migrations or seed scripts.
@@ -267,13 +286,21 @@ Personal_Web Shared Backup Pull
 ```
 
 The task runs in the current user context with no stored Windows password, no
-highest-privilege requirement, exactly one enabled daily trigger at 10:00 local
-time, and exactly one enabled current-user logon trigger. Ownership checks
-inspect Scheduled Task CIM properties, not localized `ToString()` output. An
-existing task is updated only after exact ownership verification, using
-`Set-ScheduledTask`, and the task is read back and revalidated after install or
-update. It does not wake the computer and does not start application services.
-This code-only phase does not register the task.
+highest-privilege requirement, exactly one enabled daily trigger at local time
+`10:00:00`, and exactly one enabled current-user logon trigger. Ownership checks
+inspect Scheduled Task CIM properties, not localized `ToString()` output. The
+principal must be the exact current user with `RunLevel=Limited` and
+`LogonType=Interactive` or the equivalent interactive CIM enum value; S4U,
+password, service-account, group, and missing logon types are unrelated. The
+daily `StartBoundary` is parsed as a date/time and must have hour 10, minute 0,
+second 0, and millisecond 0. Relevant settings are also matched:
+`StartWhenAvailable=true`, `WakeToRun=false`,
+`DisallowStartIfOnBatteries=true`, `StopIfGoingOnBatteries=false`, and
+`MultipleInstances=IgnoreNew` when represented. An existing task is updated
+only after exact ownership verification, using `Set-ScheduledTask`, and the
+task is read back and revalidated after install or update. It does not wake the
+computer and does not start application services. This code-only phase does not
+register the task.
 
 ## Restore Drill
 
@@ -289,6 +316,11 @@ uniquely named temporary database:
 ```text
 personal_web_shared_dev_restore_verify_<timestamp>_<random>
 ```
+
+If the nonblocking restore lock is unavailable, the drill prints a sanitized
+message, performs no verification work, creates no temporary database or media
+extraction directory, prints no `OK`, and exits with code `75` to indicate that
+verification was temporarily unavailable and not performed.
 
 It uses the canonical archive verifier for validation and manually controlled
 temporary extraction, writes a safe extracted inventory for comparison, restores

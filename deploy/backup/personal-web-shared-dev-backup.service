@@ -1,8 +1,6 @@
 [Unit]
 Description=Personal_Web shared-development database and media backup
 Documentation=file:/opt/personal-web/docs/14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md
-ConditionPathExists=/srv/personal-web/shared-dev/homepage
-ConditionPathIsDirectory=/var/backups/personal-web/shared-dev
 
 [Service]
 Type=oneshot

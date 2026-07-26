@@ -13,6 +13,7 @@ REQUIRED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json
 HASHED_FILES=(personal_web_shared_dev.dump homepage-media.tar.gz manifest.json)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
+CANVAS_FINGERPRINT_HELPER="$SCRIPT_DIR/compute-shared-canvas-fingerprint.py"
 
 log() {
   printf '[personal-web shared backup] %s\n' "$1" >&2
@@ -231,20 +232,26 @@ select jsonb_build_object(
   'canvasMetadata', (
     select coalesce(jsonb_agg(jsonb_build_object('canvasKey', canvas_key, 'revision', revision, 'updatedAt', updated_at) order by canvas_key), '[]'::jsonb)
     from homepage_canvas_states
-  ),
-  'canvasFingerprint', (
-    select md5(coalesce(string_agg(jsonb_build_object(
-      'canvasKey', canvas_key,
-      'schemaVersion', schema_version,
-      'revision', revision,
-      'updatedAt', updated_at
-    )::text, E'\n' order by canvas_key), ''))
-    from homepage_canvas_states
   )
 )
 from pg_database
 where datname = current_database();
 SQL
+}
+
+compute_canvas_fingerprint_from_restored_dump() {
+  local verify_db="$1"
+  local out="$2"
+  require_safe_verify_db "$verify_db"
+  python3 "$CANVAS_FINGERPRINT_HELPER" --database "$verify_db" > "$out"
+  python3 - "$out" <<'PY'
+import re
+import sys
+from pathlib import Path
+value = Path(sys.argv[1]).read_text(encoding="utf-8").strip()
+if not re.fullmatch(r"[0-9a-f]{64}", value):
+    raise SystemExit("canvas fingerprint helper returned invalid output")
+PY
 }
 
 reject_unsafe_media_entries() {
@@ -304,20 +311,22 @@ write_manifest() {
   local source_props_file="$5"
   local verify_props_file="$6"
   local db_meta_file="$7"
-  local inventory_file="$8"
-  local dump_file="$9"
-  local archive_file="${10}"
-  python3 - "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_props_file" "$verify_props_file" "$db_meta_file" "$inventory_file" "$dump_file" "$archive_file" <<'PY'
+  local canvas_fingerprint_file="$8"
+  local inventory_file="$9"
+  local dump_file="${10}"
+  local archive_file="${11}"
+  python3 - "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_props_file" "$verify_props_file" "$db_meta_file" "$canvas_fingerprint_file" "$inventory_file" "$dump_file" "$archive_file" <<'PY'
 import hashlib
 import json
 import socket
 import sys
 from pathlib import Path
 
-manifest_path, backup_id, created_utc, completed_utc, source_props_path, verify_props_path, db_meta_path, inventory_path, dump_path, archive_path = sys.argv[1:]
+manifest_path, backup_id, created_utc, completed_utc, source_props_path, verify_props_path, db_meta_path, canvas_fingerprint_path, inventory_path, dump_path, archive_path = sys.argv[1:]
 source_props = json.loads(Path(source_props_path).read_text(encoding="utf-8"))
 verify_props = json.loads(Path(verify_props_path).read_text(encoding="utf-8"))
 db_meta = json.loads(Path(db_meta_path).read_text(encoding="utf-8"))
+canvas_fingerprint = Path(canvas_fingerprint_path).read_text(encoding="utf-8").strip()
 entries = [json.loads(line) for line in Path(inventory_path).read_text(encoding="utf-8").splitlines() if line.strip()]
 entries.sort(key=lambda item: item["path"])
 tree_fingerprint = hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -346,7 +355,7 @@ manifest = {
     "alembicRevision": db_meta.get("alembicRevision"),
     "tableCounts": db_meta.get("tableCounts") or {},
     "canvasMetadata": db_meta.get("canvasMetadata") or [],
-    "canvasFingerprint": db_meta.get("canvasFingerprint"),
+    "canvasFingerprint": canvas_fingerprint,
     "databaseDump": file_meta(dump_path),
     "mediaArchive": file_meta(archive_path),
     "sourceMediaRoot": "/srv/personal-web/shared-dev/homepage",
@@ -500,7 +509,7 @@ main() {
   require_root_dir_0700 "$BACKUP_ROOT"
   require_shared_sources
   local created_utc backup_id suffix partial_dir completed_dir verify_db verify_extract
-  local source_db_props verify_db_props db_meta inventory paths_file dump archive manifest
+  local source_db_props verify_db_props db_meta canvas_fingerprint inventory paths_file dump archive manifest
   created_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   suffix="$(random_suffix)"
   backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$suffix"
@@ -516,6 +525,7 @@ main() {
   source_db_props="$partial_dir/source-database-properties.json"
   verify_db_props="$partial_dir/verify-database-properties.json"
   db_meta="$partial_dir/database-metadata.json"
+  canvas_fingerprint="$partial_dir/canvas-fingerprint.txt"
   inventory="$partial_dir/media-inventory.jsonl"
   paths_file="$partial_dir/media-paths.nul"
   dump="$partial_dir/personal_web_shared_dev.dump"
@@ -526,6 +536,7 @@ main() {
   create_dump_from_source "$dump"
   create_verify_database_from_dump "$verify_db" "$dump" "$source_db_props" "$verify_db_props"
   collect_database_metadata_from_restored_dump "$verify_db" "$db_meta"
+  compute_canvas_fingerprint_from_restored_dump "$verify_db" "$canvas_fingerprint"
   drop_verify_database "$verify_db" || fail "verification database cleanup incomplete"
   reject_unsafe_media_entries
   collect_source_media_inventory "$inventory" "$paths_file"
@@ -533,8 +544,8 @@ main() {
   validate_and_extract_media_archive "$archive" "$inventory" "$verify_extract"
   local completed_utc
   completed_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_db_props" "$verify_db_props" "$db_meta" "$inventory" "$dump" "$archive"
-  rm -f "$source_db_props" "$verify_db_props" "$db_meta" "$inventory" "$paths_file"
+  write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_db_props" "$verify_db_props" "$db_meta" "$canvas_fingerprint" "$inventory" "$dump" "$archive"
+  rm -f "$source_db_props" "$verify_db_props" "$db_meta" "$canvas_fingerprint" "$inventory" "$paths_file"
   (cd "$partial_dir" && sha256sum "${HASHED_FILES[@]}" > SHA256SUMS)
   touch "$partial_dir/SUCCESS"
   chmod 0600 "$dump" "$archive" "$manifest" "$partial_dir/SHA256SUMS" "$partial_dir/SUCCESS"

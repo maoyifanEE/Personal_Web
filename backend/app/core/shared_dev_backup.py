@@ -13,6 +13,7 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import tarfile
+from datetime import datetime
 from typing import Any, Iterable
 
 
@@ -451,7 +452,7 @@ def scheduled_task_triggers_match(triggers: list[dict[str, Any]], *, principal: 
     logon_trigger = logon[0]
     return (
         daily_trigger.get("enabled") is True
-        and str(daily_trigger.get("startBoundary", "")).endswith("T10:00:00")
+        and scheduled_daily_boundary_is_exact_10(daily_trigger.get("startBoundary"))
         and int(daily_trigger.get("daysInterval", 1)) == 1
         and not daily_trigger.get("repetitionInterval")
         and not daily_trigger.get("repetitionDuration")
@@ -459,6 +460,35 @@ def scheduled_task_triggers_match(triggers: list[dict[str, Any]], *, principal: 
         and logon_trigger.get("userId") in {None, "", principal}
         and not logon_trigger.get("repetitionInterval")
         and not logon_trigger.get("repetitionDuration")
+    )
+
+
+def scheduled_daily_boundary_is_exact_10(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return False
+    return parsed.hour == 10 and parsed.minute == 0 and parsed.second == 0 and parsed.microsecond == 0
+
+
+def scheduled_task_logon_type_is_interactive(value: Any) -> bool:
+    if value is None:
+        return False
+    return str(value) in {"Interactive", "InteractiveToken", "3"}
+
+
+def scheduled_task_settings_match(settings: dict[str, Any] | None) -> bool:
+    if not isinstance(settings, dict):
+        return False
+    return (
+        settings.get("startWhenAvailable") is True
+        and settings.get("wakeToRun") is False
+        and settings.get("disallowStartIfOnBatteries") is True
+        and settings.get("stopIfGoingOnBatteries") is False
+        and settings.get("multipleInstances") in {None, "IgnoreNew"}
     )
 
 
@@ -481,12 +511,14 @@ def scheduled_task_matches_repository(
         and task.get("workingDirectory") == working_directory
         and task.get("principal") == principal
         and task.get("runLevel") == "Limited"
+        and scheduled_task_logon_type_is_interactive(task.get("logonType"))
         and (
             scheduled_task_triggers_match(task["triggers"], principal=principal)
             if "triggers" in task
             else task.get("dailyAt") == "10:00" and task.get("atLogon") is True
         )
         and task.get("wakeToRun") is False
+        and scheduled_task_settings_match(task.get("settings"))
     )
 
 
