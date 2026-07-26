@@ -178,6 +178,22 @@ filenames containing whitespace or newlines are treated only as filenames.
 Media logical bytes are the sum of regular file byte lengths, not filesystem
 allocation size.
 
+The backup service logs fixed stage boundaries in the form
+`stage_start id=<stage> name=<name>`, `stage_ok id=<stage> name=<name>`, and
+`stage_error id=<stage> ... exit=<code> command_category=<category>`. The stage
+IDs are stable from `B01_PRECHECK` through `B15_RETENTION`. Error logs include
+only the stage, source basename, line, function, exit code, and sanitized command
+category; they do not print full command lines, environment variables,
+connection strings, canvas JSON, row contents, or media contents.
+
+The dump restore stage uses `pg_restore --exit-on-error --no-owner
+--no-privileges` against the temporary verification database. A failed restore
+is reported at `B05_DATABASE_RESTORE`.
+
+The media unsafe-entry scan treats "no unsafe entries found" as success. This is
+intentional: the underlying `grep -q` no-match status must not abort the backup
+under `set -euo pipefail`.
+
 Archive validation is centralized in:
 
 ```text

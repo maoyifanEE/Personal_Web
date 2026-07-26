@@ -102,6 +102,8 @@ def run_bash(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
         [git_bash(), "-lc", f'python3() {{ "{python_exe}" "$@"; }}\n{script}'],
         cwd=tmp_path,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=False,
     )
@@ -320,6 +322,114 @@ def test_systemd_does_not_skip_missing_required_paths() -> None:
     assert "ReadWritePaths=/var/backups/personal-web/shared-dev /run/lock" in service
 
 
+def test_backup_script_stage_ids_are_ordered_and_pg_restore_exits_on_error() -> None:
+    script = read(SERVER_CREATE)
+    expected = [
+        "B01_PRECHECK",
+        "B02_SOURCE_DB_PROPERTIES",
+        "B03_DATABASE_DUMP",
+        "B04_VERIFY_DB_CREATE",
+        "B05_DATABASE_RESTORE",
+        "B06_RESTORED_METADATA",
+        "B07_CANVAS_FINGERPRINT",
+        "B08_VERIFY_DB_CLEANUP",
+        "B09_MEDIA_SCAN",
+        "B10_MEDIA_INVENTORY",
+        "B11_MEDIA_ARCHIVE",
+        "B12_ARCHIVE_VERIFY",
+        "B13_MANIFEST",
+        "B14_FINAL_VERIFY",
+        "B15_RETENTION",
+    ]
+    positions = [script.index(stage) for stage in expected]
+
+    assert positions == sorted(positions)
+    assert "stage_start id=" in script
+    assert "stage_ok id=" in script
+    assert "stage_error id=" in script
+    assert "command_category=" in script
+    assert "pg_restore --exit-on-error --no-owner --no-privileges" in script
+
+
+def test_stage_logging_emits_start_and_ok_under_real_bash(tmp_path: Path) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+run_stage B09_MEDIA_SCAN media_scan true
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "stage_start id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+    assert "stage_ok id=B09_MEDIA_SCAN name=media_scan" in result.stderr
+
+
+def test_pg_restore_failure_logs_b05_and_preserves_exit_code(tmp_path: Path) -> None:
+    dump = tmp_path / "dump.bin"
+    dump.write_bytes(b"fake")
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+run_pg() {{ return 44; }}
+run_stage B05_DATABASE_RESTORE database_restore restore_dump_into_verify_database {BACKUP_TEMP_DB} "{dump.as_posix()}"
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 44
+    assert "stage_start id=B05_DATABASE_RESTORE name=database_restore" in result.stderr
+    assert "stage_error id=B05_DATABASE_RESTORE name=database_restore" in result.stderr
+    assert "exit=44" in result.stderr
+    assert "command_category=pg_restore" in result.stderr
+
+
+def test_exit_cleanup_runs_after_stage_failure_and_preserves_status(tmp_path: Path) -> None:
+    partial = tmp_path / "20260726T033000Z-AbCd1234.partial"
+    partial.mkdir()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+BACKUP_ROOT="{tmp_path.as_posix()}"
+partial_dir="{partial.as_posix()}"
+verify_db=""
+verify_extract=""
+trap 'status=$?; cleanup_backup_run "$status"' EXIT
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+failing_stage() {{ return 44; }}
+run_stage B05_DATABASE_RESTORE database_restore failing_stage
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 44
+    assert not partial.exists()
+    assert "cleanup completed after failure original_status=44" in result.stderr
+
+
+def test_stage_error_log_does_not_print_sensitive_command_text(tmp_path: Path) -> None:
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
+fake_password_url_canvas_json_command() {{ return 12; }}
+run_stage B05_DATABASE_RESTORE database_restore fake_password_url_canvas_json_command
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 12
+    assert "stage_error id=B05_DATABASE_RESTORE" in result.stderr
+    assert "fake_password_url_canvas_json_command" not in result.stderr
+    assert "password" not in result.stderr.lower()
+    assert "canvas_json" not in result.stderr.lower()
+
+
 def test_backup_script_missing_roots_fail_without_success_marker(tmp_path: Path) -> None:
     missing_root = tmp_path / "missing-backup-root"
     missing_media = tmp_path / "missing-media-root"
@@ -376,6 +486,22 @@ exit 0
     assert "unsafe_backup_root=0" not in result.stdout
     assert "unsafe_media_root=0" not in result.stdout
     assert "SUCCESS" not in result.stdout
+
+
+def test_media_scan_returns_success_when_no_unsafe_entries(tmp_path: Path) -> None:
+    media_root = tmp_path / "media"
+    media_root.mkdir()
+    result = run_bash(
+        f'''
+set -Eeuo pipefail
+source "{SERVER_CREATE.as_posix()}"
+MEDIA_ROOT="{media_root.as_posix()}"
+reject_unsafe_media_entries
+''',
+        tmp_path,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_fake_postgres_metadata_and_template0_creation_flow(tmp_path: Path) -> None:
@@ -712,7 +838,7 @@ def test_backup_and_restore_use_dump_restored_content_aware_canvas_fingerprint()
     restore_script = read(RESTORE_VERIFY)
 
     assert "compute_canvas_fingerprint_from_restored_dump \"$verify_db\"" in create_script
-    assert create_script.index("create_verify_database_from_dump") < create_script.index("compute_canvas_fingerprint_from_restored_dump")
+    assert create_script.index("B05_DATABASE_RESTORE") < create_script.index("B07_CANVAS_FINGERPRINT")
     assert "compute_canvas_fingerprint_from_restore \"$restore_db\"" in restore_script
     assert "canvas fingerprint mismatch" in restore_script
 

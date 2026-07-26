@@ -16,6 +16,11 @@ ARCHIVE_VERIFIER="$SCRIPT_DIR/verify-shared-media-archive.py"
 CANVAS_FINGERPRINT_HELPER="$SCRIPT_DIR/compute-shared-canvas-fingerprint.py"
 POSTGRES_IDENTIFIER_MAX_BYTES=63
 TEMP_DB_NAME_BYTES=57
+CURRENT_STAGE_ID="INIT"
+CURRENT_STAGE_NAME="initializing"
+CURRENT_STAGE_STARTED_AT=0
+CURRENT_COMMAND_CATEGORY="shell"
+IN_ERROR_TRAP=0
 
 log() {
   printf '[personal-web shared backup] %s\n' "$1" >&2
@@ -24,6 +29,71 @@ log() {
 fail() {
   log "ERROR: $1"
   exit 1
+}
+
+command_category() {
+  local command_text="$1"
+  local first_word="${command_text%%[[:space:]]*}"
+  first_word="${first_word##*/}"
+  case "$first_word" in
+    restore_dump_into_verify_database)
+      printf 'pg_restore\n'
+      ;;
+    create_dump_from_source)
+      printf 'pg_dump\n'
+      ;;
+    create_verify_database|drop_verify_database|collect_source_database_properties|collect_verify_database_properties|collect_database_metadata_from_restored_dump|compute_canvas_fingerprint_from_restored_dump)
+      printf 'psql\n'
+      ;;
+    run_pg|psql|pg_dump|pg_restore|createdb|dropdb|python3|tar|find|stat|sha256sum|chmod|chown|mv|rm|touch|install|flock)
+      printf '%s\n' "$first_word"
+      ;;
+    *)
+      printf 'shell\n'
+      ;;
+  esac
+}
+
+on_error() {
+  local status="$1"
+  local line="$2"
+  local command_text="$3"
+  if [[ "$IN_ERROR_TRAP" -ne 0 ]]; then
+    exit "$status"
+  fi
+  IN_ERROR_TRAP=1
+  trap - ERR
+  local category
+  category="$(command_category "$command_text")"
+  if [[ "$category" == "shell" ]]; then
+    category="${CURRENT_COMMAND_CATEGORY:-shell}"
+  fi
+  log "stage_error id=$CURRENT_STAGE_ID name=$CURRENT_STAGE_NAME source=$(basename "${BASH_SOURCE[1]:-${BASH_SOURCE[0]}}") line=$line function=${FUNCNAME[2]:-${FUNCNAME[1]:-main}} exit=$status command_category=$category"
+  exit "$status"
+}
+
+stage_start() {
+  CURRENT_STAGE_ID="$1"
+  CURRENT_STAGE_NAME="$2"
+  CURRENT_STAGE_STARTED_AT="$(date +%s)"
+  log "stage_start id=$CURRENT_STAGE_ID name=$CURRENT_STAGE_NAME"
+}
+
+stage_ok() {
+  local ended_at duration
+  ended_at="$(date +%s)"
+  duration=$((ended_at - CURRENT_STAGE_STARTED_AT))
+  log "stage_ok id=$CURRENT_STAGE_ID name=$CURRENT_STAGE_NAME duration=${duration}s"
+}
+
+run_stage() {
+  local stage_id="$1"
+  local stage_name="$2"
+  shift 2
+  stage_start "$stage_id" "$stage_name"
+  CURRENT_COMMAND_CATEGORY="$(command_category "$1")"
+  "$@"
+  stage_ok
 }
 
 run_pg() {
@@ -206,6 +276,14 @@ create_verify_database_from_dump() {
   local dump="$2"
   local source_props="$3"
   local verify_props="$4"
+  create_verify_database "$verify_db" "$source_props" "$verify_props"
+  restore_dump_into_verify_database "$verify_db" "$dump"
+}
+
+create_verify_database() {
+  local verify_db="$1"
+  local source_props="$2"
+  local verify_props="$3"
   require_safe_verify_db "$verify_db"
   local db_encoding db_collate db_ctype
   db_encoding="$(read_database_property "$source_props" databaseEncoding)"
@@ -216,7 +294,13 @@ create_verify_database_from_dump() {
   verify_database_created_exactly "$verify_db"
   collect_verify_database_properties "$verify_db" "$verify_props"
   compare_database_properties "$source_props" "$verify_props"
-  run_pg pg_restore --no-owner --no-privileges --dbname="$verify_db" < "$dump"
+}
+
+restore_dump_into_verify_database() {
+  local verify_db="$1"
+  local dump="$2"
+  require_safe_verify_db "$verify_db"
+  run_pg pg_restore --exit-on-error --no-owner --no-privileges --dbname="$verify_db" < "$dump"
 }
 
 drop_verify_database() {
@@ -278,8 +362,11 @@ PY
 }
 
 reject_unsafe_media_entries() {
-  find "$MEDIA_ROOT" \( -type l -o -type b -o -type c -o -type p -o -type s \) -print -quit |
-    grep -q . && fail "unsafe media filesystem entry found"
+  if find "$MEDIA_ROOT" \( -type l -o -type b -o -type c -o -type p -o -type s \) -print -quit |
+    grep -q .; then
+    fail "unsafe media filesystem entry found"
+  fi
+  return 0
 }
 
 collect_source_media_inventory() {
@@ -526,13 +613,12 @@ apply_retention() {
 }
 
 main() {
+  trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
   exec 9>"$LOCK_FILE"
   flock -n 9 || { log "another backup run is already active"; exit 0; }
-  [[ -d "$BACKUP_ROOT" ]] || fail "backup root must be installed before service start"
-  require_root_dir_0700 "$BACKUP_ROOT"
-  require_shared_sources
   local created_utc backup_id suffix partial_dir completed_dir verify_db verify_extract
   local source_db_props verify_db_props db_meta canvas_fingerprint inventory paths_file dump archive manifest
+  run_stage B01_PRECHECK precheck precheck_backup_run
   created_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   suffix="$(random_suffix)"
   backup_id="$(date -u +%Y%m%dT%H%M%SZ)-$suffix"
@@ -555,19 +641,44 @@ main() {
   archive="$partial_dir/homepage-media.tar.gz"
   manifest="$partial_dir/manifest.json"
   trap 'status=$?; cleanup_backup_run "$status"' EXIT
-  collect_source_database_properties "$source_db_props"
-  create_dump_from_source "$dump"
-  create_verify_database_from_dump "$verify_db" "$dump" "$source_db_props" "$verify_db_props"
-  collect_database_metadata_from_restored_dump "$verify_db" "$db_meta"
-  compute_canvas_fingerprint_from_restored_dump "$verify_db" "$canvas_fingerprint"
-  drop_verify_database "$verify_db" || fail "verification database cleanup incomplete"
-  reject_unsafe_media_entries
-  collect_source_media_inventory "$inventory" "$paths_file"
-  create_media_archive_from_inventory "$archive" "$paths_file"
-  validate_and_extract_media_archive "$archive" "$inventory" "$verify_extract"
+  run_stage B02_SOURCE_DB_PROPERTIES source_db_properties collect_source_database_properties "$source_db_props"
+  run_stage B03_DATABASE_DUMP database_dump create_dump_from_source "$dump"
+  run_stage B04_VERIFY_DB_CREATE verify_db_create create_verify_database "$verify_db" "$source_db_props" "$verify_db_props"
+  run_stage B05_DATABASE_RESTORE database_restore restore_dump_into_verify_database "$verify_db" "$dump"
+  run_stage B06_RESTORED_METADATA restored_metadata collect_database_metadata_from_restored_dump "$verify_db" "$db_meta"
+  run_stage B07_CANVAS_FINGERPRINT canvas_fingerprint compute_canvas_fingerprint_from_restored_dump "$verify_db" "$canvas_fingerprint"
+  run_stage B08_VERIFY_DB_CLEANUP verify_db_cleanup drop_verify_database "$verify_db"
+  run_stage B09_MEDIA_SCAN media_scan reject_unsafe_media_entries
+  run_stage B10_MEDIA_INVENTORY media_inventory collect_source_media_inventory "$inventory" "$paths_file"
+  run_stage B11_MEDIA_ARCHIVE media_archive create_media_archive_from_inventory "$archive" "$paths_file"
+  run_stage B12_ARCHIVE_VERIFY archive_verify validate_and_extract_media_archive "$archive" "$inventory" "$verify_extract"
   local completed_utc
   completed_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_db_props" "$verify_db_props" "$db_meta" "$canvas_fingerprint" "$inventory" "$dump" "$archive"
+  run_stage B13_MANIFEST manifest write_manifest "$manifest" "$backup_id" "$created_utc" "$completed_utc" "$source_db_props" "$verify_db_props" "$db_meta" "$canvas_fingerprint" "$inventory" "$dump" "$archive"
+  run_stage B14_FINAL_VERIFY final_verify finalize_completed_backup "$partial_dir" "$completed_dir" "$source_db_props" "$verify_db_props" "$db_meta" "$canvas_fingerprint" "$inventory" "$paths_file" "$dump" "$archive" "$manifest"
+  trap - EXIT
+  run_stage B15_RETENTION retention apply_retention
+  log "backup completed: $backup_id"
+}
+
+precheck_backup_run() {
+  [[ -d "$BACKUP_ROOT" ]] || fail "backup root must be installed before service start"
+  require_root_dir_0700 "$BACKUP_ROOT"
+  require_shared_sources
+}
+
+finalize_completed_backup() {
+  local partial_dir="$1"
+  local completed_dir="$2"
+  local source_db_props="$3"
+  local verify_db_props="$4"
+  local db_meta="$5"
+  local canvas_fingerprint="$6"
+  local inventory="$7"
+  local paths_file="$8"
+  local dump="$9"
+  local archive="${10}"
+  local manifest="${11}"
   rm -f "$source_db_props" "$verify_db_props" "$db_meta" "$canvas_fingerprint" "$inventory" "$paths_file"
   (cd "$partial_dir" && sha256sum "${HASHED_FILES[@]}" > SHA256SUMS)
   touch "$partial_dir/SUCCESS"
@@ -577,9 +688,6 @@ main() {
   mv "$partial_dir" "$completed_dir"
   chmod 0700 "$completed_dir"
   verify_completed_backup "$completed_dir"
-  trap - EXIT
-  apply_retention
-  log "backup completed: $backup_id"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
