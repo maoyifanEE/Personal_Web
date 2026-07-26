@@ -289,12 +289,22 @@ before extraction, extracts into a protected verification directory, verifies
 logical bytes and tree fingerprint, and atomically moves the verified directory
 into place.
 
+Remote discovery and completed-backup validation start the fixed remote command
+`bash -s --` over the trusted SSH alias and send the generated Bash source on
+standard input as UTF-8 without BOM and LF newlines. The Bash source is not
+placed in native command-line arguments, environment variables, remote temporary
+files, or base64 command payloads.
+
 Local ACLs are SID-based rather than localized-name based. The only expected
 explicit allow entries are the current user SID, Local System `S-1-5-18`, and
 Builtin Administrators `S-1-5-32-544`; each entry must be exactly FullControl,
 inheritance is disabled, reparse points are rejected, ownership must be one of
 the expected SIDs, and the ACL is read back for the backup root, partial
-directory, downloaded files, finalized directory, and retained files.
+directory, downloaded files, finalized directory, and retained files. If the
+item already has this exact protected DACL, ACL handling is a no-op and does not
+call `Set-Acl`. If repair is required, only the DACL on the existing security
+descriptor is changed; owner, primary group, and audit/SACL state are preserved
+for the current user's non-elevated Limited scheduled-task context.
 
 If download or verification fails, the script removes only the exact
 run-specific partial directory after path, reparse, and ACL checks. If those

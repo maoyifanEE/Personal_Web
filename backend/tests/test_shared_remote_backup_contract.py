@@ -109,6 +109,20 @@ def run_bash(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+def run_powershell(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    script_path = tmp_path / "run.ps1"
+    script_path.write_text(script, encoding="utf-8")
+    return subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
+        cwd=tmp_path,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+    )
+
+
 def write_tar(archive: Path, entries: list[tuple[str, str, bytes]]) -> None:
     with tarfile.open(archive, "w:gz") as tar:
         for kind, name, payload in entries:
@@ -1143,12 +1157,233 @@ def test_latest_backup_idempotency_is_supported() -> None:
     assert "already_current" in read(PULL_SCRIPT)
 
 
+def test_pull_script_uses_stdin_bash_transport_and_no_shell_wrappers() -> None:
+    script = read(PULL_SCRIPT)
+
+    assert "Invoke-TrustedBashScript" in script
+    assert '"bash"' in script
+    assert '"-s"' in script
+    assert '"--"' in script
+    assert "RedirectStandardInput = $true" in script
+    assert "RedirectStandardOutput = $true" in script
+    assert "RedirectStandardError = $true" in script
+    assert "UseShellExecute = $false" in script
+    assert "UTF8Encoding($false)" in script
+    assert "Invoke-Expression" not in script
+    assert "cmd /c" not in script.lower()
+    assert "$RemoteCommand" not in script
+
+
+def test_pull_script_stage_logging_contract_is_present() -> None:
+    script = read(PULL_SCRIPT)
+
+    for stage in [
+        "P01_LOCAL_ROOT",
+        "P02_SELECT_BACKUP",
+        "P03_REMOTE_VALIDATE",
+        "P04_PARTIAL_CREATE",
+        "P05_DOWNLOAD",
+        "P06_LOCAL_VERIFY",
+        "P07_FINALIZE",
+        "P08_RETENTION",
+    ]:
+        assert stage in script
+    for category in ["ssh", "scp", "acl", "hash", "manifest", "pg_restore", "archive", "cleanup"]:
+        assert f'"{category}"' in script
+
+
+def test_remote_validation_accepts_empty_success_regular_file_stat_variant() -> None:
+    script = read(PULL_SCRIPT)
+
+    assert "test -f" in script
+    assert "stat -c '%U:%G:%a' \"`$p\"" in script
+    assert "root:root:600:regular file" not in script
+
+
 def test_local_acl_contract_is_documented_in_pull_script() -> None:
     script = read(PULL_SCRIPT)
 
+    assert "Ensure-ExactLocalBackupDacl" in script
+    assert "acl_already_exact" in script
     assert "SetAccessRuleProtection($true, $false)" in script
     assert "S-1-5-18" in script
     assert "S-1-5-32-544" in script
+
+
+def test_fake_ssh_receives_bash_script_on_stdin_not_argv(tmp_path: Path) -> None:
+    fake_ssh = tmp_path / "fake-ssh.exe"
+    argv_file = tmp_path / "argv.txt"
+    stdin_file = tmp_path / "stdin.bin"
+    stderr_file = tmp_path / "stderr.txt"
+    script = f'''
+$ErrorActionPreference = "Stop"
+$source = @"
+using System;
+using System.IO;
+using System.Text;
+public class FakeSsh {{
+  public static int Main(string[] args) {{
+    File.WriteAllLines(Environment.GetEnvironmentVariable("FAKE_SSH_ARGV"), args, Encoding.UTF8);
+    using (var input = Console.OpenStandardInput())
+    using (var output = File.Create(Environment.GetEnvironmentVariable("FAKE_SSH_STDIN"))) {{
+      input.CopyTo(output);
+    }}
+    var stderr = Environment.GetEnvironmentVariable("FAKE_SSH_STDERR_TEXT");
+    if (!String.IsNullOrEmpty(stderr)) Console.Error.Write(stderr);
+    int code = 0;
+    Int32.TryParse(Environment.GetEnvironmentVariable("FAKE_SSH_EXIT"), out code);
+    if (code == 0) Console.WriteLine("verified");
+    return code;
+  }}
+}}
+"@
+Add-Type -TypeDefinition $source -OutputAssembly "{fake_ssh}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:SshExe = "{fake_ssh}"
+$script:SshConfigPath = "{(tmp_path / 'ssh config').as_posix()}"
+$script:KnownHostsPath = "{(tmp_path / 'known_hosts').as_posix()}"
+$script:SshAlias = "personal-web-prod"
+$env:FAKE_SSH_ARGV = "{argv_file}"
+$env:FAKE_SSH_STDIN = "{stdin_file}"
+$env:FAKE_SSH_EXIT = "0"
+$env:FAKE_SSH_STDERR_TEXT = ""
+$remote = @"
+echo "quoted value"
+cat <<'EOF'
+password=secret
+EOF
+printf '%s\\n' "`$(date)"
+diff -u - <(printf '%s\\n' a)
+"@
+$result = Invoke-TrustedBashScript -Script $remote
+if (($result -join "|") -ne "verified") {{ throw "stdout_unexpected" }}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    argv = argv_file.read_text(encoding="utf-8").splitlines()
+    stdin_bytes = stdin_file.read_bytes()
+    stdin_text = stdin_bytes.decode("utf-8")
+    assert argv[-4:] == ["personal-web-prod", "bash", "-s", "--"]
+    assert "password=secret" not in "\n".join(argv)
+    assert stdin_bytes[:3] != b"\xef\xbb\xbf"
+    assert b"\r" not in stdin_bytes
+    assert stdin_bytes.endswith(b"\n")
+    assert "cat <<'EOF'" in stdin_text
+    assert '"quoted value"' in stdin_text
+    assert "$(date)" in stdin_text
+    assert "<(printf '%s\\n' a)" in stdin_text
+
+
+def test_fake_ssh_failure_preserves_exit_and_sanitizes_stderr(tmp_path: Path) -> None:
+    fake_ssh = tmp_path / "fake-ssh.exe"
+    argv_file = tmp_path / "argv.txt"
+    stdin_file = tmp_path / "stdin.bin"
+    log_path = tmp_path / "pull.log"
+    script = f'''
+$ErrorActionPreference = "Stop"
+$source = @"
+using System;
+using System.IO;
+using System.Text;
+public class FakeSsh {{
+  public static int Main(string[] args) {{
+    File.WriteAllLines(Environment.GetEnvironmentVariable("FAKE_SSH_ARGV"), args, Encoding.UTF8);
+    File.WriteAllText(Environment.GetEnvironmentVariable("FAKE_SSH_STDIN"), Console.In.ReadToEnd(), Encoding.UTF8);
+    Console.Error.Write("remote failed without secret");
+    return 7;
+  }}
+}}
+"@
+Add-Type -TypeDefinition $source -OutputAssembly "{fake_ssh}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:SshExe = "{fake_ssh}"
+$script:SshConfigPath = "{(tmp_path / 'ssh_config').as_posix()}"
+$script:KnownHostsPath = "{(tmp_path / 'known_hosts').as_posix()}"
+$script:SshAlias = "personal-web-prod"
+$script:BackupLogPath = "{log_path}"
+$env:FAKE_SSH_ARGV = "{argv_file}"
+$env:FAKE_SSH_STDIN = "{stdin_file}"
+try {{
+  Invoke-TrustedBashScript -Script "echo password=secret"
+  throw "expected_failure"
+}} catch {{
+  if ($_.Exception.Message -ne "ssh_failed_exit_7") {{ throw }}
+}}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "ssh_failed exit=7" in log_text
+    assert "remote failed without secret" in log_text
+    assert "password=secret" not in log_text
+
+
+def test_real_non_elevated_acl_smoke_directory_file_and_noop(tmp_path: Path) -> None:
+    root = tmp_path / "acl-root"
+    backup_dir = root / "20260726T143303Z-AbCd1234"
+    backup_file = backup_dir / "manifest.json"
+    script = f'''
+$ErrorActionPreference = "Stop"
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'acl.log')}"
+$root = "{root}"
+$dir = "{backup_dir}"
+$file = "{backup_file}"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+Set-Content -LiteralPath $file -Value "{{}}" -Encoding UTF8
+$beforeOwner = (Get-Acl -LiteralPath $dir).Owner
+Ensure-ExactLocalBackupDacl -Path $dir -ItemKind Directory -Root $root
+Ensure-ExactLocalBackupDacl -Path $file -ItemKind File -Root $root
+$dirWrite = (Get-Item -LiteralPath $dir).LastWriteTimeUtc
+Ensure-ExactLocalBackupDacl -Path $dir -ItemKind Directory -Root $root
+if ((Get-Item -LiteralPath $dir).LastWriteTimeUtc -ne $dirWrite) {{ throw "noop_touched_timestamp" }}
+Assert-LocalBackupAcl -Path $dir -ItemKind Directory
+Assert-LocalBackupAcl -Path $file -ItemKind File
+if ((Get-Acl -LiteralPath $dir).Owner -ne $beforeOwner) {{ throw "owner_changed" }}
+if (Test-CurrentProcessElevated) {{ throw "process_elevated" }}
+if (Test-EnabledPrivilege "SeSecurityPrivilege") {{ throw "se_security_enabled" }}
+Remove-Item -LiteralPath $root -Recurse -Force
+if (Test-Path -LiteralPath $root) {{ throw "artifact_remained" }}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    log_text = (tmp_path / "acl.log").read_text(encoding="utf-8")
+    assert "acl_repaired kind=Directory" in log_text
+    assert "acl_repaired kind=File" in log_text
+    assert "acl_already_exact kind=Directory" in log_text
+
+
+def test_partial_cleanup_removes_only_current_safe_partial(tmp_path: Path) -> None:
+    root = tmp_path / "partials"
+    partial = root / "20260726T143303Z-AbCd1234.partial-1234-AbCdEf123456"
+    malformed = root / "bad.partial"
+    script = f'''
+$ErrorActionPreference = "Stop"
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'partial.log')}"
+$root = "{root}"
+$partial = "{partial}"
+$malformed = "{malformed}"
+New-Item -ItemType Directory -Force -Path $partial | Out-Null
+New-Item -ItemType Directory -Force -Path $malformed | Out-Null
+Ensure-ExactLocalBackupDacl -Path $partial -ItemKind Directory -Root $root
+Remove-SafePartialDirectory -Root $root -PartialPath $partial
+if (Test-Path -LiteralPath $partial) {{ throw "safe_partial_remained" }}
+try {{
+  Remove-SafePartialDirectory -Root $root -PartialPath $malformed
+  throw "malformed_removed"
+}} catch {{
+  if ($_.Exception.Message -notmatch "local_partial_name_invalid") {{ throw }}
+}}
+if (-not (Test-Path -LiteralPath $malformed)) {{ throw "malformed_not_preserved" }}
+Remove-Item -LiteralPath $root -Recurse -Force
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_windows_sid_acl_contract_is_exact() -> None:

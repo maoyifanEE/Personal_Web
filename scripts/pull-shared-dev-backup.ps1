@@ -35,6 +35,42 @@ function Write-BackupLog {
   }
 }
 
+function Get-ErrorCategory {
+  param([object]$ErrorValue)
+
+  $text = [string]$ErrorValue
+  switch -Regex ($text) {
+    "ssh" { return "ssh" }
+    "scp" { return "scp" }
+    "acl|Set-Acl|Privilege|UnauthorizedAccess" { return "acl" }
+    "sha256|hash" { return "hash" }
+    "manifest" { return "manifest" }
+    "pg_restore|dump" { return "pg_restore" }
+    "archive|media" { return "archive" }
+    "cleanup|partial" { return "cleanup" }
+    default { return "shell" }
+  }
+}
+
+function Invoke-PullStage {
+  param(
+    [string]$Id,
+    [string]$Name,
+    [scriptblock]$ScriptBlock
+  )
+
+  Write-BackupLog "stage_start id=$Id name=$Name"
+  try {
+    $result = & $ScriptBlock
+    Write-BackupLog "stage_ok id=$Id name=$Name"
+    return $result
+  } catch {
+    $category = Get-ErrorCategory $_.Exception.Message
+    Write-BackupLog ("stage_error id={0} name={1} category={2} error={3}" -f $Id, $Name, $category, $_.Exception.Message)
+    throw
+  }
+}
+
 function Initialize-BackupLog {
   param([string]$RepositoryRoot)
 
@@ -74,12 +110,94 @@ function Get-ExpectedBackupAclSids {
   return @($currentUserSid, "S-1-5-18", "S-1-5-32-544")
 }
 
-function Protect-LocalBackupDirectory {
-  param([string]$Path)
+function Test-CurrentProcessElevated {
+  $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = New-Object System.Security.Principal.WindowsPrincipal($identity)
+  return $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)
+}
 
-  New-Item -ItemType Directory -Force -Path $Path | Out-Null
-  $acl = New-Object System.Security.AccessControl.DirectorySecurity
-  $inheritFlags = [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
+function Test-EnabledPrivilege {
+  param([string]$PrivilegeName)
+
+  $output = & whoami.exe /priv 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    return $false
+  }
+  return [bool]($output | Where-Object { $_ -match [regex]::Escape($PrivilegeName) -and $_ -match "Enabled" })
+}
+
+function Assert-ExpectedLocalBackupTarget {
+  param(
+    [string]$Root,
+    [string]$Path,
+    [switch]$AllowFile
+  )
+
+  $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd("\")
+  $pathFull = [System.IO.Path]::GetFullPath($Path).TrimEnd("\")
+  if ($pathFull -eq $rootFull) {
+    return
+  }
+  Assert-SafeLocalChild -Root $rootFull -Child $pathFull | Out-Null
+  $name = Split-Path -Leaf $pathFull
+  if ($AllowFile) {
+    $parent = Split-Path -Parent $pathFull
+    Assert-SafeLocalChild -Root $rootFull -Child $parent | Out-Null
+    $parentName = Split-Path -Leaf $parent
+    if ($parentName -notmatch "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}(\.partial-[0-9]+-[A-Za-z0-9]{12})?$") {
+      throw "local_backup_parent_name_invalid"
+    }
+    if ($RequiredFiles -notcontains $name) {
+      throw "local_backup_file_name_invalid"
+    }
+    return
+  }
+  if ($name -notmatch "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}(\.partial-[0-9]+-[A-Za-z0-9]{12})?$") {
+    throw "local_backup_child_name_invalid"
+  }
+}
+
+function Ensure-ExactLocalBackupDacl {
+  param(
+    [string]$Path,
+    [ValidateSet("Directory", "File")]
+    [string]$ItemKind = "Directory",
+    [string]$Root
+  )
+
+  if ($ItemKind -eq "Directory") {
+    New-Item -ItemType Directory -Force -Path $Path | Out-Null
+  } elseif (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "local_backup_file_missing"
+  }
+  Assert-ExpectedLocalBackupTarget -Root $Root -Path $Path -AllowFile:($ItemKind -eq "File")
+  try {
+    Assert-LocalBackupAcl -Path $Path -ItemKind $ItemKind
+    Write-BackupLog "acl_already_exact kind=$ItemKind"
+    return
+  } catch {
+    Write-BackupLog "acl_repair_required kind=$ItemKind reason=$($_.Exception.Message)"
+  }
+
+  $item = Get-Item -LiteralPath $Path -Force
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "local_backup_reparse_point_rejected"
+  }
+  $acl = Get-Acl -LiteralPath $Path
+  $ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if (@(Get-ExpectedBackupAclSids) -notcontains $ownerSid) {
+    throw "local_backup_owner_unexpected"
+  }
+  $beforeOwner = $acl.Owner
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @($acl.Access)) {
+    [void]$acl.RemoveAccessRuleSpecific($rule)
+  }
+  $inheritFlags = if ($ItemKind -eq "Directory") {
+    [System.Security.AccessControl.InheritanceFlags]"ContainerInherit,ObjectInherit"
+  } else {
+    [System.Security.AccessControl.InheritanceFlags]"None"
+  }
   $propagationFlags = [System.Security.AccessControl.PropagationFlags]"None"
   $fullControl = [System.Security.AccessControl.FileSystemRights]"FullControl"
   foreach ($sidValue in Get-ExpectedBackupAclSids) {
@@ -91,33 +209,33 @@ function Protect-LocalBackupDirectory {
       $propagationFlags,
       [System.Security.AccessControl.AccessControlType]::Allow
     )
-    $acl.AddAccessRule($rule)
+    [void]$acl.AddAccessRule($rule)
   }
-  $acl.SetAccessRuleProtection($true, $false)
   Set-Acl -LiteralPath $Path -AclObject $acl
-  Assert-LocalBackupAcl -Path $Path -ItemKind "Directory"
+  $afterAcl = Get-Acl -LiteralPath $Path
+  if ($afterAcl.Owner -ne $beforeOwner) {
+    throw "local_backup_owner_changed"
+  }
+  Assert-LocalBackupAcl -Path $Path -ItemKind $ItemKind
+  Write-BackupLog "acl_repaired kind=$ItemKind elevated=$(Test-CurrentProcessElevated) se_security_enabled=$(Test-EnabledPrivilege 'SeSecurityPrivilege')"
+}
+
+function Protect-LocalBackupDirectory {
+  param(
+    [string]$Path,
+    [string]$Root
+  )
+
+  Ensure-ExactLocalBackupDacl -Path $Path -ItemKind "Directory" -Root $Root
 }
 
 function Protect-LocalBackupFile {
-  param([string]$Path)
+  param(
+    [string]$Path,
+    [string]$Root
+  )
 
-  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    throw "local_backup_file_missing"
-  }
-  $acl = New-Object System.Security.AccessControl.FileSecurity
-  $fullControl = [System.Security.AccessControl.FileSystemRights]"FullControl"
-  foreach ($sidValue in Get-ExpectedBackupAclSids) {
-    $sid = New-Object System.Security.Principal.SecurityIdentifier($sidValue)
-    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-      $sid,
-      $fullControl,
-      [System.Security.AccessControl.AccessControlType]::Allow
-    )
-    $acl.AddAccessRule($rule)
-  }
-  $acl.SetAccessRuleProtection($true, $false)
-  Set-Acl -LiteralPath $Path -AclObject $acl
-  Assert-LocalBackupAcl -Path $Path -ItemKind "File"
+  Ensure-ExactLocalBackupDacl -Path $Path -ItemKind "File" -Root $Root
 }
 
 function Assert-LocalBackupAcl {
@@ -185,8 +303,50 @@ function Assert-DownloadedBackupAcls {
   }
 }
 
-function Invoke-TrustedSsh {
-  param([string]$RemoteCommand)
+function Assert-SafeNativeArgument {
+  param([string]$Value)
+
+  if ($null -eq $Value -or $Value -match "[`0`r`n]") {
+    throw "native_argument_invalid"
+  }
+}
+
+function ConvertTo-NativeArgument {
+  param([string]$Value)
+
+  Assert-SafeNativeArgument $Value
+  if ($Value -notmatch '[\s"]') {
+    return $Value
+  }
+  return '"' + ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+}
+
+function Join-NativeArguments {
+  param([string[]]$Arguments)
+
+  return (($Arguments | ForEach-Object { ConvertTo-NativeArgument $_ }) -join " ")
+}
+
+function Normalize-BashScript {
+  param([string]$Script)
+
+  $normalized = $Script -replace "`r`n", "`n"
+  $normalized = $normalized -replace "`r", "`n"
+  return $normalized.TrimEnd("`n") + "`n"
+}
+
+function Get-SanitizedStderr {
+  param([string]$Value)
+
+  $text = ($Value -replace "`r", "`n") -replace "`n+", " | "
+  if ($text.Length -gt 600) {
+    return $text.Substring(0, 600)
+  }
+  return $text
+}
+
+function Invoke-TrustedBashScript {
+  param([string]$Script)
 
   $args = @(
     "-F", $SshConfigPath,
@@ -195,12 +355,39 @@ function Invoke-TrustedSsh {
     "-o", "UserKnownHostsFile=$KnownHostsPath",
     "--",
     $SshAlias,
-    $RemoteCommand
+    "bash",
+    "-s",
+    "--"
   )
-  & $SshExe @args
-  if ($LASTEXITCODE -ne 0) {
-    throw "ssh_command_failed"
+  foreach ($arg in @($SshExe) + $args) {
+    Assert-SafeNativeArgument $arg
   }
+
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $SshExe
+  $psi.Arguments = Join-NativeArguments $args
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardInput = $true
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  [void]$process.Start()
+  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+  $stderrTask = $process.StandardError.ReadToEndAsync()
+  $writer = New-Object System.IO.StreamWriter($process.StandardInput.BaseStream, (New-Object System.Text.UTF8Encoding($false)))
+  $writer.NewLine = "`n"
+  $writer.Write((Normalize-BashScript $Script))
+  $writer.Close()
+  $process.WaitForExit()
+  $stdout = $stdoutTask.Result
+  $stderr = $stderrTask.Result
+  if ($process.ExitCode -ne 0) {
+    Write-BackupLog ("ssh_failed exit={0} stderr={1}" -f $process.ExitCode, (Get-SanitizedStderr $stderr))
+    throw ("ssh_failed_exit_{0}" -f $process.ExitCode)
+  }
+  return ($stdout -split "`r?`n" | Where-Object { $_ -ne "" })
 }
 
 function Invoke-TrustedScp {
@@ -252,7 +439,7 @@ for f in personal_web_shared_dev.dump homepage-media.tar.gz manifest.json SHA256
   p="`$d/`$f"
   test -f "`$p"
   test ! -L "`$p"
-  test "`$(stat -c '%U:%G:%a:%F' "`$p")" = 'root:root:600:regular file'
+  test "`$(stat -c '%U:%G:%a' "`$p")" = 'root:root:600'
 done
 awk '{print `$2}' "`$d/SHA256SUMS" | sort | diff -u - <(printf '%s\n' homepage-media.tar.gz manifest.json personal_web_shared_dev.dump | sort)
 /opt/personal-web/deploy/backup/verify-shared-dev-backup.sh "`$backup_id" >/dev/null
@@ -266,7 +453,7 @@ set -euo pipefail
 root='$ServerBackupRoot'
 find "`$root" -mindepth 1 -maxdepth 1 -type d -regextype posix-extended -regex '.*/[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}' -exec test -f '{}/SUCCESS' ';' -printf '%f\n' | sort | tail -n 1
 "@
-  $result = Invoke-TrustedSsh -RemoteCommand $remote
+  $result = Invoke-TrustedBashScript -Script $remote
   $selected = ($result | Where-Object { $_ } | Select-Object -Last 1)
   if (-not $selected) {
     throw "no_successful_server_backup"
@@ -554,6 +741,15 @@ function Remove-SafePartialDirectory {
     if ($name -notmatch "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}\.partial-[0-9]+-[A-Za-z0-9]{12}$") {
       throw "local_partial_name_invalid"
     }
+    $item = Get-Item -LiteralPath $PartialPath -Force
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "local_partial_reparse_point_rejected"
+    }
+    $ownerSid = (Get-Acl -LiteralPath $PartialPath).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    $currentUserSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    if ($ownerSid -ne $currentUserSid) {
+      throw "local_partial_owner_unexpected"
+    }
     Assert-LocalBackupAcl -Path $PartialPath -ItemKind "Directory"
     Remove-Item -LiteralPath $PartialPath -Recurse -Force
     if (Test-Path -LiteralPath $PartialPath) {
@@ -565,73 +761,102 @@ function Remove-SafePartialDirectory {
   }
 }
 
-$repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-Initialize-BackupLog -RepositoryRoot $repoRoot
+function Invoke-BackupPull {
+  $script:repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+  Initialize-BackupLog -RepositoryRoot $script:repoRoot
 
-if (-not $LocalBackupRoot) {
-  $LocalBackupRoot = Join-Path $env:USERPROFILE ".personal_web\backups\shared-dev"
-}
-if (-not $SshConfigPath) {
-  $SshConfigPath = Join-Path $env:USERPROFILE ".ssh\config"
-}
-if (-not $KnownHostsPath) {
-  $KnownHostsPath = Join-Path $env:USERPROFILE ".ssh\known_hosts"
-}
-if ($SshAlias -ne "personal-web-prod") {
-  throw "ssh_alias_invalid"
-}
-if (-not (Test-Path -LiteralPath $SshConfigPath -PathType Leaf)) {
-  throw "ssh_config_missing"
-}
-if (-not (Test-Path -LiteralPath $KnownHostsPath -PathType Leaf)) {
-  throw "known_hosts_missing"
-}
-
-Protect-LocalBackupDirectory -Path $LocalBackupRoot
-$selectedBackupId = if ($BackupId) { Assert-SafeBackupId $BackupId; $BackupId } else { Get-LatestServerBackupId }
-$finalDir = Assert-SafeLocalChild -Root $LocalBackupRoot -Child (Join-Path $LocalBackupRoot $selectedBackupId)
-$partialName = "{0}.partial-{1}-{2}" -f $selectedBackupId, $PID, ([guid]::NewGuid().ToString("N").Substring(0, 12))
-$partialDir = Assert-SafeLocalChild -Root $LocalBackupRoot -Child (Join-Path $LocalBackupRoot $partialName)
-
-if (Test-Path -LiteralPath $finalDir -PathType Container) {
-  if (Test-LocalBackupVerified -Directory $finalDir -SelectedBackupId $selectedBackupId) {
-    Write-BackupLog "already_current backupId=$selectedBackupId"
-    exit 0
+  if (-not $LocalBackupRoot) {
+    $script:LocalBackupRoot = Join-Path $env:USERPROFILE ".personal_web\backups\shared-dev"
   }
-  throw "existing_backup_failed_verification"
-}
-if (Test-Path -LiteralPath $partialDir) {
-  throw "local_partial_collision"
-}
-New-Item -ItemType Directory -Path $partialDir | Out-Null
-Protect-LocalBackupDirectory -Path $partialDir
-
-try {
-  Invoke-TrustedSsh -RemoteCommand (Get-RemoteValidationScript -SelectedBackupId $selectedBackupId) | Out-Null
-
-  foreach ($file in $RequiredFiles) {
-    Invoke-TrustedScp -RemoteFile "$ServerBackupRoot/$selectedBackupId/$file" -LocalFile (Join-Path $partialDir $file)
-    Protect-LocalBackupFile -Path (Join-Path $partialDir $file)
+  if (-not $SshConfigPath) {
+    $script:SshConfigPath = Join-Path $env:USERPROFILE ".ssh\config"
+  }
+  if (-not $KnownHostsPath) {
+    $script:KnownHostsPath = Join-Path $env:USERPROFILE ".ssh\known_hosts"
+  }
+  if ($SshAlias -ne "personal-web-prod") {
+    throw "ssh_alias_invalid"
+  }
+  if (-not (Test-Path -LiteralPath $SshConfigPath -PathType Leaf)) {
+    throw "ssh_config_missing"
+  }
+  if (-not (Test-Path -LiteralPath $KnownHostsPath -PathType Leaf)) {
+    throw "known_hosts_missing"
   }
 
-  $manifest = Verify-DownloadedBackup -Directory $partialDir -SelectedBackupId $selectedBackupId
-  Move-Item -LiteralPath $partialDir -Destination $finalDir
-  Protect-LocalBackupDirectory -Path $finalDir
-  foreach ($file in $RequiredFiles) {
-    Protect-LocalBackupFile -Path (Join-Path $finalDir $file)
+  Invoke-PullStage P01_LOCAL_ROOT local_root {
+    Protect-LocalBackupDirectory -Path $LocalBackupRoot -Root $LocalBackupRoot
+  } | Out-Null
+  $selectedBackupId = Invoke-PullStage P02_SELECT_BACKUP select_backup {
+    if ($BackupId) { Assert-SafeBackupId $BackupId; $BackupId } else { Get-LatestServerBackupId }
   }
-  Verify-DownloadedBackup -Directory $finalDir -SelectedBackupId $selectedBackupId | Out-Null
+  $finalDir = Assert-SafeLocalChild -Root $LocalBackupRoot -Child (Join-Path $LocalBackupRoot $selectedBackupId)
+  $partialName = "{0}.partial-{1}-{2}" -f $selectedBackupId, $PID, ([guid]::NewGuid().ToString("N").Substring(0, 12))
+  $partialDir = Assert-SafeLocalChild -Root $LocalBackupRoot -Child (Join-Path $LocalBackupRoot $partialName)
+
+  if (Test-Path -LiteralPath $finalDir -PathType Container) {
+    if (Test-LocalBackupVerified -Directory $finalDir -SelectedBackupId $selectedBackupId) {
+      Write-BackupLog "already_current backupId=$selectedBackupId"
+      return
+    }
+    throw "existing_backup_failed_verification"
+  }
   if (Test-Path -LiteralPath $partialDir) {
-    throw "local_partial_remained_after_finalization"
+    throw "local_partial_collision"
   }
-  Invoke-LocalRetention -Root $LocalBackupRoot
-  Write-BackupLog ("downloaded backupId={0} database={1} mediaFiles={2} mediaBytes={3}" -f
-    $selectedBackupId,
-    $manifest.databaseName,
-    $manifest.sourceMediaRegularFileCount,
-    $manifest.sourceMediaLogicalBytes
-  )
-} catch {
-  Remove-SafePartialDirectory -Root $LocalBackupRoot -PartialPath $partialDir
-  throw
+
+  $partialCreated = $false
+  try {
+    Invoke-PullStage P03_REMOTE_VALIDATE remote_validate {
+      Invoke-TrustedBashScript -Script (Get-RemoteValidationScript -SelectedBackupId $selectedBackupId) | Out-Null
+    } | Out-Null
+    Invoke-PullStage P04_PARTIAL_CREATE partial_create {
+      New-Item -ItemType Directory -Path $partialDir | Out-Null
+      $partialCreated = $true
+      Protect-LocalBackupDirectory -Path $partialDir -Root $LocalBackupRoot
+    } | Out-Null
+    Invoke-PullStage P05_DOWNLOAD download {
+      foreach ($file in $RequiredFiles) {
+        Invoke-TrustedScp -RemoteFile "$ServerBackupRoot/$selectedBackupId/$file" -LocalFile (Join-Path $partialDir $file)
+        Protect-LocalBackupFile -Path (Join-Path $partialDir $file) -Root $LocalBackupRoot
+      }
+    } | Out-Null
+    $manifest = Invoke-PullStage P06_LOCAL_VERIFY local_verify {
+      Verify-DownloadedBackup -Directory $partialDir -SelectedBackupId $selectedBackupId
+    }
+    Invoke-PullStage P07_FINALIZE finalize {
+      Move-Item -LiteralPath $partialDir -Destination $finalDir
+      Protect-LocalBackupDirectory -Path $finalDir -Root $LocalBackupRoot
+      foreach ($file in $RequiredFiles) {
+        Protect-LocalBackupFile -Path (Join-Path $finalDir $file) -Root $LocalBackupRoot
+      }
+      Verify-DownloadedBackup -Directory $finalDir -SelectedBackupId $selectedBackupId | Out-Null
+      if (Test-Path -LiteralPath $partialDir) {
+        throw "local_partial_remained_after_finalization"
+      }
+    } | Out-Null
+    Invoke-PullStage P08_RETENTION retention {
+      Invoke-LocalRetention -Root $LocalBackupRoot
+    } | Out-Null
+    Write-BackupLog ("downloaded backupId={0} database={1} mediaFiles={2} mediaBytes={3}" -f
+      $selectedBackupId,
+      $manifest.databaseName,
+      $manifest.sourceMediaRegularFileCount,
+      $manifest.sourceMediaLogicalBytes
+    )
+  } catch {
+    $original = $_
+    if ($partialCreated -or (Test-Path -LiteralPath $partialDir)) {
+      try {
+        Remove-SafePartialDirectory -Root $LocalBackupRoot -PartialPath $partialDir
+      } catch {
+        Write-BackupLog ("cleanup_failed original={0} cleanup={1}" -f $original.Exception.Message, $_.Exception.Message)
+      }
+    }
+    throw $original
+  }
+}
+
+if ($MyInvocation.InvocationName -ne ".") {
+  Invoke-BackupPull
 }
