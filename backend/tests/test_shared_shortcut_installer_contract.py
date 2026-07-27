@@ -22,11 +22,12 @@ def test_shared_shortcut_targets_shared_launcher_with_empty_arguments() -> None:
     script = read(CREATE_SCRIPT)
 
     assert '$shortcutName = "Personal Web.lnk"' in script
+    assert 'Join-Path $repoRoot "work-handoff.bat"' in script
     assert 'Join-Path $repoRoot "start-shared-dev.bat"' in script
-    assert "$shortcut.TargetPath = $sharedBatPath" in script
+    assert "$shortcut.TargetPath = $handoffBatPath" in script
     assert "$shortcut.WorkingDirectory = $repoRoot" in script
     assert '$shortcut.Arguments = ""' in script
-    assert 'Start Personal_Web shared development environment' in script
+    assert 'Synchronize Personal_Web work branch, then start shared development' in script
 
 
 def test_shared_shortcut_paths_are_dynamic_and_not_user_specific() -> None:
@@ -66,6 +67,14 @@ def test_local_launcher_remains_manual_local_fallback() -> None:
     assert "scripts\\start-local-dev.ps1" in batch
     assert "start-shared-dev.ps1" not in batch
     assert "start-shared-dev.bat" not in batch
+
+
+def test_direct_shared_launcher_remains_available() -> None:
+    assert (REPO_ROOT / "start-shared-dev.bat").is_file()
+    handoff = read(REPO_ROOT / "work-handoff.bat")
+
+    assert "scripts\\work-handoff.ps1" in handoff
+    assert "exit /b %ERRORLEVEL%" in handoff
 
 
 def test_old_local_shortcut_removal_requires_exact_target_and_working_directory() -> None:

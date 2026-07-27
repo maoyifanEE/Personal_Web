@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "repository": "maoyifanEE/Personal_Web",
+  "metadataBranch": "meta/work-handoff",
+  "metadataFile": "active-work.json",
+  "allowedBranchPatterns": [
+    "main",
+    "Feature/<name>",
+    "BugFix/<name>"
+  ],
+  "requiredFiles": [
+    "work-handoff.bat",
+    "scripts/work-handoff.ps1",
+    "config/work-handoff-contract.json"
+  ]
+}

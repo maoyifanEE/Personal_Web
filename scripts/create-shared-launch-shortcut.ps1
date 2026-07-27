@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $shortcutName = "Personal Web.lnk"
 $oldLocalShortcutName = "Personal Web Local.lnk"
-$shortcutDescription = "Start Personal_Web shared development environment"
+$shortcutDescription = "Synchronize Personal_Web work branch, then start shared development"
 $iconLocation = "$env:SystemRoot\System32\shell32.dll,220"
 
 function Write-ShortcutLog {
@@ -116,8 +116,14 @@ function Test-ShortcutBelongsToRepository {
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 Initialize-ShortcutLog -RepositoryRoot $repoRoot
 
+$handoffBatPath = Join-Path $repoRoot "work-handoff.bat"
 $sharedBatPath = Join-Path $repoRoot "start-shared-dev.bat"
 $localBatPath = Join-Path $repoRoot "start-local-dev.bat"
+
+if (-not (Test-Path -LiteralPath $handoffBatPath -PathType Leaf)) {
+  throw "work-handoff.bat is not a regular file"
+}
+$handoffBatPath = (Get-Item -LiteralPath $handoffBatPath -ErrorAction Stop).FullName
 
 if (-not (Test-Path -LiteralPath $sharedBatPath -PathType Leaf)) {
   throw "start-shared-dev.bat is not a regular file"
@@ -148,15 +154,16 @@ $shell = New-ShortcutComObject
 $oldLocalShortcutPath = Join-Path $desktop $oldLocalShortcutName
 $existingShortcut = Read-Shortcut -Shell $shell -Path $OutputPath
 $oldLocalShortcut = Read-Shortcut -Shell $shell -Path $oldLocalShortcutPath
-$allowedRepoTargets = @($sharedBatPath, $localBatPath)
+$allowedRepoTargets = @($handoffBatPath, $sharedBatPath, $localBatPath)
 
 Write-ShortcutLog "Repository root: $repoRoot"
 Write-ShortcutLog "Desktop folder: $desktop"
 Write-ShortcutLog "Shortcut path: $OutputPath"
-Write-ShortcutLog "Shared launcher target: $sharedBatPath"
+Write-ShortcutLog "Work handoff target: $handoffBatPath"
+Write-ShortcutLog "Shared launcher remains available: $sharedBatPath"
 
 if ($existingShortcut) {
-  $isAlreadyCorrect = Test-ShortcutMatches -Shortcut $existingShortcut -TargetPath $sharedBatPath -WorkingDirectory $repoRoot -Arguments ""
+  $isAlreadyCorrect = Test-ShortcutMatches -Shortcut $existingShortcut -TargetPath $handoffBatPath -WorkingDirectory $repoRoot -Arguments ""
   $belongsToRepository = Test-ShortcutBelongsToRepository -Shortcut $existingShortcut -RepositoryRoot $repoRoot -AllowedTargets $allowedRepoTargets
   Write-ShortcutLog "Existing Personal Web shortcut already correct: $isAlreadyCorrect"
   Write-ShortcutLog "Existing Personal Web shortcut belongs to repository: $belongsToRepository"
@@ -180,7 +187,7 @@ if ($oldLocalShortcut) {
 
 $tempPath = Join-Path $shortcutDirectory ("{0}.{1}.tmp.lnk" -f $shortcutName, [guid]::NewGuid().ToString("N"))
 $shortcut = $shell.CreateShortcut($tempPath)
-$shortcut.TargetPath = $sharedBatPath
+$shortcut.TargetPath = $handoffBatPath
 $shortcut.WorkingDirectory = $repoRoot
 $shortcut.Arguments = ""
 $shortcut.Description = $shortcutDescription
@@ -188,7 +195,7 @@ $shortcut.IconLocation = $iconLocation
 $shortcut.Save()
 
 $tempShortcut = Read-Shortcut -Shell $shell -Path $tempPath
-if (-not (Test-ShortcutMatches -Shortcut $tempShortcut -TargetPath $sharedBatPath -WorkingDirectory $repoRoot -Arguments "")) {
+if (-not (Test-ShortcutMatches -Shortcut $tempShortcut -TargetPath $handoffBatPath -WorkingDirectory $repoRoot -Arguments "")) {
   Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
   throw "Temporary shortcut verification failed"
 }
@@ -196,7 +203,7 @@ if (-not (Test-ShortcutMatches -Shortcut $tempShortcut -TargetPath $sharedBatPat
 Move-Item -LiteralPath $tempPath -Destination $OutputPath -Force
 
 $verifiedShortcut = Read-Shortcut -Shell $shell -Path $OutputPath
-if (-not (Test-ShortcutMatches -Shortcut $verifiedShortcut -TargetPath $sharedBatPath -WorkingDirectory $repoRoot -Arguments "")) {
+if (-not (Test-ShortcutMatches -Shortcut $verifiedShortcut -TargetPath $handoffBatPath -WorkingDirectory $repoRoot -Arguments "")) {
   throw "Installed shortcut verification failed"
 }
 if ([string]$verifiedShortcut.Description -ne $shortcutDescription) {
@@ -214,7 +221,7 @@ Write-Host "Personal_Web shared shortcut created:"
 Write-Host $OutputPath
 Write-Host ""
 Write-Host "Target:"
-Write-Host $sharedBatPath
+Write-Host $handoffBatPath
 Write-Host ""
 Write-Host "Working directory:"
 Write-Host $repoRoot

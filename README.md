@@ -22,6 +22,20 @@ Current implementation boundaries:
 * Public/server deployment happens only after explicit user instruction.
 * Real private data must not be committed to GitHub.
 
+## Two-Computer Shared Development Handoff
+
+`work-handoff.bat` is the desktop entry point for two-computer shared development.
+It opens a compact Windows handoff UI. The sync action reads the dedicated Git
+metadata branch `meta/work-handoff`, fast-forwards the local application branch to
+the exact recorded commit, verifies `HEAD`, and only then invokes
+`start-shared-dev.bat`.
+
+The handoff action records the current already-pushed application branch and
+commit in `active-work.json` on `meta/work-handoff` using normal Git metadata
+commits. That metadata branch contains no application source and must never be
+merged into `main`. Direct `start-shared-dev.bat` remains available for manual
+shared launcher use.
+
 The repository may contain source code, static structure, safe assets, project notes, and clearly fake sample data.
 
 The repository must not contain real private data, secrets, production database files, uploads, logs, backups, or production-only configuration.

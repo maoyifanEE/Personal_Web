@@ -4,7 +4,7 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $shortcutScript = Join-Path $repoRoot "scripts\create-shared-launch-shortcut.ps1"
 
 Write-Host ""
-Write-Host "Creating Personal Web shared development desktop shortcut..."
+Write-Host "Creating Personal Web work handoff and shared development desktop shortcut..."
 Write-Host ""
 
 try {
@@ -15,7 +15,7 @@ try {
 
   Write-Host ""
   Write-Host "Shortcut created successfully."
-  Write-Host "Double-click Personal Web on the Desktop to start shared-remote development."
+  Write-Host "Double-click Personal Web on the Desktop to synchronize work, then start shared-remote development."
   Write-Host "If the project folder moves, rerun install-shared-shortcut.bat."
   Write-Host ""
 } catch {
