@@ -184,6 +184,10 @@ using System.IO;
 public class FakePowerShell {{
   public static int Main(string[] args) {{
     File.WriteAllText("{marker_literal}", string.Join("\\n", args));
+    string configuredExit = Environment.GetEnvironmentVariable("FAKE_POWERSHELL_EXIT");
+    if (!String.IsNullOrEmpty(configuredExit)) {{
+      return Int32.Parse(configuredExit);
+    }}
     return 99;
   }}
 }}
@@ -206,11 +210,47 @@ public class FakePowerShell {{
     return fake_dir, marker
 
 
-def run_local_batch_safe(args: list[str], tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Path]:
+def run_local_batch_safe(
+    args: list[str],
+    tmp_path: Path,
+    *,
+    fake_exit: int = 99,
+    input_text: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
     fake_dir, marker = write_fake_powershell(tmp_path)
-    env = {**os.environ, "PATH": str(fake_dir) + os.pathsep + os.environ["PATH"]}
+    env = {
+        **os.environ,
+        "PATH": str(fake_dir) + os.pathsep + os.environ["PATH"],
+        "FAKE_POWERSHELL_EXIT": str(fake_exit),
+    }
     result = subprocess.run(
         ["cmd.exe", "/d", "/c", str(REPO_ROOT / "start-local-dev.bat"), *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        input=input_text,
+        env=env,
+        timeout=15,
+        check=False,
+    )
+    return result, marker
+
+
+def run_local_batch_quoted_arg_safe(
+    payload: str,
+    tmp_path: Path,
+    *,
+    sentinel: Path,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    fake_dir, marker = write_fake_powershell(tmp_path)
+    env = {
+        **os.environ,
+        "PATH": str(fake_dir) + os.pathsep + os.environ["PATH"],
+        "FAKE_POWERSHELL_EXIT": "99",
+    }
+    command = f'cmd.exe /d /s /c call "{REPO_ROOT / "start-local-dev.bat"}" "{payload}"'
+    result = subprocess.run(
+        command,
         cwd=REPO_ROOT,
         text=True,
         capture_output=True,
@@ -716,7 +756,78 @@ def test_start_local_batch_invalid_args_fail_closed_before_powershell(tmp_path: 
 
     assert result.returncode != 0
     assert "Usage: start-local-dev.bat" in result.stdout
+    assert "--invalid-codex-smoke" not in result.stdout
+    assert "--extra" not in result.stdout
     assert not marker.exists()
+    assert {8000: port_is_open(8000), 4173: port_is_open(4173)} == before_ports
+    assert_real_runtime_unchanged(snapshot)
+
+
+@pytest.mark.parametrize(
+    "payload_template",
+    [
+        "invalid&echo compromised",
+        "invalid|echo compromised",
+        "invalid>{sentinel}",
+        "invalid<{sentinel}",
+        "invalid^(echo compromised^)",
+        "invalid^&echo compromised",
+        "invalid!value",
+        "invalid%PATH%",
+    ],
+)
+def test_start_local_batch_quoted_metacharacter_args_fail_closed(tmp_path: Path, payload_template: str) -> None:
+    snapshot = snapshot_real_runtime()
+    before_ports = {8000: port_is_open(8000), 4173: port_is_open(4173)}
+    sentinel = tmp_path / "sentinel.txt"
+    payload = payload_template.format(sentinel=sentinel)
+
+    result, marker = run_local_batch_quoted_arg_safe(payload, tmp_path, sentinel=sentinel)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "Unknown or unsupported launcher arguments." in result.stdout
+    assert "compromised" not in result.stdout
+    assert "compromised" not in result.stderr
+    assert not sentinel.exists()
+    assert not marker.exists()
+    assert {8000: port_is_open(8000), 4173: port_is_open(4173)} == before_ports
+    assert_real_runtime_unchanged(snapshot)
+
+
+def test_start_local_batch_default_invokes_only_expected_fake_powershell_and_preserves_exit(tmp_path: Path) -> None:
+    snapshot = snapshot_real_runtime()
+    before_ports = {8000: port_is_open(8000), 4173: port_is_open(4173)}
+
+    result, marker = run_local_batch_safe([], tmp_path, fake_exit=37, input_text="\n")
+
+    assert result.returncode == 37, result.stdout + result.stderr
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(REPO_ROOT / "scripts" / "start-local-dev.ps1"),
+    ]
+    assert "-KeepSession" not in marker.read_text(encoding="utf-8")
+    assert {8000: port_is_open(8000), 4173: port_is_open(4173)} == before_ports
+    assert_real_runtime_unchanged(snapshot)
+
+
+def test_start_local_batch_keep_session_invokes_only_expected_fake_powershell_and_preserves_exit(tmp_path: Path) -> None:
+    snapshot = snapshot_real_runtime()
+    before_ports = {8000: port_is_open(8000), 4173: port_is_open(4173)}
+
+    result, marker = run_local_batch_safe(["keep-session"], tmp_path, fake_exit=38, input_text="\n")
+
+    assert result.returncode == 38, result.stdout + result.stderr
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(REPO_ROOT / "scripts" / "start-local-dev.ps1"),
+        "-KeepSession",
+    ]
     assert {8000: port_is_open(8000), 4173: port_is_open(4173)} == before_ports
     assert_real_runtime_unchanged(snapshot)
 
@@ -724,12 +835,18 @@ def test_start_local_batch_invalid_args_fail_closed_before_powershell(tmp_path: 
 def test_start_local_batch_operational_arguments_are_explicit() -> None:
     batch = (REPO_ROOT / "start-local-dev.bat").read_text(encoding="utf-8")
 
-    assert 'if "%~1"=="" goto run_default' in batch
-    assert 'if /I "%~1"=="keep-session" if "%~2"=="" goto run_keep' in batch
-    assert 'if /I "%~1"=="--help" if "%~2"=="" goto show_help' in batch
-    assert 'if /I "%~1"=="/?" if "%~2"=="" goto show_help' in batch
+    assert 'set "ARG1=%~1"' in batch
+    assert 'set "ARG2=%~2"' in batch
+    assert 'if "%ARG1%"=="" goto run_default' in batch
+    assert 'if /I "%ARG1%"=="keep-session" if "%ARG2%"=="" goto run_keep' in batch
+    assert 'if /I "%ARG1%"=="--help" if "%ARG2%"=="" goto show_help' in batch
+    assert 'if /I "%ARG1%"=="/?" if "%ARG2%"=="" goto show_help' in batch
     assert "%*" not in batch
     assert "scripts\\start-local-dev.ps1\" -KeepSession" in batch
+    assert 'set "LAUNCHER_EXIT=%ERRORLEVEL%"' in batch
+    assert "exit /b %LAUNCHER_EXIT%" in batch
+    echo_lines = [line for line in batch.splitlines() if line.lower().lstrip().startswith("echo")]
+    assert all(token not in line for line in echo_lines for token in ["%~1", "%1", "%ARG1%", "%ARG2%"])
 
 
 def test_start_shared_dry_run_leaves_no_persistent_state(tmp_path):
