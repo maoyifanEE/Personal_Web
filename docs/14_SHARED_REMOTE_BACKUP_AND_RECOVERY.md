@@ -289,6 +289,20 @@ before extraction, extracts into a protected verification directory, verifies
 logical bytes and tree fingerprint, and atomically moves the verified directory
 into place.
 
+The local pull verifier reuses the canonical repository media verifier at
+`deploy/backup/verify-shared-media-archive.py` instead of embedding a second tar
+parser. It invokes the helper with `--archive`, a unique protected
+`archive-verify-*` extraction directory, and `--expect-manifest`; the helper must
+remove its extraction directory before success is accepted.
+
+`pg_restore.exe` discovery is deterministic for noninteractive pull runs. An
+explicit `-PgRestorePath` wins, followed by PATH discovery, a sibling beside
+`psql.exe`, official PostgreSQL installation registry records, PostgreSQL
+service executable location, and standard Program Files PostgreSQL directories.
+Candidates must be absolute non-reparse `pg_restore.exe` files whose
+`--version` output identifies PostgreSQL. Full PostgreSQL installations are
+preferred over pgAdmin runtime copies.
+
 Remote discovery and completed-backup validation start the fixed remote command
 `bash -s --` over the trusted SSH alias and send the generated Bash source on
 standard input as UTF-8 without BOM and LF newlines. The Bash source is not

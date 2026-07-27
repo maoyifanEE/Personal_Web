@@ -152,6 +152,12 @@ function Assert-ExpectedLocalBackupTarget {
     }
     return
   }
+  $parent = Split-Path -Parent $pathFull
+  $parentName = Split-Path -Leaf $parent
+  if ($parentName -match "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}(\.partial-[0-9]+-[A-Za-z0-9]{12})?$" -and
+      $name -match "^archive-verify-[0-9]+-[0-9a-fA-F]{32}$") {
+    return
+  }
   if ($name -notmatch "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}(\.partial-[0-9]+-[A-Za-z0-9]{12})?$") {
     throw "local_backup_child_name_invalid"
   }
@@ -490,30 +496,210 @@ function Read-Sha256Sums {
   return $result
 }
 
+function Invoke-CapturedProcess {
+  param(
+    [string]$FileName,
+    [string[]]$Arguments,
+    [string]$Category = "process"
+  )
+
+  foreach ($arg in @($FileName) + $Arguments) {
+    Assert-SafeNativeArgument $arg
+  }
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName = $FileName
+  $psi.Arguments = Join-NativeArguments $Arguments
+  $psi.UseShellExecute = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError = $true
+  $psi.CreateNoWindow = $true
+  $process = New-Object System.Diagnostics.Process
+  $process.StartInfo = $psi
+  try {
+    [void]$process.Start()
+  } catch {
+    throw ("{0}_start_failed" -f $Category)
+  }
+  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+  $stderrTask = $process.StandardError.ReadToEndAsync()
+  $process.WaitForExit()
+  return [pscustomobject]@{
+    ExitCode = $process.ExitCode
+    Stdout = $stdoutTask.Result
+    Stderr = $stderrTask.Result
+  }
+}
+
+function Test-RegularExecutablePath {
+  param(
+    [string]$Path,
+    [string]$ExpectedLeaf
+  )
+
+  if (-not [System.IO.Path]::IsPathRooted($Path)) {
+    return $false
+  }
+  $Path = [System.IO.Path]::GetFullPath($Path)
+  if ([System.IO.Path]::GetFileName($Path) -ne $ExpectedLeaf) {
+    return $false
+  }
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    return $false
+  }
+  $item = Get-Item -LiteralPath $Path -Force
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    return $false
+  }
+  return $true
+}
+
+function Get-PgRestoreVersionInfo {
+  param([string]$Path)
+
+  if (-not (Test-RegularExecutablePath -Path $Path -ExpectedLeaf "pg_restore.exe")) {
+    return $null
+  }
+  $result = Invoke-CapturedProcess -FileName $Path -Arguments @("--version") -Category "pg_restore"
+  if ($result.ExitCode -ne 0) {
+    return $null
+  }
+  $output = ($result.Stdout + $result.Stderr).Trim()
+  if ($output -notmatch "^pg_restore \(PostgreSQL\) ([0-9]+)(?:\.([0-9]+))?") {
+    return $null
+  }
+  return [pscustomobject]@{
+    Path = (Get-Item -LiteralPath $Path).FullName
+    Version = $output
+    Major = [int]$Matches[1]
+    Minor = if ($Matches[2]) { [int]$Matches[2] } else { 0 }
+    IsPgAdmin = ($Path -match "\\pgAdmin 4\\")
+  }
+}
+
+function Add-PgRestoreCandidate {
+  param(
+    [System.Collections.ArrayList]$Candidates,
+    [string]$Path,
+    [string]$Source
+  )
+
+  if (-not $Path) {
+    return
+  }
+  $info = Get-PgRestoreVersionInfo -Path $Path
+  if (-not $info) {
+    return
+  }
+  $full = $info.Path
+  if ($Candidates | Where-Object { $_.Path -ieq $full }) {
+    return
+  }
+  [void]$Candidates.Add([pscustomobject]@{
+    Path = $full
+    Source = $Source
+    Version = $info.Version
+    Major = $info.Major
+    Minor = $info.Minor
+    IsPgAdmin = $info.IsPgAdmin
+  })
+}
+
+function Get-PgRestoreRegistryBaseDirectories {
+  if (Get-Variable -Name PgRestoreRegistryBaseDirectoriesForTest -Scope Script -ErrorAction SilentlyContinue) {
+    return $script:PgRestoreRegistryBaseDirectoriesForTest
+  }
+  $roots = @("HKLM:\SOFTWARE\PostgreSQL\Installations", "HKLM:\SOFTWARE\WOW6432Node\PostgreSQL\Installations")
+  $dirs = @()
+  foreach ($root in $roots) {
+    if (Test-Path -LiteralPath $root) {
+      Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue | ForEach-Object {
+        $props = Get-ItemProperty $_.PSPath
+        if ($props.'Base Directory') {
+          $dirs += [string]$props.'Base Directory'
+        }
+      }
+    }
+  }
+  return $dirs
+}
+
+function Get-PgRestoreServiceBaseDirectories {
+  if (Get-Variable -Name PgRestoreServiceBaseDirectoriesForTest -Scope Script -ErrorAction SilentlyContinue) {
+    return $script:PgRestoreServiceBaseDirectoriesForTest
+  }
+  $dirs = @()
+  Get-CimInstance Win32_Service -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match "postgres|pgsql|PostgreSQL" -or $_.DisplayName -match "PostgreSQL" } |
+    ForEach-Object {
+      if ($_.PathName -match '^"([^"]+\\pg_ctl\.exe)"') {
+        $dirs += (Split-Path -Parent (Split-Path -Parent $Matches[1]))
+      }
+    }
+  return $dirs
+}
+
+function Get-StandardPostgreSqlRoots {
+  if (Get-Variable -Name PgRestoreStandardRootsForTest -Scope Script -ErrorAction SilentlyContinue) {
+    return $script:PgRestoreStandardRootsForTest
+  }
+  $roots = @()
+  if ($env:ProgramFiles) {
+    $roots += (Join-Path $env:ProgramFiles "PostgreSQL")
+  }
+  if (${env:ProgramFiles(x86)}) {
+    $roots += (Join-Path ${env:ProgramFiles(x86)} "PostgreSQL")
+  }
+  return $roots
+}
+
 function Get-PgRestorePath {
+  $candidates = New-Object System.Collections.ArrayList
   if ($PgRestorePath) {
-    if (-not (Test-Path -LiteralPath $PgRestorePath -PathType Leaf)) {
+    Add-PgRestoreCandidate -Candidates $candidates -Path $PgRestorePath -Source "explicit"
+    if ($candidates.Count -ne 1) {
       throw "pg_restore_unavailable"
     }
-    return $PgRestorePath
+    $script:LastPgRestoreDiscovery = $candidates[0]
+    Write-BackupLog ("pg_restore_selected source={0} version={1} path={2}" -f $candidates[0].Source, $candidates[0].Version, $candidates[0].Path)
+    return $candidates[0].Path
   }
-  $candidate = Get-Command pg_restore.exe -ErrorAction SilentlyContinue
-  if ($candidate) {
-    return $candidate.Source
+  $command = Get-Command pg_restore.exe -ErrorAction SilentlyContinue
+  if ($command) {
+    Add-PgRestoreCandidate -Candidates $candidates -Path $command.Source -Source "PATH"
   }
-  $roots = @(
-    Join-Path $env:ProgramFiles "PostgreSQL",
-    Join-Path ${env:ProgramFiles(x86)} "PostgreSQL"
-  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-  foreach ($root in $roots) {
-    $found = Get-ChildItem -LiteralPath $root -Recurse -Filter "pg_restore.exe" -ErrorAction SilentlyContinue |
-      Sort-Object FullName -Descending |
-      Select-Object -First 1
-    if ($found) {
-      return $found.FullName
+  $psql = Get-Command psql.exe -ErrorAction SilentlyContinue
+  if ($psql) {
+    Add-PgRestoreCandidate -Candidates $candidates -Path (Join-Path (Split-Path -Parent $psql.Source) "pg_restore.exe") -Source "psql_sibling"
+  }
+  foreach ($dir in Get-PgRestoreRegistryBaseDirectories) {
+    Add-PgRestoreCandidate -Candidates $candidates -Path (Join-Path $dir "bin\pg_restore.exe") -Source "registry"
+  }
+  foreach ($dir in Get-PgRestoreServiceBaseDirectories) {
+    Add-PgRestoreCandidate -Candidates $candidates -Path (Join-Path $dir "bin\pg_restore.exe") -Source "service"
+  }
+  foreach ($root in Get-StandardPostgreSqlRoots) {
+    if (Test-Path -LiteralPath $root) {
+      Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+        Add-PgRestoreCandidate -Candidates $candidates -Path (Join-Path $_.FullName "bin\pg_restore.exe") -Source "program_files"
+        Add-PgRestoreCandidate -Candidates $candidates -Path (Join-Path $_.FullName "pgAdmin 4\runtime\pg_restore.exe") -Source "pgadmin_runtime"
+      }
     }
   }
-  throw "pg_restore_unavailable"
+  if ($candidates.Count -eq 0) {
+    throw "pg_restore_unavailable"
+  }
+  $ordered = @($candidates) | Sort-Object @{Expression = {$_.IsPgAdmin}; Ascending = $true}, @{Expression = {$_.Major}; Descending = $true}, @{Expression = {$_.Minor}; Descending = $true}, Path
+  $selected = $ordered[0]
+  if ($ordered.Count -gt 1) {
+    $same = @($ordered | Where-Object { $_.IsPgAdmin -eq $selected.IsPgAdmin -and $_.Major -eq $selected.Major -and $_.Minor -eq $selected.Minor })
+    $sameSelectedPath = @($same | Where-Object { $_.Path -ieq $selected.Path })
+    if ($same.Count -gt 1 -and $sameSelectedPath.Count -ne $same.Count) {
+      throw "pg_restore_ambiguous"
+    }
+  }
+  $script:LastPgRestoreDiscovery = $selected
+  Write-BackupLog ("pg_restore_selected source={0} version={1} path={2}" -f $selected.Source, $selected.Version, $selected.Path)
+  return $selected.Path
 }
 
 function Test-MediaArchiveContent {
@@ -527,97 +713,59 @@ function Test-MediaArchiveContent {
   if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "python_unavailable"
   }
-  $script = @'
-import hashlib
-import json
-import shutil
-import sys
-import tarfile
-from pathlib import Path, PurePosixPath
-
-archive = Path(sys.argv[1])
-verify_root = Path(sys.argv[2])
-expected_count = int(sys.argv[3])
-expected_bytes = int(sys.argv[4])
-expected_fingerprint = sys.argv[5]
-
-def safe_name(name):
-    if "\\" in name:
-        raise SystemExit("unsafe_tar_path")
-    value = name.strip("/")
-    pure = PurePosixPath(value)
-    if not value or name.startswith("/") or ":" in value or any(part in {"", ".", ".."} for part in pure.parts):
-        raise SystemExit("unsafe_tar_path")
-    return pure.as_posix()
-
-if verify_root.exists():
-    if any(verify_root.iterdir()):
-        raise SystemExit("verify_root_not_empty")
-else:
-    verify_root.mkdir(parents=True)
-
-try:
-    with tarfile.open(archive, "r:gz") as tar:
-        members = tar.getmembers()
-        file_paths = set()
-        dir_paths = set()
-        for member in members:
-            member.name = safe_name(member.name)
-            if member.isdir():
-                if member.name in file_paths:
-                    raise SystemExit("file_directory_conflict")
-                dir_paths.add(member.name)
-                continue
-            if not member.isfile():
-                raise SystemExit("unsafe_tar_member")
-            if member.name in file_paths:
-                raise SystemExit("duplicate_tar_path")
-            if member.name in dir_paths:
-                raise SystemExit("file_directory_conflict")
-            parts = PurePosixPath(member.name).parts
-            for index in range(1, len(parts)):
-                if "/".join(parts[:index]) in file_paths:
-                    raise SystemExit("file_directory_conflict")
-            file_paths.add(member.name)
-        for directory in dir_paths:
-            parts = PurePosixPath(directory).parts
-            for index in range(1, len(parts) + 1):
-                if "/".join(parts[:index]) in file_paths:
-                    raise SystemExit("file_directory_conflict")
-        for member in members:
-            if not member.isfile():
-                continue
-            target = (verify_root / member.name).resolve()
-            if verify_root.resolve() not in [target.parent, *target.parents]:
-                raise SystemExit("tar_extract_escape")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            source = tar.extractfile(member)
-            if source is None:
-                raise SystemExit("tar_member_unreadable")
-            with source, target.open("wb") as output:
-                shutil.copyfileobj(source, output)
-    entries = []
-    for path in sorted(verify_root.rglob("*")):
-        if path.is_symlink() or not path.is_file():
-            raise SystemExit("unsafe_extracted_file")
-        data = path.read_bytes()
-        entries.append({"path": path.relative_to(verify_root).as_posix(), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-    fingerprint = hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    if len(entries) != expected_count:
-        raise SystemExit("media_count_mismatch")
-    if sum(item["size"] for item in entries) != expected_bytes:
-        raise SystemExit("media_bytes_mismatch")
-    if fingerprint != expected_fingerprint:
-        raise SystemExit("media_fingerprint_mismatch")
-finally:
-    shutil.rmtree(verify_root, ignore_errors=True)
-if verify_root.exists():
-    raise SystemExit("verify_cleanup_failed")
-'@
+  $verifier = Join-Path $repoRoot "deploy\backup\verify-shared-media-archive.py"
+  if (-not (Test-RegularExecutablePath -Path $python -ExpectedLeaf "python.exe")) {
+    throw "python_unavailable"
+  }
+  if (-not (Test-Path -LiteralPath $verifier -PathType Leaf)) {
+    throw "archive_verifier_missing"
+  }
+  $verifierItem = Get-Item -LiteralPath $verifier -Force
+  if (($verifierItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "archive_verifier_reparse_point"
+  }
+  $trackedVerifier = (git -C $repoRoot ls-files --error-unmatch "deploy/backup/verify-shared-media-archive.py" 2>$null)
+  if ($LASTEXITCODE -ne 0 -or -not $trackedVerifier) {
+    throw "archive_verifier_untracked"
+  }
+  $syntax = Invoke-CapturedProcess -FileName $python -Arguments @("-m", "py_compile", $verifier) -Category "archive"
+  if ($syntax.ExitCode -ne 0) {
+    throw "archive_verifier_syntax_failed"
+  }
   $verifyDir = Join-Path $VerificationRoot ("archive-verify-{0}-{1}" -f $PID, ([guid]::NewGuid().ToString("N")))
-  $script | & $python - $ArchivePath $verifyDir $Manifest.sourceMediaRegularFileCount $Manifest.sourceMediaLogicalBytes $Manifest.sourceMediaTreeFingerprint
-  if ($LASTEXITCODE -ne 0) {
-    throw "media_archive_verification_failed"
+  try {
+    New-Item -ItemType Directory -Path $verifyDir | Out-Null
+    Protect-LocalBackupDirectory -Path $verifyDir -Root $LocalBackupRoot
+    $verifyItem = Get-Item -LiteralPath $verifyDir -Force
+    if (($verifyItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "archive_verify_dir_reparse_point"
+    }
+    if (Get-ChildItem -LiteralPath $verifyDir -Force) {
+      throw "archive_verify_dir_not_empty"
+    }
+    $result = Invoke-CapturedProcess -FileName $python -Arguments @(
+      $verifier,
+      "--archive", $ArchivePath,
+      "--extract-dir", $verifyDir,
+      "--expect-manifest", (Join-Path (Split-Path -Parent $ArchivePath) "manifest.json")
+    ) -Category "archive"
+    if ($result.ExitCode -ne 0) {
+      Write-BackupLog ("archive_verifier_failed exit={0} stderr={1}" -f $result.ExitCode, (Get-SanitizedStderr $result.Stderr))
+      throw "media_archive_verification_failed"
+    }
+    if (Test-Path -LiteralPath $verifyDir) {
+      throw "archive_verification_cleanup_incomplete"
+    }
+  } catch {
+    $original = $_
+    if (Test-Path -LiteralPath $verifyDir) {
+      try {
+        Remove-SafeArchiveVerifyDirectory -Root $LocalBackupRoot -VerifyPath $verifyDir
+      } catch {
+        Write-BackupLog ("cleanup_failed original={0} cleanup={1}" -f $original.Exception.Message, $_.Exception.Message)
+      }
+    }
+    throw $original
   }
 }
 
@@ -758,6 +906,38 @@ function Remove-SafePartialDirectory {
   } catch {
     Write-BackupLog ("partial_preserved path={0} reason={1}" -f $PartialPath, $_.Exception.Message)
     throw
+  }
+}
+
+function Remove-SafeArchiveVerifyDirectory {
+  param(
+    [string]$Root,
+    [string]$VerifyPath
+  )
+
+  if (-not (Test-Path -LiteralPath $VerifyPath)) {
+    return
+  }
+  Assert-SafeLocalChild -Root $Root -Child $VerifyPath | Out-Null
+  $name = Split-Path -Leaf $VerifyPath
+  $parent = Split-Path -Parent $VerifyPath
+  $parentName = Split-Path -Leaf $parent
+  if ($name -notmatch "^archive-verify-[0-9]+-[0-9a-fA-F]{32}$" -or
+      $parentName -notmatch "^[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{8,32}(\.partial-[0-9]+-[A-Za-z0-9]{12})?$") {
+    throw "archive_verify_dir_name_invalid"
+  }
+  $item = Get-Item -LiteralPath $VerifyPath -Force
+  if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "archive_verify_dir_reparse_point"
+  }
+  $ownerSid = (Get-Acl -LiteralPath $VerifyPath).GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  $currentUserSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  if ($ownerSid -ne $currentUserSid) {
+    throw "archive_verify_dir_owner_unexpected"
+  }
+  Remove-Item -LiteralPath $VerifyPath -Recurse -Force
+  if (Test-Path -LiteralPath $VerifyPath) {
+    throw "archive_verify_dir_cleanup_failed"
   }
 }
 

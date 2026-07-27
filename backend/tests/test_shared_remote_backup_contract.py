@@ -874,6 +874,36 @@ def test_canonical_archive_verifier_rejects_manifest_fingerprint_mismatch(tmp_pa
     assert not (tmp_path / "extract").exists()
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("sourceMediaRegularFileCount", 2, "count"),
+        ("sourceMediaLogicalBytes", 999, "logical bytes"),
+        ("mediaArchive.filename", "wrong.tar.gz", "filename"),
+        ("mediaArchive.size", 999, "size"),
+        ("mediaArchive.sha256", "0" * 64, "hash"),
+    ],
+)
+def test_canonical_archive_verifier_rejects_manifest_mismatches(tmp_path: Path, field: str, value: object, expected: str) -> None:
+    archive = tmp_path / "homepage-media.tar.gz"
+    payload = b"content"
+    write_tar(archive, [("file", "images/a.txt", payload)])
+    entries = [MediaInventoryEntry("images/a.txt", len(payload), hashlib.sha256(payload).hexdigest())]
+    manifest = archive_manifest(archive, entries)
+    if field.startswith("mediaArchive."):
+        manifest["mediaArchive"][field.split(".", 1)[1]] = value  # type: ignore[index]
+    else:
+        manifest[field] = value
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_archive_verifier(archive, tmp_path / "extract", manifest=manifest_path)
+
+    assert result.returncode != 0
+    assert expected in result.stderr
+    assert not (tmp_path / "extract").exists()
+
+
 def test_canonical_archive_verifier_reports_cleanup_failure(tmp_path: Path) -> None:
     archive = tmp_path / "homepage-media.tar.gz"
     write_tar(archive, [("file", "images/a.txt", b"a")])
@@ -1386,6 +1416,250 @@ Remove-Item -LiteralPath $root -Recurse -Force
     assert result.returncode == 0, result.stderr
 
 
+def test_local_verifier_accepts_archive_with_explicit_directories_via_canonical_helper(tmp_path: Path) -> None:
+    backup_id = "20260726T143303Z-AbCd1234"
+    root = tmp_path / "backups"
+    backup_dir = root / backup_id
+    backup_dir.mkdir(parents=True)
+    dump = backup_dir / "personal_web_shared_dev.dump"
+    archive = backup_dir / "homepage-media.tar.gz"
+    manifest_path = backup_dir / "manifest.json"
+    sums_path = backup_dir / "SHA256SUMS"
+    (backup_dir / "SUCCESS").write_bytes(b"")
+    dump.write_bytes(b"fake dump")
+    entries = [MediaInventoryEntry("images/nested/a.txt", 5, hashlib.sha256(b"alpha").hexdigest())]
+    write_tar(archive, [("dir", "images", b""), ("dir", "images/nested", b""), ("file", "images/nested/a.txt", b"alpha")])
+    manifest = archive_manifest(archive, entries)
+    manifest["backupId"] = backup_id
+    manifest["databaseDump"] = {"filename": dump.name, "size": dump.stat().st_size, "sha256": hashlib.sha256(dump.read_bytes()).hexdigest()}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    sums_path.write_text(
+        "\n".join(
+            [
+                f"{hashlib.sha256(dump.read_bytes()).hexdigest()}  {dump.name}",
+                f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}",
+                f"{hashlib.sha256(manifest_path.read_bytes()).hexdigest()}  {manifest_path.name}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fake_pg_restore = tmp_path / "pg_restore.exe"
+    args_file = tmp_path / "pg-args.txt"
+    script = f'''
+$ErrorActionPreference = "Stop"
+$source = @"
+using System;
+using System.IO;
+public class FakePgRestore {{
+  public static int Main(string[] args) {{
+    if (args.Length == 1 && args[0] == "--version") {{ Console.WriteLine("pg_restore (PostgreSQL) 18.4"); return 0; }}
+    File.WriteAllLines(Environment.GetEnvironmentVariable("PG_ARGS"), args);
+    return 0;
+  }}
+}}
+"@
+Add-Type -TypeDefinition $source -OutputAssembly "{fake_pg_restore}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:repoRoot = "{REPO_ROOT}"
+$script:LocalBackupRoot = "{root}"
+$script:BackupLogPath = "{(tmp_path / 'verify.log')}"
+$script:PgRestorePath = "{fake_pg_restore}"
+$env:PG_ARGS = "{args_file}"
+Ensure-ExactLocalBackupDacl -Path "{backup_dir}" -ItemKind Directory -Root "{root}"
+foreach ($file in @("personal_web_shared_dev.dump","homepage-media.tar.gz","manifest.json","SHA256SUMS","SUCCESS")) {{
+  Ensure-ExactLocalBackupDacl -Path (Join-Path "{backup_dir}" $file) -ItemKind File -Root "{root}"
+}}
+Verify-DownloadedBackup -Directory "{backup_dir}" -SelectedBackupId "{backup_id}" | Out-Null
+if (Test-Path -LiteralPath (Join-Path "{backup_dir}" "archive-verify-*")) {{ throw "archive_verify_dir_remained" }}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert args_file.read_text(encoding="utf-8").splitlines() == ["--list", str(dump)]
+    assert "pg_restore_selected source=explicit" in (tmp_path / "verify.log").read_text(encoding="utf-8")
+
+
+def test_local_verifier_reports_archive_category_on_canonical_helper_failure(tmp_path: Path) -> None:
+    backup_id = "20260726T143303Z-AbCd1234"
+    root = tmp_path / "backups"
+    backup_dir = root / backup_id
+    backup_dir.mkdir(parents=True)
+    dump = backup_dir / "personal_web_shared_dev.dump"
+    archive = backup_dir / "homepage-media.tar.gz"
+    manifest_path = backup_dir / "manifest.json"
+    sums_path = backup_dir / "SHA256SUMS"
+    (backup_dir / "SUCCESS").write_bytes(b"")
+    dump.write_bytes(b"fake dump")
+    write_tar(archive, [("symlink", "images/link.txt", b"")])
+    manifest = safe_manifest()
+    manifest["backupId"] = backup_id
+    manifest["databaseDump"] = {"filename": dump.name, "size": dump.stat().st_size, "sha256": hashlib.sha256(dump.read_bytes()).hexdigest()}
+    manifest["mediaArchive"] = {"filename": archive.name, "size": archive.stat().st_size, "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    sums_path.write_text(
+        f"{hashlib.sha256(dump.read_bytes()).hexdigest()}  {dump.name}\n"
+        f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n"
+        f"{hashlib.sha256(manifest_path.read_bytes()).hexdigest()}  {manifest_path.name}\n",
+        encoding="utf-8",
+    )
+    fake_pg_restore = tmp_path / "pg_restore.exe"
+    script = f'''
+$ErrorActionPreference = "Stop"
+$source = @"
+using System;
+public class FakePgRestore {{
+  public static int Main(string[] args) {{
+    if (args.Length == 1 && args[0] == "--version") {{ Console.WriteLine("pg_restore (PostgreSQL) 18.4"); return 0; }}
+    return 0;
+  }}
+}}
+"@
+Add-Type -TypeDefinition $source -OutputAssembly "{fake_pg_restore}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:repoRoot = "{REPO_ROOT}"
+$script:LocalBackupRoot = "{root}"
+$script:BackupLogPath = "{(tmp_path / 'verify-fail.log')}"
+$script:PgRestorePath = "{fake_pg_restore}"
+Ensure-ExactLocalBackupDacl -Path "{backup_dir}" -ItemKind Directory -Root "{root}"
+foreach ($file in @("personal_web_shared_dev.dump","homepage-media.tar.gz","manifest.json","SHA256SUMS","SUCCESS")) {{
+  Ensure-ExactLocalBackupDacl -Path (Join-Path "{backup_dir}" $file) -ItemKind File -Root "{root}"
+}}
+try {{
+  Invoke-PullStage P06_LOCAL_VERIFY local_verify {{ Verify-DownloadedBackup -Directory "{backup_dir}" -SelectedBackupId "{backup_id}" | Out-Null }}
+  throw "expected_failure"
+}} catch {{
+  if ($_.Exception.Message -ne "media_archive_verification_failed") {{ throw }}
+}}
+if (Get-ChildItem -LiteralPath "{backup_dir}" -Directory -Filter "archive-verify-*") {{ throw "archive_verify_dir_remained" }}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    log_text = (tmp_path / "verify-fail.log").read_text(encoding="utf-8")
+    assert "stage_error id=P06_LOCAL_VERIFY name=local_verify category=archive" in log_text
+    assert "unsafe tar member type: symlink" in log_text
+
+
+def test_pg_restore_discovery_prefers_full_install_over_pgadmin_and_deduplicates(tmp_path: Path) -> None:
+    full = tmp_path / "PostgreSQL" / "18" / "bin" / "pg_restore.exe"
+    pgadmin = tmp_path / "PostgreSQL" / "18" / "pgAdmin 4" / "runtime" / "pg_restore.exe"
+    full.parent.mkdir(parents=True)
+    pgadmin.parent.mkdir(parents=True)
+    source = '''
+using System;
+public class FakePgRestore {
+  public static int Main(string[] args) {
+    if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("pg_restore (PostgreSQL) 18.4"); return 0; }
+    return 0;
+  }
+}
+'''
+    script = f'''
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+{source}
+"@ -OutputAssembly "{full}" -OutputType ConsoleApplication
+Copy-Item -LiteralPath "{full}" -Destination "{pgadmin}"
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'pg.log')}"
+$script:PgRestoreRegistryBaseDirectoriesForTest = @("{(tmp_path / 'PostgreSQL' / '18')}")
+$script:PgRestoreServiceBaseDirectoriesForTest = @()
+$script:PgRestoreStandardRootsForTest = @("{(tmp_path / 'PostgreSQL')}")
+$selected = Get-PgRestorePath
+if ($selected -ne "{full}") {{ throw "wrong_pg_restore_selected=$selected" }}
+if ($env:PATH -ne $env:PATH) {{ throw "path_changed" }}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "source=registry" in (tmp_path / "pg.log").read_text(encoding="utf-8")
+
+
+def test_pg_restore_discovery_prefers_highest_standard_full_install_and_preserves_path(tmp_path: Path) -> None:
+    pg17 = tmp_path / "PostgreSQL" / "17" / "bin" / "pg_restore.exe"
+    pg18 = tmp_path / "PostgreSQL" / "18" / "bin" / "pg_restore.exe"
+    pg17.parent.mkdir(parents=True)
+    pg18.parent.mkdir(parents=True)
+    source = '''
+using System;
+public class FakePgRestore {
+  public static int Main(string[] args) {
+    string path = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
+    string version = path.Contains("\\\\18\\\\") ? "18.4" : "17.6";
+    if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("pg_restore (PostgreSQL) " + version); return 0; }
+    return 0;
+  }
+}
+'''
+    script = f'''
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+{source}
+"@ -OutputAssembly "{pg17}" -OutputType ConsoleApplication
+Copy-Item -LiteralPath "{pg17}" -Destination "{pg18}"
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'standard.log')}"
+$script:PgRestoreRegistryBaseDirectoriesForTest = @()
+$script:PgRestoreServiceBaseDirectoriesForTest = @()
+$script:PgRestoreStandardRootsForTest = @("{(tmp_path / 'PostgreSQL')}")
+$before = $env:PATH
+$selected = Get-PgRestorePath
+if ($selected -ne "{pg18}") {{ throw "wrong_pg_restore_selected=$selected" }}
+if ($env:PATH -cne $before) {{ throw "path_changed" }}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    log_text = (tmp_path / "standard.log").read_text(encoding="utf-8")
+    assert "source=program_files" in log_text
+    assert "PostgreSQL) 18.4" in log_text
+
+
+def test_pg_restore_discovery_rejects_invalid_candidates_and_reports_missing(tmp_path: Path) -> None:
+    nonzero = tmp_path / "bad" / "bin" / "pg_restore.exe"
+    wrong_output = tmp_path / "wrong" / "bin" / "pg_restore.exe"
+    wrong_name = tmp_path / "wrong" / "bin" / "not_pg_restore.exe"
+    nonzero.parent.mkdir(parents=True)
+    wrong_output.parent.mkdir(parents=True)
+    nonzero_source = '''
+public class FakePgRestore {
+  public static int Main(string[] args) { return 9; }
+}
+'''
+    wrong_output_source = '''
+using System;
+public class FakePgRestore {
+  public static int Main(string[] args) { Console.WriteLine("not postgres"); return 0; }
+}
+'''
+    script = f'''
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+{nonzero_source}
+"@ -OutputAssembly "{nonzero}" -OutputType ConsoleApplication
+Add-Type -TypeDefinition @"
+{wrong_output_source}
+"@ -OutputAssembly "{wrong_output}" -OutputType ConsoleApplication
+Copy-Item -LiteralPath "{wrong_output}" -Destination "{wrong_name}"
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'missing.log')}"
+$script:PgRestoreRegistryBaseDirectoriesForTest = @("{(tmp_path / 'bad')}", "{(tmp_path / 'wrong')}")
+$script:PgRestoreServiceBaseDirectoriesForTest = @()
+$script:PgRestoreStandardRootsForTest = @()
+if (Get-PgRestoreVersionInfo -Path "{wrong_name}") {{ throw "wrong_filename_accepted" }}
+try {{
+  Get-PgRestorePath | Out-Null
+  throw "expected_missing"
+}} catch {{
+  if ($_.Exception.Message -ne "pg_restore_unavailable") {{ throw }}
+}}
+''';
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_windows_sid_acl_contract_is_exact() -> None:
     current_user_sid = "S-1-5-21-1-2-3-1001"
     expected = expected_windows_backup_acl_sids(current_user_sid)
@@ -1753,7 +2027,7 @@ def test_remote_download_preflight_rejects_symlinks_and_unexpected_files() -> No
     script = read(PULL_SCRIPT)
 
     assert "test ! -L" in script
-    assert "stat -c '%U:%G:%a:%F'" in script
+    assert "stat -c '%U:%G:%a'" in script
     assert "Path(sys.argv[1])" in script
     assert "root.iterdir()" in script
     assert "backup file set mismatch" in script
@@ -1764,13 +2038,16 @@ def test_windows_archive_verification_checks_logical_bytes_and_fingerprint() -> 
     script = read(PULL_SCRIPT)
 
     assert "Test-MediaArchiveContent" in script
-    assert "media_bytes_mismatch" in script
-    assert "media_fingerprint_mismatch" in script
-    assert "unsafe_tar_member" in script
-    assert "shutil.copyfileobj(source, output)" in script
+    assert "verify-shared-media-archive.py" in script
+    assert "--expect-manifest" in script
+    assert "Invoke-CapturedProcess" in script
+    assert "media_bytes_mismatch" not in script
+    assert "media_fingerprint_mismatch" not in script
+    assert "unsafe_tar_member" not in script
+    assert "shutil.copyfileobj(source, output)" not in script
     assert 'filter="data"' not in script
-    assert "duplicate_tar_path" in script
-    assert "file_directory_conflict" in script
+    assert "import tarfile" not in script
+    assert "PurePosixPath" not in script
 
 
 def test_systemd_documentation_path_and_capabilities() -> None:
