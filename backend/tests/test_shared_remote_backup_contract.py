@@ -109,7 +109,7 @@ def run_bash(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def run_powershell(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+def run_powershell(script: str, tmp_path: Path, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     script_path = tmp_path / "run.ps1"
     script_path.write_text(script, encoding="utf-8")
     return subprocess.run(
@@ -119,6 +119,7 @@ def run_powershell(script: str, tmp_path: Path) -> subprocess.CompletedProcess[s
         encoding="utf-8",
         errors="replace",
         capture_output=True,
+        env=env,
         check=False,
     )
 
@@ -1566,9 +1567,10 @@ $script:BackupLogPath = "{(tmp_path / 'pg.log')}"
 $script:PgRestoreRegistryBaseDirectoriesForTest = @("{(tmp_path / 'PostgreSQL' / '18')}")
 $script:PgRestoreServiceBaseDirectoriesForTest = @()
 $script:PgRestoreStandardRootsForTest = @("{(tmp_path / 'PostgreSQL')}")
+$beforePath = [string]$env:PATH
 $selected = Get-PgRestorePath
 if ($selected -ne "{full}") {{ throw "wrong_pg_restore_selected=$selected" }}
-if ($env:PATH -ne $env:PATH) {{ throw "path_changed" }}
+if ([string]$env:PATH -cne $beforePath) {{ throw "path_changed" }}
 ''';
     result = run_powershell(script, tmp_path)
 
@@ -1603,10 +1605,10 @@ $script:BackupLogPath = "{(tmp_path / 'standard.log')}"
 $script:PgRestoreRegistryBaseDirectoriesForTest = @()
 $script:PgRestoreServiceBaseDirectoriesForTest = @()
 $script:PgRestoreStandardRootsForTest = @("{(tmp_path / 'PostgreSQL')}")
-$before = $env:PATH
+$beforePath = [string]$env:PATH
 $selected = Get-PgRestorePath
 if ($selected -ne "{pg18}") {{ throw "wrong_pg_restore_selected=$selected" }}
-if ($env:PATH -cne $before) {{ throw "path_changed" }}
+if ([string]$env:PATH -cne $beforePath) {{ throw "path_changed" }}
 ''';
     result = run_powershell(script, tmp_path)
 
@@ -1614,6 +1616,112 @@ if ($env:PATH -cne $before) {{ throw "path_changed" }}
     log_text = (tmp_path / "standard.log").read_text(encoding="utf-8")
     assert "source=program_files" in log_text
     assert "PostgreSQL) 18.4" in log_text
+
+
+def test_pg_restore_explicit_discovery_preserves_process_and_parent_path(tmp_path: Path) -> None:
+    fake_pg_restore = tmp_path / "pg_restore.exe"
+    source = '''
+using System;
+public class FakePgRestore {
+  public static int Main(string[] args) {
+    if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("pg_restore (PostgreSQL) 18.4"); return 0; }
+    return 0;
+  }
+}
+'''
+    script = f'''
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+{source}
+"@ -OutputAssembly "{fake_pg_restore}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'explicit.log')}"
+$script:PgRestorePath = "{fake_pg_restore}"
+$env:PATH = "C:\\codex-sentinel-explicit-path"
+$beforePath = [string]$env:PATH
+$selected = Get-PgRestorePath
+if ($selected -ne "{fake_pg_restore}") {{ throw "wrong_pg_restore_selected=$selected" }}
+if ([string]$env:PATH -cne $beforePath) {{ throw "path_changed" }}
+''';
+    parent_path = os.environ.get("PATH")
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert os.environ.get("PATH") == parent_path
+    assert "source=explicit" in (tmp_path / "explicit.log").read_text(encoding="utf-8")
+
+
+def test_pg_restore_path_discovery_preserves_process_and_parent_path(tmp_path: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_pg_restore = bin_dir / "pg_restore.exe"
+    source = '''
+using System;
+public class FakePgRestore {
+  public static int Main(string[] args) {
+    if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("pg_restore (PostgreSQL) 18.4"); return 0; }
+    return 0;
+  }
+}
+'''
+    script = f'''
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+{source}
+"@ -OutputAssembly "{fake_pg_restore}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'path.log')}"
+$script:PgRestoreRegistryBaseDirectoriesForTest = @()
+$script:PgRestoreServiceBaseDirectoriesForTest = @()
+$script:PgRestoreStandardRootsForTest = @()
+$env:PATH = "{bin_dir};C:\\codex-sentinel-path-discovery"
+$beforePath = [string]$env:PATH
+$selected = Get-PgRestorePath
+if ($selected -ne "{fake_pg_restore}") {{ throw "wrong_pg_restore_selected=$selected" }}
+if ([string]$env:PATH -cne $beforePath) {{ throw "path_changed" }}
+''';
+    parent_path = os.environ.get("PATH")
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert os.environ.get("PATH") == parent_path
+    assert "source=PATH" in (tmp_path / "path.log").read_text(encoding="utf-8")
+
+
+def test_pg_restore_service_discovery_preserves_process_and_parent_path(tmp_path: Path) -> None:
+    full = tmp_path / "PostgreSQL" / "18" / "bin" / "pg_restore.exe"
+    full.parent.mkdir(parents=True)
+    source = '''
+using System;
+public class FakePgRestore {
+  public static int Main(string[] args) {
+    if (args.Length == 1 && args[0] == "--version") { Console.WriteLine("pg_restore (PostgreSQL) 18.4"); return 0; }
+    return 0;
+  }
+}
+'''
+    script = f'''
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+{source}
+"@ -OutputAssembly "{full}" -OutputType ConsoleApplication
+. "{PULL_SCRIPT}"
+$script:BackupLogPath = "{(tmp_path / 'service.log')}"
+$script:PgRestoreRegistryBaseDirectoriesForTest = @()
+$script:PgRestoreServiceBaseDirectoriesForTest = @("{(tmp_path / 'PostgreSQL' / '18')}")
+$script:PgRestoreStandardRootsForTest = @()
+$env:PATH = "C:\\codex-sentinel-service-discovery"
+$beforePath = [string]$env:PATH
+$selected = Get-PgRestorePath
+if ($selected -ne "{full}") {{ throw "wrong_pg_restore_selected=$selected" }}
+if ([string]$env:PATH -cne $beforePath) {{ throw "path_changed" }}
+''';
+    parent_path = os.environ.get("PATH")
+    result = run_powershell(script, tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert os.environ.get("PATH") == parent_path
+    assert "source=service" in (tmp_path / "service.log").read_text(encoding="utf-8")
 
 
 def test_pg_restore_discovery_rejects_invalid_candidates_and_reports_missing(tmp_path: Path) -> None:
@@ -2048,6 +2156,17 @@ def test_windows_archive_verification_checks_logical_bytes_and_fingerprint() -> 
     assert 'filter="data"' not in script
     assert "import tarfile" not in script
     assert "PurePosixPath" not in script
+
+
+def test_no_tautological_path_immutability_assertions_remain() -> None:
+    checked_source = "\n".join(
+        [
+            read(PULL_SCRIPT),
+            read(Path(__file__)),
+        ]
+    )
+
+    assert not re.search(r"\$env:PATH\s*-[ci]?ne\s*\$env:PATH", checked_source)
 
 
 def test_systemd_documentation_path_and_capabilities() -> None:

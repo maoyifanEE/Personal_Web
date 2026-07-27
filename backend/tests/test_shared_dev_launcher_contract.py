@@ -166,6 +166,61 @@ def run_stop(runtime: Path, logs: Path, *, timeout: int = 60) -> subprocess.Comp
     )
 
 
+def port_is_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def write_fake_powershell(tmp_path: Path) -> tuple[Path, Path]:
+    fake_dir = tmp_path / "fake-bin"
+    fake_dir.mkdir()
+    fake = fake_dir / "powershell.exe"
+    marker = tmp_path / "fake-powershell-invoked.txt"
+    marker_literal = str(marker).replace("\\", "\\\\")
+    source = f'''
+using System;
+using System.IO;
+public class FakePowerShell {{
+  public static int Main(string[] args) {{
+    File.WriteAllText("{marker_literal}", string.Join("\\n", args));
+    return 99;
+  }}
+}}
+'''
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            f"Add-Type -TypeDefinition @'\n{source}\n'@ -OutputAssembly '{fake}' -OutputType ConsoleApplication",
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return fake_dir, marker
+
+
+def run_local_batch_safe(args: list[str], tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], Path]:
+    fake_dir, marker = write_fake_powershell(tmp_path)
+    env = {**os.environ, "PATH": str(fake_dir) + os.pathsep + os.environ["PATH"]}
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", str(REPO_ROOT / "start-local-dev.bat"), *args],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+        check=False,
+    )
+    return result, marker
+
+
 def write_contract(tmp_path: Path, mutator) -> Path:
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     mutator(contract)
@@ -636,6 +691,45 @@ def test_start_shared_batch_keep_session_mapping_is_explicit():
 
     assert 'keep-session' in batch
     assert '-KeepSession' in batch
+
+
+@pytest.mark.parametrize("args", [["--help"], ["/?"]])
+def test_start_local_batch_help_does_not_invoke_powershell_or_runtime(tmp_path: Path, args: list[str]) -> None:
+    snapshot = snapshot_real_runtime()
+    before_ports = {8000: port_is_open(8000), 4173: port_is_open(4173)}
+
+    result, marker = run_local_batch_safe(args, tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Personal_Web local development launcher" in result.stdout
+    assert not marker.exists()
+    assert {8000: port_is_open(8000), 4173: port_is_open(4173)} == before_ports
+    assert_real_runtime_unchanged(snapshot)
+
+
+@pytest.mark.parametrize("args", [["--invalid-codex-smoke"], ["keep-session", "--extra"]])
+def test_start_local_batch_invalid_args_fail_closed_before_powershell(tmp_path: Path, args: list[str]) -> None:
+    snapshot = snapshot_real_runtime()
+    before_ports = {8000: port_is_open(8000), 4173: port_is_open(4173)}
+
+    result, marker = run_local_batch_safe(args, tmp_path)
+
+    assert result.returncode != 0
+    assert "Usage: start-local-dev.bat" in result.stdout
+    assert not marker.exists()
+    assert {8000: port_is_open(8000), 4173: port_is_open(4173)} == before_ports
+    assert_real_runtime_unchanged(snapshot)
+
+
+def test_start_local_batch_operational_arguments_are_explicit() -> None:
+    batch = (REPO_ROOT / "start-local-dev.bat").read_text(encoding="utf-8")
+
+    assert 'if "%~1"=="" goto run_default' in batch
+    assert 'if /I "%~1"=="keep-session" if "%~2"=="" goto run_keep' in batch
+    assert 'if /I "%~1"=="--help" if "%~2"=="" goto show_help' in batch
+    assert 'if /I "%~1"=="/?" if "%~2"=="" goto show_help' in batch
+    assert "%*" not in batch
+    assert "scripts\\start-local-dev.ps1\" -KeepSession" in batch
 
 
 def test_start_shared_dry_run_leaves_no_persistent_state(tmp_path):
