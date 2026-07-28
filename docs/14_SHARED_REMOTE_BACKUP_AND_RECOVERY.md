@@ -20,7 +20,7 @@ to production.
 
 ## Two Backup Layers
 
-Layer A is a server-side daily snapshot stored under:
+Layer A is a manual server-side snapshot stored under:
 
 ```text
 /var/backups/personal-web/shared-dev
@@ -58,7 +58,8 @@ Layer B is a protected copy on the old Windows computer under:
 
 Tracked code derives `%USERPROFILE%` at runtime and does not commit
 user-specific absolute paths. The local copy is pulled only from verified
-server-side backups and keeps the newest 7 verified snapshots.
+server-side backups after an explicit user command and keeps the newest 7
+verified snapshots.
 
 ## Permissions
 
@@ -66,7 +67,7 @@ The server backup root and completed snapshot directories are root-owned and
 mode `0700`. Backup files are mode `0600`.
 
 Because the systemd service uses `ProtectSystem=strict`, installation must
-create the backup root before enabling the timer:
+create the backup root before manually starting the service:
 
 ```text
 install -d -m 0700 -o root -g root /var/backups/personal-web/shared-dev
@@ -244,23 +245,35 @@ absent.
 Concurrency uses a nonblocking server-local `flock`; a second invocation exits
 safely without deleting a stale lock file.
 
-## Systemd Timer
+## Manual Server Backup
 
-Templates:
+The server backup service template is:
 
 ```text
 deploy/backup/personal-web-shared-dev-backup.service
-deploy/backup/personal-web-shared-dev-backup.timer
 ```
 
 The service is `Type=oneshot`. It does not restart PostgreSQL, Nginx, SSH, or
 the backend. It keeps `CAP_SETUID` and `CAP_SETGID` so `runuser` can enter the
 `postgres` OS identity, and keeps `CAP_DAC_READ_SEARCH` for root-controlled
-read access to the protected shared media tree and backup root. The timer is
-daily at approximately 03:30 Asia/Shanghai with `Persistent=true` and a modest
-randomized delay.
+read access to the protected shared media tree and backup root.
 
-This code-only phase does not install, start, or enable the timer.
+Current tracked code supports no automatic server backup schedule. Server
+backup creation is manual-only:
+
+```text
+systemctl start personal-web-shared-dev-backup.service
+```
+
+After manual creation, verify a completed backup with:
+
+```text
+/opt/personal-web/deploy/backup/verify-shared-dev-backup.sh <backup-id>
+```
+
+The previously installed remote timer has already been disabled operationally.
+After fixed-commit review, a separate server-cleanup task may delete only that
+disabled timer unit. This repository no longer carries a server timer template.
 
 ## Old-Computer Pull
 
@@ -328,36 +341,28 @@ unknown directory.
 If the newest backup already exists locally and verifies, the script reports
 `already_current` and does not redownload or modify it.
 
-## Scheduled Task
+## Manual Old-Computer Pull
 
-The scheduled-task template is:
+Local backup pull is manual-only. Run:
 
 ```powershell
-.\scripts\install-shared-dev-backup-pull-task.ps1
+.\scripts\pull-shared-dev-backup.ps1
 ```
 
-It creates or updates:
+Current tracked code supports no automatic Windows backup pull schedule and no
+Windows task installer. The optional helper
+`.\scripts\remove-shared-dev-backup-pull-task.ps1` is uninstall-only for the
+legacy repository-owned task named `Personal_Web Shared Backup Pull`. It cannot
+install, create, update, or start a task, and it refuses to modify unrelated
+tasks.
 
-```text
-Personal_Web Shared Backup Pull
-```
+Existing verified server backups and existing verified old-computer pulled
+backups remain valid. Server retention still keeps the newest 14 verified backups
+when the manual server creation script runs. Local retention still keeps the
+newest 7 verified pulled backups when the manual pull script runs.
 
-The task runs in the current user context with no stored Windows password, no
-highest-privilege requirement, exactly one enabled daily trigger at local time
-`10:00:00`, and exactly one enabled current-user logon trigger. Ownership checks
-inspect Scheduled Task CIM properties, not localized `ToString()` output. The
-principal must be the exact current user with `RunLevel=Limited` and
-`LogonType=Interactive` or the equivalent interactive CIM enum value; S4U,
-password, service-account, group, and missing logon types are unrelated. The
-daily `StartBoundary` is parsed as a date/time and must have hour 10, minute 0,
-second 0, and millisecond 0. Relevant settings are also matched:
-`StartWhenAvailable=true`, `WakeToRun=false`,
-`DisallowStartIfOnBatteries=true`, `StopIfGoingOnBatteries=false`, and
-`MultipleInstances=IgnoreNew` when represented. An existing task is updated
-only after exact ownership verification, using `Set-ScheduledTask`, and the
-task is read back and revalidated after install or update. It does not wake the
-computer and does not start application services. This code-only phase does not
-register the task.
+A future one-click manual UI can wrap these explicit commands, but that is a
+separate feature. Production remains excluded.
 
 ## Restore Drill
 

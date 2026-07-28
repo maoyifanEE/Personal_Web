@@ -30,7 +30,7 @@ $SourceFiles = @(
   "scripts/create-shared-launch-shortcut.ps1",
   "scripts/create-portable-local-launcher.ps1",
   "scripts/pull-shared-dev-backup.ps1",
-  "scripts/install-shared-dev-backup-pull-task.ps1",
+  "scripts/remove-shared-dev-backup-pull-task.ps1",
   "scripts/check-source-readability.ps1",
   "scripts/export-homepage-public-bundle.ps1",
   "scripts/import-homepage-public-bundle.ps1",

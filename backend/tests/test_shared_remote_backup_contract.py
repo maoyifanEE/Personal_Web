@@ -1,4 +1,4 @@
-"""Isolated contract tests for shared-remote backup tooling."""
+﻿"""Isolated contract tests for shared-remote backup tooling."""
 
 from __future__ import annotations
 
@@ -39,10 +39,6 @@ from app.core.shared_dev_backup import (
     require_shared_dev_media_root,
     require_temporary_database_name,
     server_retention_delete_candidates,
-    scheduled_task_matches_repository,
-    scheduled_daily_boundary_is_exact_10,
-    scheduled_task_logon_type_is_interactive,
-    scheduled_task_settings_match,
     validate_backup_id,
     validate_exact_backup_file_set,
     validate_local_run_partial_name,
@@ -64,7 +60,8 @@ RESTORE_VERIFY = REPO_ROOT / "deploy" / "backup" / "verify-shared-dev-restore.sh
 ARCHIVE_VERIFIER = REPO_ROOT / "deploy" / "backup" / "verify-shared-media-archive.py"
 CANVAS_FINGERPRINT = REPO_ROOT / "deploy" / "backup" / "compute-shared-canvas-fingerprint.py"
 PULL_SCRIPT = REPO_ROOT / "scripts" / "pull-shared-dev-backup.ps1"
-TASK_SCRIPT = REPO_ROOT / "scripts" / "install-shared-dev-backup-pull-task.ps1"
+REMOVE_TASK_SCRIPT = REPO_ROOT / "scripts" / "remove-shared-dev-backup-pull-task.ps1"
+TIMER_TEMPLATE = REPO_ROOT / "deploy" / "backup" / "personal-web-shared-dev-backup.timer"
 DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
 BACKUP_TEMP_DB = "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef"
 RESTORE_TEMP_DB = "pw_rs_v_20260726T033000Z_0123456789abcdef0123456789abcdef"
@@ -1827,148 +1824,85 @@ def test_local_run_partial_name_is_unique_and_strict() -> None:
             validate_local_run_partial_name(unsafe)
 
 
-def test_scheduled_task_uses_dynamic_repository_path() -> None:
-    script = read(TASK_SCRIPT)
 
-    assert "$PSScriptRoot" in script
-    assert "pull-shared-dev-backup.ps1" in script
+def test_backup_repository_is_manual_only_static_contract() -> None:
+    service = REPO_ROOT / "deploy" / "backup" / "personal-web-shared-dev-backup.service"
+    scheduling_paths = [
+        REPO_ROOT / "deploy" / "backup",
+        REPO_ROOT / "scripts",
+        DOC,
+    ]
+    forbidden = [
+        "OnCalendar=",
+        "New-ScheduledTaskTrigger",
+        "Register-ScheduledTask",
+        "Set-ScheduledTask",
+        "-AtLogOn",
+        "-Daily",
+        "timers.target",
+        "systemctl enable",
+        "schtasks /create",
+    ]
+
+    assert service.is_file()
+    assert "ExecStart=/opt/personal-web/deploy/backup/create-shared-dev-backup.sh" in read(service)
+    assert SERVER_CREATE.is_file()
+    assert SERVER_VERIFY.is_file()
+    assert RESTORE_VERIFY.is_file()
+    assert ARCHIVE_VERIFIER.is_file()
+    assert PULL_SCRIPT.is_file()
+    assert not TIMER_TEMPLATE.exists()
+    assert not (REPO_ROOT / "scripts" / "install-shared-dev-backup-pull-task.ps1").exists()
+
+    checked: list[Path] = []
+    for path in scheduling_paths:
+        if path.is_file():
+            checked.append(path)
+            continue
+        for child in path.rglob("*"):
+            if child.is_file() and child.suffix.lower() in {".ps1", ".service", ".timer", ".md"}:
+                checked.append(child)
+    for path in checked:
+        if path.name == "remove-shared-dev-backup-pull-task.ps1":
+            continue
+        text = read(path)
+        assert [value for value in forbidden if value in text] == [], path
+
+
+def test_legacy_backup_task_helper_is_uninstall_only() -> None:
+    script = read(REMOVE_TASK_SCRIPT)
+
+    assert REMOVE_TASK_SCRIPT.is_file()
     assert "Personal_Web Shared Backup Pull" in script
-    assert "C:\\Users\\maoyi" not in script
+    assert "Unregister-ScheduledTask" in script
+    assert "Test-LegacyTaskOwnedByRepository" in script
+    assert "pull-shared-dev-backup.ps1" in script
+    assert "New-ScheduledTaskTrigger" not in script
+    assert "Register-ScheduledTask" not in script
+    assert "Set-ScheduledTask" not in script
+    assert "-AtLogOn" not in script
+    assert "-Daily" not in script
 
 
-def test_scheduled_task_exact_ownership_match() -> None:
-    task = {
-        "name": "Personal_Web Shared Backup Pull",
-        "execute": "powershell.exe",
-        "arguments": '-NoProfile -ExecutionPolicy Bypass -File "D:\\repo\\scripts\\pull-shared-dev-backup.ps1"',
-        "workingDirectory": "D:\\repo",
-        "principal": "MACHINE\\user",
-        "runLevel": "Limited",
-        "logonType": "Interactive",
-        "triggers": [
-            {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T10:00:00", "daysInterval": 1},
-            {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
-        ],
-        "settings": {
-            "startWhenAvailable": True,
-            "wakeToRun": False,
-            "disallowStartIfOnBatteries": True,
-            "stopIfGoingOnBatteries": False,
-            "multipleInstances": "IgnoreNew",
-        },
-        "wakeToRun": False,
-    }
-    assert scheduled_task_matches_repository(
-        task,
-        task_name="Personal_Web Shared Backup Pull",
-        powershell_exe="powershell.exe",
-        pull_script="D:\\repo\\scripts\\pull-shared-dev-backup.ps1",
-        working_directory="D:\\repo",
-        principal="MACHINE\\user",
-    )
-    for key, value in [
-        ("workingDirectory", "D:\\other"),
-        ("execute", "cmd.exe"),
-        ("arguments", '-NoProfile -ExecutionPolicy Bypass -File "D:\\repo\\scripts\\pull-shared-dev-backup.ps1"; calc'),
-        ("principal", "MACHINE\\other"),
-        ("logonType", "S4U"),
-        ("logonType", "Password"),
-        ("logonType", "ServiceAccount"),
-        ("logonType", None),
-        ("settings", None),
-        (
-            "triggers",
-            [
-                {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T10:00:00", "daysInterval": 1},
-                {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
-                {"type": "Boot", "enabled": True, "toString": "Daily 10:00 Logon"},
-            ],
-        ),
-        (
-            "triggers",
-            [
-                {"type": "Daily", "enabled": True, "startBoundary": "2026-07-26T09:00:00", "daysInterval": 1, "toString": "Daily 10:00"},
-                {"type": "Logon", "enabled": True, "userId": "MACHINE\\user"},
-            ],
-        ),
-        (
-            "settings",
-            {
-                "startWhenAvailable": True,
-                "wakeToRun": False,
-                "disallowStartIfOnBatteries": False,
-                "stopIfGoingOnBatteries": False,
-                "multipleInstances": "IgnoreNew",
-            },
-        ),
+def test_backup_documentation_is_manual_only() -> None:
+    doc = read(DOC)
+
+    assert "manual-only" in doc
+    assert "systemctl start personal-web-shared-dev-backup.service" in doc
+    assert "/opt/personal-web/deploy/backup/verify-shared-dev-backup.sh <backup-id>" in doc
+    assert ".\\scripts\\pull-shared-dev-backup.ps1" in doc
+    assert "server timer template" in doc
+    assert "newest 14 verified backups" in doc
+    assert "newest 7 verified pulled backups" in doc
+    assert "future one-click manual UI" in doc
+    assert "Production remains excluded" in doc
+    for removed_phrase in [
+        "server-side daily snapshot",
+        "daily at approximately 03:30",
+        "exactly one enabled daily trigger",
+        "exactly one enabled current-user logon trigger",
     ]:
-        mutated = dict(task)
-        mutated[key] = value
-        assert not scheduled_task_matches_repository(
-            mutated,
-            task_name="Personal_Web Shared Backup Pull",
-            powershell_exe="powershell.exe",
-            pull_script="D:\\repo\\scripts\\pull-shared-dev-backup.ps1",
-            working_directory="D:\\repo",
-            principal="MACHINE\\user",
-        )
-
-
-def test_scheduled_task_daily_boundary_is_exact_time() -> None:
-    assert scheduled_daily_boundary_is_exact_10("2026-07-26T10:00:00")
-    assert scheduled_daily_boundary_is_exact_10("2026-07-26T10:00:00+08:00")
-    for value in ["2026-07-26T01:00:00", "2026-07-26T10:00:01", "2026-07-26T10:00:00.500", "not-a-date T10:00:00"]:
-        assert not scheduled_daily_boundary_is_exact_10(value)
-
-
-def test_scheduled_task_logon_type_and_settings_contracts() -> None:
-    assert scheduled_task_logon_type_is_interactive("Interactive")
-    assert scheduled_task_logon_type_is_interactive("InteractiveToken")
-    assert scheduled_task_logon_type_is_interactive("3")
-    for value in ["S4U", "Password", "ServiceAccount", None]:
-        assert not scheduled_task_logon_type_is_interactive(value)
-    assert scheduled_task_settings_match(
-        {
-            "startWhenAvailable": True,
-            "wakeToRun": False,
-            "disallowStartIfOnBatteries": True,
-            "stopIfGoingOnBatteries": False,
-            "multipleInstances": "IgnoreNew",
-        }
-    )
-    assert not scheduled_task_settings_match(None)
-    for key, value in [
-        ("startWhenAvailable", False),
-        ("wakeToRun", True),
-        ("disallowStartIfOnBatteries", False),
-        ("stopIfGoingOnBatteries", True),
-        ("multipleInstances", "Parallel"),
-    ]:
-        settings = {
-            "startWhenAvailable": True,
-            "wakeToRun": False,
-            "disallowStartIfOnBatteries": True,
-            "stopIfGoingOnBatteries": False,
-            "multipleInstances": "IgnoreNew",
-        }
-        settings[key] = value
-        assert not scheduled_task_settings_match(settings)
-
-
-def test_scheduled_task_script_uses_property_matching_update_and_readback() -> None:
-    script = read(TASK_SCRIPT)
-
-    assert ".ToString()" not in script
-    assert "CimClass.CimClassName" in script
-    assert "Set-ScheduledTask" in script
-    assert "scheduled_task_readback_mismatch" in script
-    assert "Test-InteractiveLogonType -Value $Task.Principal.LogonType" in script
-    assert "Test-ExactDailyStartBoundary" in script
-    assert "DisallowStartIfOnBatteries" in script
-    assert "StopIfGoingOnBatteries" in script
-    assert "MultipleInstances" in script
-
-
+        assert removed_phrase not in doc
 def test_restore_drill_uses_temporary_database_only() -> None:
     assert reject_authoritative_or_production_restore_target(RESTORE_TEMP_DB) == RESTORE_TEMP_DB
 
@@ -2057,7 +1991,7 @@ exit 0
 
 
 def test_scripts_do_not_start_application_services_or_run_migrations() -> None:
-    combined = "\n".join(read(path).lower() for path in [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, PULL_SCRIPT, TASK_SCRIPT])
+    combined = "\n".join(read(path).lower() for path in [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, PULL_SCRIPT, REMOVE_TASK_SCRIPT])
 
     forbidden = [
         "start-shared-dev",
@@ -2202,7 +2136,7 @@ def test_backup_tests_do_not_invoke_local_or_shared_launchers() -> None:
 
 
 def test_no_hardcoded_current_user_path_in_backup_sources() -> None:
-    paths = [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, ARCHIVE_VERIFIER, CANVAS_FINGERPRINT, PULL_SCRIPT, TASK_SCRIPT, DOC, Path(__file__)]
+    paths = [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, ARCHIVE_VERIFIER, CANVAS_FINGERPRINT, PULL_SCRIPT, REMOVE_TASK_SCRIPT, DOC, Path(__file__)]
     offenders = [str(path.relative_to(REPO_ROOT)) for path in paths if re.search(r"C:[/\\\\]Users[/\\\\]maoyi", read(path))]
 
     assert offenders == []
