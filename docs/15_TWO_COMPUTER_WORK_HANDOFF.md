@@ -69,8 +69,8 @@ startup. Guest reset remains the default; `-KeepSession` maps to the existing
 are:
 
 ```text
-鍚屾骞跺紑濮嬪伐浣?
-缁撴潫宸ヤ綔骞朵氦鎺?
+同步并开始工作
+结束工作并交接
 ```
 
 The UI displays local branch, local commit, tracked worktree status, latest

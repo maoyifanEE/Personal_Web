@@ -1,4 +1,4 @@
-"""Contract and isolated Git behavior tests for two-computer work handoff."""
+﻿"""Contract and isolated Git behavior tests for two-computer work handoff."""
 
 from __future__ import annotations
 
@@ -130,9 +130,32 @@ def test_bat_launches_ui_and_returns_powershell_exit_code() -> None:
     text = BAT.read_text(encoding="utf-8")
 
     assert "scripts\\work-handoff.ps1" in text
-    assert "%*" in text
+    assert "%*" not in text
+    assert 'set "ARG1=%~1"' in text
+    assert 'set "ARG2=%~2"' in text
+    assert "-Action Ui" in text
+    assert "-Action Status" in text
+    assert "-Action SyncAndStart" in text
+    assert "-Action EndAndHandoff" in text
     assert "exit /b %ERRORLEVEL%" in text
-    assert 'if /I "%~1"=="--help" goto :usage' in text
+    assert 'if /I "%ARG1%"=="--help" goto :usage' in text
+
+
+def test_bat_help_invalid_and_metacharacters_are_safe(tmp_path: Path) -> None:
+    sentinel = tmp_path / "sentinel.txt"
+    help_result = run(["cmd.exe", "/d", "/c", str(BAT), "--help"], REPO_ROOT)
+    invalid = run(["cmd.exe", "/d", "/c", str(BAT), "unknown"], REPO_ROOT)
+    too_many = run(["cmd.exe", "/d", "/c", str(BAT), "status", "extra"], REPO_ROOT)
+    payload = f'unknown & echo owned > "{sentinel}"'
+    injected = run(f'cmd.exe /d /s /c call "{BAT}" "{payload}"', REPO_ROOT)
+
+    assert help_result.returncode == 0
+    assert invalid.returncode == 2
+    assert too_many.returncode == 2
+    assert injected.returncode == 2
+    assert not sentinel.exists()
+    assert payload not in invalid.stdout
+    assert payload not in injected.stdout
 
 
 def test_successful_handoff_initializes_and_appends_metadata_parent(tmp_path: Path) -> None:
@@ -336,12 +359,71 @@ def test_mutex_blocks_second_invocation(tmp_path: Path) -> None:
     )
     try:
         time.sleep(1)
-        result = ps(comp_a, logs, "-Action", "Status", "-TestMutexName", mutex)
+        result = ps(comp_a, logs, "-Action", "SyncAndStart", "-TestMutexName", mutex)
         assert result.returncode != 0
         assert "handoff_operation_already_running" in result.stdout
     finally:
         holder.terminate()
         holder.wait(timeout=10)
+
+
+def test_ui_does_not_hold_operation_mutex_and_child_helper_reports_exit(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    operation_mutex = "Local\\PersonalWebHandoffOperationMutex"
+    holder = subprocess.Popen(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            f"$m=New-Object System.Threading.Mutex($false,'{operation_mutex}'); $m.WaitOne() | Out-Null; Start-Sleep -Seconds 5; $m.ReleaseMutex(); $m.Dispose()",
+        ],
+        cwd=comp_a,
+    )
+    try:
+        time.sleep(1)
+        ui = ps(comp_a, logs, "-Action", "Ui", "-SuppressUi", "-TestMutexName", operation_mutex)
+        assert ui.returncode == 0, ui.stdout + ui.stderr
+        assert "UI suppressed" in ui.stdout
+    finally:
+        holder.terminate()
+        holder.wait(timeout=10)
+
+    success = ps(comp_a, logs, "-TestInvokeUiChildAction", "SyncAndStart", "-TestChildExitCode", "0", "-KeepSession")
+    failure = ps(comp_a, logs, "-TestInvokeUiChildAction", "SyncAndStart", "-TestChildExitCode", "9")
+
+    assert success.returncode == 0
+    assert "UI_CHILD_STATUS=success" in success.stdout
+    assert "UI_CHILD_KEEP_SESSION=True" in success.stdout
+    assert "UI_BUTTONS_REENABLED=True" in success.stdout
+    assert failure.returncode != 0
+    assert "UI_CHILD_STATUS=failure" in failure.stdout
+    assert "UI_BUTTONS_REENABLED=True" in failure.stdout
+    assert "completed" not in failure.stdout.lower()
+
+
+def test_ui_handoff_confirmation_cancel_invokes_no_child(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+
+    result = ps(comp_a, logs, "-TestInvokeUiChildAction", "EndAndHandoff", "-TestChildExitCode", "0", "-TestUiCancelConfirmation")
+
+    assert result.returncode == 0
+    assert "UI_CHILD_CANCELLED" in result.stdout
+    assert "UI_CHILD_INVOKED=False" in result.stdout
+    assert "synthetic_child" not in result.stdout
+
+
+def test_port_inspection_failure_blocks(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+
+    result = ps(comp_a, logs, "-Action", "SyncAndStart", "-TestPortInspectionFailure")
+
+    assert result.returncode != 0
+    assert "port_inspection_failed:8000" in result.stdout
 
 
 def test_status_is_read_only_and_metadata_branch_is_isolated(tmp_path: Path) -> None:
@@ -377,13 +459,21 @@ def test_production_code_uses_no_destructive_git_commands_and_logs_are_sanitized
     assert '"merge", "--ff-only", "origin/${branch}"' in text
     assert ".local_logs\\handoff" in text
     assert "GIT_TERMINAL_PROMPT" in text
+    assert 'git {0}' not in text
+    assert '($Arguments -join " ")' not in text
 
 
 def test_ui_button_text_and_test_only_flags_are_explicit() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
 
-    assert "鍚屾骞跺紑濮嬪伐浣?" in text
-    assert "缁撴潫宸ヤ綔骞朵氦鎺?" in text
+    assert "同步并开始工作" in text
+    assert "结束工作并交接" in text
+    assert "工作已交接" in text
+    assert "分支" in text
+    assert "当前分支或 commit 尚未完整推送，交接已停止。" in text
+    assert "保留当前登录状态" in text
+    for mojibake in ["閸氬本", "缂佹挻", "瀹搞儰缍", "瑜版挸澧"]:
+        assert mojibake not in text
     assert "fake_launcher_requires_test_mode" in text
     assert "test_mode_rejects_production_repository" in text
     assert "test_mode_rejects_production_log_root" in text

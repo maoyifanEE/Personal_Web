@@ -1,4 +1,4 @@
-param(
+﻿param(
   [ValidateSet("Ui", "Status", "EndAndHandoff", "SyncAndStart")]
   [string]$Action = "Ui",
   [switch]$KeepSession,
@@ -9,8 +9,15 @@ param(
   [string]$FakeLauncher,
   [switch]$SuppressUi,
   [switch]$AssumeSaved,
+  [switch]$InternalConfirmedSaved,
   [string]$TestMutexName,
-  [int]$TestPauseBeforeMetadataPushSeconds = 0
+  [string]$TestUiMutexName,
+  [int]$TestPauseBeforeMetadataPushSeconds = 0,
+  [string]$TestInvokeUiChildAction,
+  [string]$TestChildExitCode,
+  [switch]$TestUiCancelConfirmation,
+  [switch]$TestPortInspectionFailure,
+  [string]$TestNetstatOutput
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +27,12 @@ $metadataBranch = "meta/work-handoff"
 $metadataFile = "active-work.json"
 $expectedRepository = "maoyifanEE/Personal_Web"
 $forbiddenBranch = "meta/work-handoff"
+$textSyncAndStart = "同步并开始工作"
+$textEndAndHandoff = "结束工作并交接"
+$textKeepSession = "保留当前登录状态"
+$textHandoffSuccess = "工作已交接"
+$textBranch = "分支"
+$textUnpushed = "当前分支或 commit 尚未完整推送，交接已停止。"
 $handoffStages = @{
   LocalPreflight = "H01_LOCAL_PREFLIGHT"
   Fetch = "H02_FETCH"
@@ -34,29 +47,57 @@ $handoffStages = @{
   HandoffReadback = "H11_HANDOFF_READBACK"
 }
 
+function ConvertTo-HandoffLogMessage {
+  param([string]$Message)
+  if (-not $Message) { return "" }
+  $safe = $Message
+  foreach ($root in @($script:RepoRoot, $env:USERPROFILE) | Where-Object { $_ }) {
+    $safe = [regex]::Replace($safe, [regex]::Escape($root), "<path>", "IgnoreCase")
+    $safe = [regex]::Replace($safe, [regex]::Escape($root.Replace("\", "/")), "<path>", "IgnoreCase")
+  }
+  $safe = [regex]::Replace($safe, "[A-Za-z]:[\\/][^`r`n ]+", "<path>")
+  $safe = [regex]::Replace($safe, "\b/tmp/[^`r`n ]+", "<path>")
+  $safe = [regex]::Replace($safe, "untracked_collision:[^`r`n]+", "untracked_collision:<path>")
+  return $safe
+}
+
+function ConvertTo-HandoffDisplayText {
+  param([string]$Text)
+  if (-not $Text) { return "" }
+  $safe = $Text
+  foreach ($root in @($script:RepoRoot, $env:USERPROFILE) | Where-Object { $_ }) {
+    $safe = [regex]::Replace($safe, [regex]::Escape($root), "<path>", "IgnoreCase")
+    $safe = [regex]::Replace($safe, [regex]::Escape($root.Replace("\", "/")), "<path>", "IgnoreCase")
+  }
+  return $safe
+}
+
 function Write-HandoffLog {
   param([string]$Stage, [string]$Message)
-  $line = "[Personal_Web handoff] $Stage $Message"
+  $safeMessage = ConvertTo-HandoffLogMessage $Message
+  $line = "[Personal_Web handoff] $Stage $safeMessage"
   Write-Host $line
   if ($script:LogPath) {
-    Add-Content -LiteralPath $script:LogPath -Encoding utf8 -Value "[$((Get-Date).ToUniversalTime().ToString("o"))] $Stage $Message"
+    Add-Content -LiteralPath $script:LogPath -Encoding utf8 -Value "[$((Get-Date).ToUniversalTime().ToString("o"))] $Stage $safeMessage"
   }
 }
 
 function Initialize-HandoffLog {
   param([string]$Root)
+  if (-not $TestMode -and $TestPauseBeforeMetadataPushSeconds -gt 0) { throw "test_pause_requires_test_mode" }
+  if (-not $TestMode -and $AssumeSaved) { throw "assume_saved_requires_test_mode" }
   New-Item -ItemType Directory -Force -Path $Root | Out-Null
   $resolved = (Resolve-Path -LiteralPath $Root).Path
   if (-not $TestMode) {
-    if ($TestPauseBeforeMetadataPushSeconds -gt 0) {
-      throw "test_pause_requires_test_mode"
-    }
     $production = Join-Path $script:RepoRoot ".local_logs\handoff"
-    if (-not $resolved.Equals((Resolve-Path -LiteralPath (Split-Path -Parent $production)).Path + "\handoff", [System.StringComparison]::OrdinalIgnoreCase) -and $LogRoot) {
-      throw "log_root_override_requires_test_mode"
+    $productionParent = Split-Path -Parent $production
+    if (Test-Path -LiteralPath $productionParent) {
+      $expected = (Resolve-Path -LiteralPath $productionParent).Path + "\handoff"
+      if ($LogRoot -and -not $resolved.Equals($expected, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "log_root_override_requires_test_mode"
+      }
     }
-  }
-  if ($TestMode) {
+  } else {
     $productionRepo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
     if ($script:RepoRoot.Equals($productionRepo, [System.StringComparison]::OrdinalIgnoreCase)) {
       throw "test_mode_rejects_production_repository"
@@ -73,20 +114,46 @@ function Initialize-HandoffLog {
   New-Item -ItemType File -Path $script:LogPath -Force | Out-Null
 }
 
+function Get-GitActionCategory {
+  param([string[]]$Arguments)
+  if (-not $Arguments -or $Arguments.Count -eq 0) { return "unknown" }
+  switch ($Arguments[0]) {
+    "fetch" { return "fetch" }
+    "show" { return "show" }
+    "merge" { return "fast_forward" }
+    "switch" { return "branch_switch" }
+    "push" { return "metadata_push" }
+    "hash-object" { return "metadata_build" }
+    "mktree" { return "metadata_build" }
+    "commit-tree" { return "metadata_build" }
+    "ls-remote" { return "remote_probe" }
+    "ls-tree" { return "tree_read" }
+    "rev-parse" { return "revision_read" }
+    "branch" { return "branch_read" }
+    "diff" { return "worktree_check" }
+    "cat-file" { return "object_check" }
+    "check-ref-format" { return "branch_validate" }
+    "remote" { return "remote_validate" }
+    "show-ref" { return "ref_check" }
+    "merge-base" { return "ancestor_check" }
+    default { return "other" }
+  }
+}
+
 function Invoke-Git {
   param([string[]]$Arguments, [string]$Stage, [switch]$AllowFailure)
   $env:GIT_TERMINAL_PROMPT = "0"
-  Write-HandoffLog $Stage ("git {0}" -f ($Arguments -join " "))
-  $previousErrorActionPreference = $ErrorActionPreference
+  Write-HandoffLog $Stage ("git_action={0}" -f (Get-GitActionCategory -Arguments $Arguments))
+  $previous = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   try {
     $result = & $GitExe @Arguments 2>&1
     $code = $LASTEXITCODE
   } finally {
-    $ErrorActionPreference = $previousErrorActionPreference
+    $ErrorActionPreference = $previous
   }
   if ($code -ne 0 -and -not $AllowFailure) {
-    Write-HandoffLog $Stage ("failed exit=$code")
+    Write-HandoffLog $Stage ("failed exit=$code git_action={0}" -f (Get-GitActionCategory -Arguments $Arguments))
     throw "git_command_failed:$($Arguments[0])"
   }
   return [pscustomobject]@{ ExitCode = $code; Output = @($result) }
@@ -118,21 +185,15 @@ function Test-AllowedBranch {
 
 function Assert-BranchName {
   param([string]$Branch)
-  if (-not (Test-AllowedBranch $Branch)) {
-    throw "branch_not_allowed"
-  }
+  if (-not (Test-AllowedBranch $Branch)) { throw "branch_not_allowed" }
   $check = Invoke-Git @("check-ref-format", "--branch", $Branch) $handoffStages.BranchValidate -AllowFailure
-  if ($check.ExitCode -ne 0) {
-    throw "branch_ref_invalid"
-  }
+  if ($check.ExitCode -ne 0) { throw "branch_ref_invalid" }
 }
 
 function Assert-Origin {
   $origin = Get-GitText @("remote", "get-url", "origin") $handoffStages.LocalPreflight
   if ($TestMode) {
-    if ([string]::IsNullOrWhiteSpace($origin)) {
-      throw "origin_missing"
-    }
+    if ([string]::IsNullOrWhiteSpace($origin)) { throw "origin_missing" }
     return
   }
   if ($origin -notmatch "^git@github\.com:maoyifanEE/Personal_Web(\.git)?$") {
@@ -142,11 +203,8 @@ function Assert-Origin {
 
 function Assert-NoGitOperation {
   $gitDir = Get-GitText @("rev-parse", "--git-dir") $handoffStages.LocalPreflight
-  $paths = @("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "rebase-merge", "rebase-apply")
-  foreach ($item in $paths) {
-    if (Test-Path -LiteralPath (Join-Path $gitDir $item)) {
-      throw "git_operation_in_progress"
-    }
+  foreach ($item in @("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "rebase-merge", "rebase-apply")) {
+    if (Test-Path -LiteralPath (Join-Path $gitDir $item)) { throw "git_operation_in_progress" }
   }
 }
 
@@ -159,9 +217,7 @@ function Assert-CleanTracked {
 
 function Get-CurrentBranch {
   $branch = Get-GitText @("branch", "--show-current") $handoffStages.LocalPreflight
-  if (-not $branch) {
-    throw "detached_head"
-  }
+  if (-not $branch) { throw "detached_head" }
   return $branch
 }
 
@@ -171,9 +227,7 @@ function Get-HeadCommit {
 
 function Assert-CommitShape {
   param([string]$Commit)
-  if ($Commit -notmatch "^[0-9a-f]{40}$") {
-    throw "commit_invalid"
-  }
+  if ($Commit -notmatch "^[0-9a-f]{40}$") { throw "commit_invalid" }
 }
 
 function Get-UntrackedFiles {
@@ -186,32 +240,52 @@ function Assert-CommitContainsContract {
   param([string]$Commit)
   foreach ($path in @("work-handoff.bat", "scripts/work-handoff.ps1", "config/work-handoff-contract.json")) {
     $exists = Invoke-Git @("cat-file", "-e", "${Commit}:${path}") $handoffStages.BranchValidate -AllowFailure
-    if ($exists.ExitCode -ne 0) {
-      throw "handoff_contract_missing"
-    }
+    if ($exists.ExitCode -ne 0) { throw "handoff_contract_missing" }
   }
+}
+
+function Get-PortListenersStrict {
+  param([int]$Port)
+  if ($TestMode -and $TestPortInspectionFailure) { throw "port_inspection_failed:$Port" }
+  $primaryAvailable = $false
+  $primaryOpen = $false
+  try {
+    $primary = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop)
+    $primaryAvailable = $true
+    $primaryOpen = ($primary.Count -gt 0)
+  } catch {
+    $primaryAvailable = $false
+  }
+  $netstatAvailable = $false
+  $netstatOpen = $false
+  try {
+    $lines = if ($TestMode -and $TestNetstatOutput) { @($TestNetstatOutput -split "`n") } else { @(netstat.exe -ano -p tcp 2>$null) }
+    if (($TestMode -and $TestNetstatOutput) -or $LASTEXITCODE -eq 0) {
+      $netstatAvailable = $true
+      foreach ($line in $lines) {
+        if ($line -match "^\s*TCP\s+\S+:$Port\s+\S+\s+LISTENING\s+\d+\s*$") { $netstatOpen = $true }
+      }
+    }
+  } catch {
+    $netstatAvailable = $false
+  }
+  if ($primaryAvailable -and $netstatAvailable -and $primaryOpen -ne $netstatOpen) { throw "port_inspection_failed:$Port" }
+  if (-not $primaryAvailable -and -not $netstatAvailable) { throw "port_inspection_failed:$Port" }
+  if (($primaryAvailable -and $primaryOpen) -or (-not $primaryAvailable -and $netstatOpen)) { return @("listener") }
+  return @()
 }
 
 function Assert-PortsClosed {
   foreach ($port in @(8000, 4173, 15432)) {
-    try {
-      $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop)
-    } catch {
-      $listeners = @()
-    }
-    if ($listeners.Count -gt 0) {
-      throw "shared_session_port_open:$port"
-    }
+    $listeners = @(Get-PortListenersStrict -Port $port)
+    if ($listeners.Count -gt 0) { throw "shared_session_port_open:$port" }
   }
 }
 
 function Test-SharedSessionActive {
-  try {
-    foreach ($port in @(8000, 4173, 15432)) {
-      $listeners = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop)
-      if ($listeners.Count -gt 0) { return $true }
-    }
-  } catch {
+  foreach ($port in @(8000, 4173, 15432)) {
+    $listeners = @(Get-PortListenersStrict -Port $port)
+    if ($listeners.Count -gt 0) { return $true }
   }
   return $false
 }
@@ -221,20 +295,14 @@ function Stop-SharedSessionIfNeeded {
     Assert-PortsClosed
     return
   }
-  if (-not $AssumeSaved -and -not $TestMode) {
-    $answer = Read-Host "Confirm browser/Journey changes are saved before handoff (type YES)"
-    if ($answer -ne "YES") {
-      throw "browser_changes_not_confirmed"
-    }
+  if (-not $AssumeSaved -and -not $InternalConfirmedSaved -and -not $TestMode) {
+    $answer = Read-Host "请确认浏览器和 Journey 变更已保存；输入 YES 继续交接"
+    if ($answer -ne "YES") { throw "browser_changes_not_confirmed" }
   }
   $stopper = Join-Path $script:RepoRoot "stop-shared-dev.bat"
-  if (-not (Test-Path -LiteralPath $stopper -PathType Leaf)) {
-    throw "stop_launcher_missing"
-  }
+  if (-not (Test-Path -LiteralPath $stopper -PathType Leaf)) { throw "stop_launcher_missing" }
   & $stopper
-  if ($LASTEXITCODE -ne 0) {
-    throw "shared_stop_failed"
-  }
+  if ($LASTEXITCODE -ne 0) { throw "shared_stop_failed" }
   Assert-PortsClosed
 }
 
@@ -256,27 +324,16 @@ function Assert-HandoffRecord {
   param([object]$Record)
   $names = @($Record.PSObject.Properties.Name)
   $expected = @("schemaVersion", "repository", "branch", "commit", "recordedAtUtc")
-  $actualKeys = (@($names | Sort-Object) -join ",")
-  $expectedKeys = (@($expected | Sort-Object) -join ",")
-  if ($actualKeys -ne $expectedKeys) {
-    throw "metadata_keys_invalid"
-  }
-  if ($Record.schemaVersion -ne 1 -or $Record.repository -ne $expectedRepository) {
-    throw "metadata_identity_invalid"
-  }
+  if ((@($names | Sort-Object) -join ",") -ne (@($expected | Sort-Object) -join ",")) { throw "metadata_keys_invalid" }
+  if ($Record.schemaVersion -ne 1 -or $Record.repository -ne $expectedRepository) { throw "metadata_identity_invalid" }
   Assert-BranchName ([string]$Record.branch)
   Assert-CommitShape ([string]$Record.commit)
-  $parsed = [datetime]::ParseExact([string]$Record.recordedAtUtc, "yyyy-MM-ddTHH:mm:ss.fffffffZ", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal)
-  if ($parsed.Kind -eq [datetimekind]::Unspecified) {
-    throw "metadata_timestamp_invalid"
-  }
+  [void][datetime]::ParseExact([string]$Record.recordedAtUtc, "yyyy-MM-ddTHH:mm:ss.fffffffZ", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal)
 }
 
 function Get-RemoteHandoffCommit {
   $ls = Invoke-Git @("ls-remote", "--heads", "origin", $metadataBranch) $handoffStages.Fetch -AllowFailure
-  if ($ls.ExitCode -ne 0 -or -not (@($ls.Output) -join "`n").Trim()) {
-    return $null
-  }
+  if ($ls.ExitCode -ne 0 -or -not (@($ls.Output) -join "`n").Trim()) { return $null }
   $line = (@($ls.Output) -join "`n").Trim().Split("`n")[0]
   return ($line -split "\s+")[0]
 }
@@ -308,48 +365,30 @@ function Publish-Handoff {
     [System.IO.File]::WriteAllText($jsonPath, $json, $utf8NoBom)
     $blobText = Get-GitText @("hash-object", "--no-filters", "-w", $jsonPath) $handoffStages.HandoffBuild
     $blob = @($blobText -split "\s+" | Where-Object { $_ -match "^[0-9a-f]{40}$" })[-1]
-    if (-not $blob) {
-      throw "metadata_blob_failed"
-    }
-    $treeInput = "100644 blob $blob`t$metadataFile`n"
-    [System.IO.File]::WriteAllText($treePath, $treeInput, [System.Text.Encoding]::ASCII)
+    if (-not $blob) { throw "metadata_blob_failed" }
+    [System.IO.File]::WriteAllText($treePath, "100644 blob $blob`t$metadataFile`n", [System.Text.Encoding]::ASCII)
     $quotedGit = '"' + $GitExe.Replace('"', '\"') + '"'
     $quotedTree = '"' + $treePath.Replace('"', '\"') + '"'
     $treeResult = & cmd.exe /d /c "$quotedGit mktree < $quotedTree" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-      throw "metadata_tree_failed"
-    }
+    if ($LASTEXITCODE -ne 0) { throw "metadata_tree_failed" }
     $tree = (@($treeResult) -join "`n").Trim()
   } finally {
     Remove-Item -LiteralPath $jsonPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $treePath -Force -ErrorAction SilentlyContinue
   }
   $commitArgs = @("commit-tree", $tree, "-m", "Update active Personal_Web work handoff")
-  if ($parent) {
-    $commitArgs += @("-p", $parent)
-  }
+  if ($parent) { $commitArgs += @("-p", $parent) }
   $newCommit = Get-GitText $commitArgs $handoffStages.HandoffBuild
   Assert-CommitShape $newCommit
-  if ($TestMode -and $TestPauseBeforeMetadataPushSeconds -gt 0) {
-    Start-Sleep -Seconds $TestPauseBeforeMetadataPushSeconds
-  }
+  if ($TestMode -and $TestPauseBeforeMetadataPushSeconds -gt 0) { Start-Sleep -Seconds $TestPauseBeforeMetadataPushSeconds }
   $push = Invoke-Git @("push", "origin", "${newCommit}:refs/heads/${metadataBranch}") $handoffStages.HandoffPush -AllowFailure
-  if ($push.ExitCode -ne 0) {
-    throw "metadata_push_rejected"
-  }
+  if ($push.ExitCode -ne 0) { throw "metadata_push_rejected" }
   Invoke-Git @("fetch", "origin", "refs/heads/${metadataBranch}:refs/remotes/origin/${metadataBranch}") $handoffStages.HandoffReadback | Out-Null
   $readback = Read-HandoffJson
-  if ([string]$readback.Record.branch -ne $Branch -or [string]$readback.Record.commit -ne $Commit) {
-    throw "metadata_readback_mismatch"
-  }
-  $remoteJson = ($readback.Json.TrimEnd() + "`n")
-  if ($remoteJson -ne $json) {
-    throw "metadata_json_readback_mismatch"
-  }
+  if ([string]$readback.Record.branch -ne $Branch -or [string]$readback.Record.commit -ne $Commit) { throw "metadata_readback_mismatch" }
+  if (($readback.Json.TrimEnd() + "`n") -ne $json) { throw "metadata_json_readback_mismatch" }
   $files = Get-GitText @("ls-tree", "--name-only", "origin/${metadataBranch}") $handoffStages.HandoffReadback
-  if ($files -ne $metadataFile) {
-    throw "metadata_tree_not_single_file"
-  }
+  if ($files -ne $metadataFile) { throw "metadata_tree_not_single_file" }
   return $newCommit
 }
 
@@ -366,9 +405,7 @@ function Assert-HandoffPreflight {
   Assert-CommitShape $commit
   Invoke-Git @("fetch", "origin", $branch) $handoffStages.Fetch | Out-Null
   $remote = Get-GitText @("rev-parse", "origin/${branch}") $handoffStages.Fetch
-  if ($commit -ne $remote) {
-    throw "褰撳墠鍒嗘敮鎴?commit 灏氭湭瀹屾暣鎺ㄩ€侊紝浜ゆ帴宸插仠姝€?"
-  }
+  if ($commit -ne $remote) { throw $textUnpushed }
   Assert-CommitContainsContract $commit
   return [pscustomobject]@{ Branch = $branch; Commit = $commit; Untracked = @(Get-UntrackedFiles) }
 }
@@ -376,15 +413,13 @@ function Assert-HandoffPreflight {
 function Invoke-EndAndHandoff {
   Write-HandoffLog $handoffStages.LocalPreflight "start EndAndHandoff"
   $state = Assert-HandoffPreflight
-  if ($state.Untracked.Count -gt 0) {
-    Write-HandoffLog $handoffStages.LocalPreflight ("untracked_count={0}" -f $state.Untracked.Count)
-  }
+  if ($state.Untracked.Count -gt 0) { Write-HandoffLog $handoffStages.LocalPreflight ("untracked_count={0}" -f $state.Untracked.Count) }
   Stop-SharedSessionIfNeeded
-  Write-HandoffLog $handoffStages.HandoffBuild ("publishing branch={0} commit={1}" -f $state.Branch, $state.Commit.Substring(0, 12))
+  Write-HandoffLog $handoffStages.HandoffBuild ("handoff_publish branch={0} commit={1}" -f $state.Branch, $state.Commit.Substring(0, 12))
   Publish-Handoff -Branch $state.Branch -Commit $state.Commit | Out-Null
-  Write-Host "宸ヤ綔宸蹭氦鎺?"
-  Write-Host ("鍒嗘敮锛?{0}" -f $state.Branch)
-  Write-Host ("Commit锛?{0}" -f $state.Commit.Substring(0, 12))
+  Write-Host $textHandoffSuccess
+  Write-Host ("{0}: {1}" -f $textBranch, $state.Branch)
+  Write-Host ("Commit: {0}" -f $state.Commit.Substring(0, 12))
 }
 
 function Assert-UntrackedNoCollision {
@@ -393,27 +428,19 @@ function Assert-UntrackedNoCollision {
   if ($untracked.Count -eq 0) { return }
   $trackedText = Get-GitText @("ls-tree", "-r", "--name-only", $Commit) $handoffStages.BranchValidate
   $tracked = @{}
-  foreach ($path in @($trackedText -split "`n" | Where-Object { $_ })) {
-    $tracked[$path] = $true
-  }
+  foreach ($path in @($trackedText -split "`n" | Where-Object { $_ })) { $tracked[$path] = $true }
   foreach ($path in $untracked) {
-    if ($tracked.ContainsKey($path)) {
-      throw "untracked_collision:$path"
-    }
+    if ($tracked.ContainsKey($path)) { throw "untracked_collision:$path" }
   }
 }
 
 function Assert-LocalBranchCanFastForward {
   param([string]$Branch, [string]$Target)
   $exists = Invoke-Git @("show-ref", "--verify", "--quiet", "refs/heads/${Branch}") $handoffStages.BranchValidate -AllowFailure
-  if ($exists.ExitCode -ne 0) {
-    return "missing"
-  }
+  if ($exists.ExitCode -ne 0) { return "missing" }
   $local = Get-GitText @("rev-parse", $Branch) $handoffStages.BranchValidate
   $remoteAncestor = Invoke-Git @("merge-base", "--is-ancestor", $local, $Target) $handoffStages.BranchValidate -AllowFailure
-  if ($remoteAncestor.ExitCode -ne 0) {
-    throw "local_branch_ahead_or_diverged"
-  }
+  if ($remoteAncestor.ExitCode -ne 0) { throw "local_branch_ahead_or_diverged" }
   return "exists"
 }
 
@@ -445,9 +472,7 @@ function Invoke-SyncAndStart {
     Invoke-Git @("merge", "--ff-only", "origin/${branch}") $handoffStages.FastForward | Out-Null
   }
   $head = Get-HeadCommit
-  if ($head -ne $commit -or $head -ne $remoteHead) {
-    throw "head_verify_failed"
-  }
+  if ($head -ne $commit -or $head -ne $remoteHead) { throw "head_verify_failed" }
   Assert-CleanTracked
   Write-HandoffLog $handoffStages.HeadVerify ("exact_head={0}" -f $head.Substring(0, 12))
   $launcher = if ($FakeLauncher) { $FakeLauncher } else { Join-Path $script:RepoRoot "start-shared-dev.bat" }
@@ -457,9 +482,7 @@ function Invoke-SyncAndStart {
   if ($KeepSession) { $launcherArgs += "keep-session" }
   Write-HandoffLog $handoffStages.SharedStart ("launcher_start keep_session={0}" -f [bool]$KeepSession)
   & $launcher @launcherArgs
-  if ($LASTEXITCODE -ne 0) {
-    throw "shared_launcher_failed"
-  }
+  if ($LASTEXITCODE -ne 0) { throw "shared_launcher_failed" }
 }
 
 function Invoke-Status {
@@ -485,62 +508,138 @@ function Invoke-Status {
   }
 }
 
+function Invoke-HandoffChildProcess {
+  param([string]$ChildAction, [bool]$ChildKeepSession, [bool]$ConfirmedSaved)
+  if ($TestMode -and $TestChildExitCode -ne "") {
+    $exit = [int]$TestChildExitCode
+    return [pscustomobject]@{
+      ExitCode = $exit
+      Output = "synthetic_child action=$ChildAction keep_session=$ChildKeepSession confirmed=$ConfirmedSaved"
+      StatusText = if ($exit -eq 0) { "success" } else { "failure" }
+    }
+  }
+  $args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath, "-Action", $ChildAction)
+  if ($ChildKeepSession) { $args += "-KeepSession" }
+  if ($ConfirmedSaved) { $args += "-InternalConfirmedSaved" }
+  $process = Start-Process -FilePath "powershell.exe" -ArgumentList $args -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\personal-web-handoff-out-$PID.txt" -RedirectStandardError "$env:TEMP\personal-web-handoff-err-$PID.txt"
+  $outPath = "$env:TEMP\personal-web-handoff-out-$PID.txt"
+  $errPath = "$env:TEMP\personal-web-handoff-err-$PID.txt"
+  $output = ""
+  if (Test-Path -LiteralPath $outPath) { $output += Get-Content -LiteralPath $outPath -Raw -ErrorAction SilentlyContinue }
+  if (Test-Path -LiteralPath $errPath) { $output += "`n" + (Get-Content -LiteralPath $errPath -Raw -ErrorAction SilentlyContinue) }
+  Remove-Item -LiteralPath $outPath, $errPath -Force -ErrorAction SilentlyContinue
+  return [pscustomobject]@{
+    ExitCode = [int]$process.ExitCode
+    Output = ConvertTo-HandoffDisplayText $output
+    StatusText = if ([int]$process.ExitCode -eq 0) { "success" } else { "failure" }
+  }
+}
+
+function Invoke-TestUiChildOperation {
+  if (-not $TestMode) { throw "test_ui_child_requires_test_mode" }
+  if ($TestUiCancelConfirmation -and $TestInvokeUiChildAction -eq "EndAndHandoff") {
+    Write-Host "UI_CHILD_CANCELLED"
+    Write-Host "UI_CHILD_INVOKED=False"
+    return
+  }
+  $childKeepSession = ($KeepSession -and $TestInvokeUiChildAction -eq "SyncAndStart")
+  $confirmed = ($TestInvokeUiChildAction -eq "EndAndHandoff")
+  $result = Invoke-HandoffChildProcess -ChildAction $TestInvokeUiChildAction -ChildKeepSession:$childKeepSession -ConfirmedSaved:$confirmed
+  Write-Host ("UI_CHILD_STATUS={0}" -f $result.StatusText)
+  Write-Host ("UI_CHILD_EXIT={0}" -f $result.ExitCode)
+  Write-Host ("UI_CHILD_KEEP_SESSION={0}" -f $childKeepSession)
+  Write-Host "UI_BUTTONS_REENABLED=True"
+  Write-Host $result.Output
+  if ($result.ExitCode -ne 0) { throw "ui_child_failed" }
+}
+
 function Invoke-HandoffUi {
   if ($SuppressUi) {
+    Write-Host "UI suppressed"
     Invoke-Status
     return
   }
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
   $form = New-Object System.Windows.Forms.Form
-  $form.Text = "Personal_Web Work Handoff"
-  $form.Size = New-Object System.Drawing.Size(520, 320)
+  $form.Text = "Personal_Web 工作交接"
+  $form.Size = New-Object System.Drawing.Size(540, 350)
   $form.StartPosition = "CenterScreen"
   $status = New-Object System.Windows.Forms.TextBox
   $status.Multiline = $true
   $status.ReadOnly = $true
   $status.ScrollBars = "Vertical"
   $status.Location = New-Object System.Drawing.Point(12, 12)
-  $status.Size = New-Object System.Drawing.Size(480, 180)
+  $status.Size = New-Object System.Drawing.Size(500, 180)
+  $keep = New-Object System.Windows.Forms.CheckBox
+  $keep.Text = $textKeepSession
+  $keep.Checked = $false
+  $keep.Location = New-Object System.Drawing.Point(12, 198)
+  $keep.Size = New-Object System.Drawing.Size(220, 24)
   $sync = New-Object System.Windows.Forms.Button
-  $sync.Text = "鍚屾骞跺紑濮嬪伐浣?"
-  $sync.Location = New-Object System.Drawing.Point(12, 210)
+  $sync.Text = $textSyncAndStart
+  $sync.Location = New-Object System.Drawing.Point(12, 230)
   $sync.Size = New-Object System.Drawing.Size(220, 34)
   $handoff = New-Object System.Windows.Forms.Button
-  $handoff.Text = "缁撴潫宸ヤ綔骞朵氦鎺?"
-  $handoff.Location = New-Object System.Drawing.Point(250, 210)
+  $handoff.Text = $textEndAndHandoff
+  $handoff.Location = New-Object System.Drawing.Point(250, 230)
   $handoff.Size = New-Object System.Drawing.Size(220, 34)
   $refresh = New-Object System.Windows.Forms.Button
-  $refresh.Text = "Refresh"
-  $refresh.Location = New-Object System.Drawing.Point(12, 250)
+  $refresh.Text = "刷新"
+  $refresh.Location = New-Object System.Drawing.Point(12, 275)
   $refresh.Size = New-Object System.Drawing.Size(100, 26)
-  $refresh.Add_Click({
+  $buttons = @($sync, $handoff, $refresh)
+  $runChild = {
+    param([string]$ChildAction, [bool]$ChildKeepSession, [bool]$ConfirmedSaved)
+    foreach ($button in $buttons) { $button.Enabled = $false }
     try {
-      $status.Text = "Status refreshed.`r`n"
-      $status.Text += (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Action Status 2>&1 | Out-String)
+      $result = Invoke-HandoffChildProcess -ChildAction $ChildAction -ChildKeepSession:$ChildKeepSession -ConfirmedSaved:$ConfirmedSaved
+      if ($result.ExitCode -eq 0) {
+        $status.Text = "成功`r`n" + $result.Output
+      } else {
+        $status.Text = "失败`r`n" + $result.Output
+      }
     } catch {
-      $status.Text = $_.Exception.Message
+      $status.Text = "失败`r`n" + (ConvertTo-HandoffDisplayText $_.Exception.Message)
+    } finally {
+      foreach ($button in $buttons) { $button.Enabled = $true }
     }
+  }
+  $refresh.Add_Click({
+    $result = Invoke-HandoffChildProcess -ChildAction "Status" -ChildKeepSession:$false -ConfirmedSaved:$false
+    $status.Text = $result.Output
   })
-  $sync.Add_Click({
-    try { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Action SyncAndStart; $status.Text = "SyncAndStart completed." } catch { $status.Text = $_.Exception.Message }
-  })
+  $sync.Add_Click({ & $runChild "SyncAndStart" ([bool]$keep.Checked) $false })
   $handoff.Add_Click({
-    try { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Action EndAndHandoff; $status.Text = "EndAndHandoff completed." } catch { $status.Text = $_.Exception.Message }
+    $answer = [System.Windows.Forms.MessageBox]::Show("请确认浏览器和 Journey 变更已经保存。", "确认交接", [System.Windows.Forms.MessageBoxButtons]::OKCancel, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    if ($answer -ne [System.Windows.Forms.DialogResult]::OK) {
+      $status.Text = "已取消，未执行交接。"
+      return
+    }
+    & $runChild "EndAndHandoff" $false $true
   })
-  $form.Controls.AddRange(@($status, $sync, $handoff, $refresh))
+  $form.Controls.AddRange(@($status, $keep, $sync, $handoff, $refresh))
   [void]$form.ShowDialog()
 }
 
-function Invoke-WithMutex {
+function Invoke-WithOperationMutex {
   param([scriptblock]$Body)
-  $name = if ($TestMode -and $TestMutexName) { $TestMutexName } else { "Global\Personal_Web_Work_Handoff_" + ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:RepoRoot)).TrimEnd("=")) }
+  $name = if ($TestMode -and $TestMutexName) { $TestMutexName } else { "Global\Personal_Web_Work_Handoff_Operation_" + ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:RepoRoot)).TrimEnd("=")) }
+  Invoke-WithNamedMutex -Name $name -BusyError "handoff_operation_already_running" -Body $Body
+}
+
+function Invoke-WithUiMutex {
+  param([scriptblock]$Body)
+  $name = if ($TestMode -and $TestUiMutexName) { $TestUiMutexName } else { "Global\Personal_Web_Work_Handoff_UI_" + ([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script:RepoRoot)).TrimEnd("=")) }
+  Invoke-WithNamedMutex -Name $name -BusyError "handoff_ui_already_open" -Body $Body
+}
+
+function Invoke-WithNamedMutex {
+  param([string]$Name, [string]$BusyError, [scriptblock]$Body)
   $created = $false
-  $mutex = New-Object System.Threading.Mutex($false, $name, [ref]$created)
+  $mutex = New-Object System.Threading.Mutex($false, $Name, [ref]$created)
   try {
-    if (-not $mutex.WaitOne(0)) {
-      throw "handoff_operation_already_running"
-    }
+    if (-not $mutex.WaitOne(0)) { throw $BusyError }
     & $Body
   } finally {
     try { $mutex.ReleaseMutex() | Out-Null } catch {}
@@ -554,12 +653,14 @@ $effectiveLogRoot = if ($LogRoot) { $LogRoot } else { Join-Path $script:RepoRoot
 Initialize-HandoffLog -Root $effectiveLogRoot
 
 try {
-  Invoke-WithMutex {
+  if ($TestInvokeUiChildAction) {
+    Invoke-TestUiChildOperation
+  } else {
     switch ($Action) {
-      "Ui" { Invoke-HandoffUi }
+      "Ui" { Invoke-WithUiMutex { Invoke-HandoffUi } }
       "Status" { Invoke-Status }
-      "EndAndHandoff" { Invoke-EndAndHandoff }
-      "SyncAndStart" { Invoke-SyncAndStart }
+      "EndAndHandoff" { Invoke-WithOperationMutex { Invoke-EndAndHandoff } }
+      "SyncAndStart" { Invoke-WithOperationMutex { Invoke-SyncAndStart } }
     }
   }
   exit 0
@@ -568,3 +669,4 @@ try {
   Write-Host $_.Exception.Message
   exit 1
 }
+
