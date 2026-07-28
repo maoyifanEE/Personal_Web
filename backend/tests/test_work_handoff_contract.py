@@ -18,6 +18,12 @@ CONTRACT = REPO_ROOT / "config" / "work-handoff-contract.json"
 META_BRANCH = "meta/work-handoff"
 
 
+def sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def run(
     args: list[str],
     cwd: Path,
@@ -81,6 +87,27 @@ def copy_repo_to_path(source: Path, target: Path) -> None:
     shutil.copytree(source, target, ignore=ignore)
 
 
+def fake_git_with_ls_remote(tmp_path: Path, body: str) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fake = tmp_path / "fake-git.bat"
+    fake.write_text(
+        "\r\n".join(
+            [
+                "@echo off",
+                "if /I not \"%~1\"==\"ls-remote\" goto delegate",
+                *body.splitlines(),
+                "exit /b %ERRORLEVEL%",
+                ":delegate",
+                "git %*",
+                "exit /b %ERRORLEVEL%",
+            ]
+        )
+        + "\r\n",
+        encoding="utf-8",
+    )
+    return fake
+
+
 def seed_repo(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     origin = tmp_path / "origin.git"
     git(tmp_path, "init", "--bare", str(origin))
@@ -124,6 +151,29 @@ def make_branch(repo: Path, name: str, text: str) -> str:
 def read_metadata(repo: Path) -> dict[str, object]:
     text = git(repo, "show", f"origin/{META_BRANCH}:active-work.json").stdout
     return json.loads(text)
+
+
+def snapshot_status_immutable_state(repo: Path, log_root: Path) -> dict[str, object]:
+    files = sorted(
+        str(path.relative_to(repo)).replace("\\", "/")
+        for path in repo.rglob("*")
+        if ".git" not in path.relative_to(repo).parts and path.is_file()
+    )
+    logs = {}
+    if log_root.exists():
+        for path in sorted(log_root.glob("work-handoff-*.log")):
+            stat = path.stat()
+            logs[path.name] = {"hash": sha256(path), "mtime_ns": stat.st_mtime_ns}
+    refs = git(repo, "for-each-ref", "--format=%(refname) %(objectname)").stdout
+    return {
+        "files": files,
+        "log_root_exists": log_root.exists(),
+        "logs": logs,
+        "refs": refs,
+        "branch": git(repo, "branch", "--show-current").stdout.strip(),
+        "head": git(repo, "rev-parse", "HEAD").stdout.strip(),
+        "tracked": git(repo, "status", "--short").stdout,
+    }
 
 
 def test_contract_file_is_minimal_and_metadata_safe() -> None:
@@ -205,6 +255,49 @@ def test_native_windows_argument_quoting_edge_cases(tmp_path: Path) -> None:
     )
 
 
+def test_remote_handoff_probe_classifies_absent_present_and_failed_states(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+
+    absent = ps(comp_a, logs, "-Action", "Status")
+    assert absent.returncode == 0, absent.stdout + absent.stderr
+    assert "Handoff branch: (not initialized)" in absent.stdout
+
+    first = ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved")
+    assert first.returncode == 0, first.stdout + first.stderr
+    present = ps(comp_a, logs, "-Action", "Status")
+    head = git(comp_a, "rev-parse", "HEAD").stdout.strip()
+    assert present.returncode == 0, present.stdout + present.stderr
+    assert f"Local commit: {head[:12]}" in present.stdout
+    assert f"Handoff commit: {head[:12]}" in present.stdout
+    assert head in json.dumps(read_metadata(comp_a))
+
+    failing_git = fake_git_with_ls_remote(tmp_path, "exit /b 128")
+    failed = ps(comp_a, logs, "-Action", "Status", "-GitExe", str(failing_git))
+    assert failed.returncode != 0
+    assert "metadata_remote_probe_failed" in failed.stdout
+    assert "not initialized" not in failed.stdout
+
+
+def test_remote_handoff_probe_rejects_malformed_wrong_ref_and_multiple_lines(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    valid = "0123456789abcdef0123456789abcdef01234567"
+    cases = [
+        f"echo not-a-commit refs/heads/{META_BRANCH}",
+        f"echo {valid} refs/heads/{META_BRANCH}-extra",
+        f"echo {valid} refs/heads/{META_BRANCH}\r\necho fedcba9876543210fedcba9876543210fedcba98 refs/heads/{META_BRANCH}",
+    ]
+
+    for index, body in enumerate(cases):
+        fake_git = fake_git_with_ls_remote(tmp_path / f"case-{index}", body)
+        fake_git.parent.mkdir(exist_ok=True)
+        result = ps(comp_a, logs / str(index), "-Action", "Status", "-GitExe", str(fake_git))
+        assert result.returncode != 0
+        assert "metadata_remote_probe_failed" in result.stdout
+        assert "not initialized" not in result.stdout
+
+
 def test_successful_handoff_initializes_and_appends_metadata_parent(tmp_path: Path) -> None:
     _, _, comp_a, _ = seed_repo(tmp_path)
     logs = tmp_path / "logs"
@@ -244,6 +337,65 @@ def test_successful_sync_creates_branch_and_starts_launcher_after_exact_head(tmp
     assert git(comp_b, "branch", "--show-current").stdout.strip() == "BugFix/example"
     assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == target
     assert marker.read_text(encoding="utf-8").splitlines() == [target, "keep-session "]
+
+
+def test_stale_remote_tracking_metadata_ref_is_never_authoritative(tmp_path: Path) -> None:
+    origin, _, comp_a, comp_b = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    before_branch = git(comp_b, "branch", "--show-current").stdout.strip()
+    before_head = git(comp_b, "rev-parse", "HEAD").stdout.strip()
+    (comp_b / "keep.txt").write_text("untracked\n", encoding="utf-8")
+
+    assert ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved").returncode == 0
+    git(comp_b, "fetch", "origin", f"refs/heads/{META_BRANCH}:refs/remotes/origin/{META_BRANCH}")
+    stale_json = git(comp_b, "show", f"origin/{META_BRANCH}:active-work.json").stdout
+    git(origin, "update-ref", "-d", f"refs/heads/{META_BRANCH}")
+    launcher = tmp_path / "fake-launcher.bat"
+    marker = tmp_path / "launcher-called.txt"
+    launcher.write_text(f"@echo off\r\necho called> \"{marker}\"\r\nexit /b 0\r\n", encoding="utf-8")
+
+    status = ps(comp_b, logs, "-Action", "Status")
+    sync = ps(comp_b, logs, "-Action", "SyncAndStart", "-FakeLauncher", str(launcher))
+
+    assert status.returncode == 0, status.stdout + status.stderr
+    assert "Handoff branch: (not initialized)" in status.stdout
+    assert "Handoff commit:" not in status.stdout
+    assert stale_json
+    assert sync.returncode != 0
+    assert "handoff_not_initialized" in sync.stdout
+    assert not marker.exists()
+    assert git(comp_b, "branch", "--show-current").stdout.strip() == before_branch
+    assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == before_head
+    assert git(comp_b, "status", "--short").stdout == "?? keep.txt\n"
+    assert (comp_b / "keep.txt").read_text(encoding="utf-8") == "untracked\n"
+
+
+def test_remote_probe_failure_fails_status_ui_initial_and_refresh_without_launcher(tmp_path: Path) -> None:
+    _, _, comp_a, comp_b = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    make_branch(comp_a, "BugFix/probe-failure", "probe failure")
+    assert ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved").returncode == 0
+    failing_git = fake_git_with_ls_remote(tmp_path / "failing-git", "exit /b 128")
+    launcher = tmp_path / "fake-launcher.bat"
+    marker = tmp_path / "launcher-called.txt"
+    launcher.write_text(f"@echo off\r\necho called> \"{marker}\"\r\nexit /b 0\r\n", encoding="utf-8")
+    before_branch = git(comp_b, "branch", "--show-current").stdout.strip()
+    before_head = git(comp_b, "rev-parse", "HEAD").stdout.strip()
+
+    status = ps(comp_b, logs, "-Action", "Status", "-GitExe", str(failing_git))
+    initial = ps(comp_b, logs, "-Action", "Ui", "-SuppressUi", "-GitExe", str(failing_git))
+    refresh = ps(comp_b, logs, "-TestInvokeUiChildAction", "Status", "-GitExe", str(failing_git))
+    sync = ps(comp_b, logs, "-Action", "SyncAndStart", "-FakeLauncher", str(launcher), "-GitExe", str(failing_git))
+
+    for result in [status, initial, refresh, sync]:
+        assert result.returncode != 0
+        assert "metadata_remote_probe_failed" in result.stdout
+        assert "not initialized" not in result.stdout
+    assert "UI_INITIAL_STATUS=failure" in initial.stdout
+    assert "UI_CHILD_STATUS=failure" in refresh.stdout
+    assert not marker.exists()
+    assert git(comp_b, "branch", "--show-current").stdout.strip() == before_branch
+    assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == before_head
 
 
 def test_sync_fast_forwards_existing_branch_and_preserves_untracked_file(tmp_path: Path) -> None:
@@ -450,6 +602,31 @@ def test_malformed_metadata_and_remote_moved_block_sync(tmp_path: Path) -> None:
     assert result.returncode != 0
 
 
+def test_fetch_readback_mismatch_blocks_before_metadata_read_or_launcher(tmp_path: Path) -> None:
+    _, _, comp_a, comp_b = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    target = make_branch(comp_a, "Feature/mismatch", "mismatch")
+    assert ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved").returncode == 0
+    real_meta_commit = git(comp_a, "ls-remote", "--heads", "origin", META_BRANCH).stdout.split()[0]
+    fake_commit = "f" * 40
+    assert real_meta_commit != fake_commit
+    fake_git = fake_git_with_ls_remote(tmp_path / "fake-mismatch", f"echo {fake_commit} refs/heads/{META_BRANCH}")
+    launcher = tmp_path / "fake-launcher.bat"
+    marker = tmp_path / "launcher-called.txt"
+    launcher.write_text(f"@echo off\r\necho called> \"{marker}\"\r\nexit /b 0\r\n", encoding="utf-8")
+    before_branch = git(comp_b, "branch", "--show-current").stdout.strip()
+    before_head = git(comp_b, "rev-parse", "HEAD").stdout.strip()
+
+    result = ps(comp_b, logs, "-Action", "SyncAndStart", "-FakeLauncher", str(launcher), "-GitExe", str(fake_git))
+
+    assert result.returncode != 0
+    assert "metadata_fetch_readback_mismatch" in result.stdout
+    assert not marker.exists()
+    assert git(comp_b, "branch", "--show-current").stdout.strip() == before_branch
+    assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == before_head
+    assert target
+
+
 def test_metadata_push_race_fails_without_force(tmp_path: Path) -> None:
     _, _, comp_a, comp_b = seed_repo(tmp_path)
     logs = tmp_path / "logs"
@@ -576,13 +753,39 @@ def test_port_inspection_failure_blocks(tmp_path: Path) -> None:
 def test_status_is_read_only_and_metadata_branch_is_isolated(tmp_path: Path) -> None:
     _, _, comp_a, _ = seed_repo(tmp_path)
     logs = tmp_path / "logs"
-    before = git(comp_a, "rev-parse", "HEAD").stdout.strip()
+    before = snapshot_status_immutable_state(comp_a, logs)
     result = ps(comp_a, logs, "-Action", "Status")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert git(comp_a, "rev-parse", "HEAD").stdout.strip() == before
-    assert git(comp_a, "branch", "--show-current").stdout.strip() == "main"
+    after = snapshot_status_immutable_state(comp_a, logs)
+    assert after == before
     assert git(comp_a, "ls-remote", "--heads", "origin", META_BRANCH).stdout.strip() == ""
+
+
+def test_status_ui_initial_and_refresh_helpers_are_filesystem_read_only(tmp_path: Path) -> None:
+    _, _, comp_a, comp_b = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    make_branch(comp_a, "BugFix/status", "status")
+    assert ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved").returncode == 0
+    before = snapshot_status_immutable_state(comp_b, logs)
+
+    status = ps(comp_b, logs, "-Action", "Status")
+    initial = ps(comp_b, logs, "-Action", "Ui", "-SuppressUi")
+    refresh = ps(comp_b, logs, "-TestInvokeUiChildAction", "Status")
+
+    after = snapshot_status_immutable_state(comp_b, logs)
+    assert status.returncode == 0, status.stdout + status.stderr
+    assert initial.returncode == 0, initial.stdout + initial.stderr
+    assert refresh.returncode == 0, refresh.stdout + refresh.stderr
+    assert "UI_INITIAL_STATUS=success" in initial.stdout
+    assert "UI_CHILD_STATUS=success" in refresh.stdout
+    assert after == before
+    local_commit = git(comp_b, "rev-parse", "HEAD").stdout.strip()
+    handoff_commit = read_metadata(comp_a)["commit"]
+    assert f"Local commit: {local_commit[:12]}" in status.stdout
+    assert f"Handoff commit: {handoff_commit[:12]}" in status.stdout
+    assert str(handoff_commit) not in status.stdout
+    assert len(str(handoff_commit)) == 40
 
 
 def test_production_code_uses_no_destructive_git_commands_and_logs_are_sanitized() -> None:

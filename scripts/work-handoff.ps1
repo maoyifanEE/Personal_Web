@@ -122,8 +122,7 @@ function Write-HandoffLog {
 
 function Initialize-HandoffLog {
   param([string]$Root)
-  if (-not $TestMode -and $TestPauseBeforeMetadataPushSeconds -gt 0) { throw "test_pause_requires_test_mode" }
-  if (-not $TestMode -and $AssumeSaved) { throw "assume_saved_requires_test_mode" }
+  Assert-HandoffRuntimeSafety -Root $Root -ValidateLogRoot
   New-Item -ItemType Directory -Force -Path $Root | Out-Null
   $resolved = (Resolve-Path -LiteralPath $Root).Path
   if (-not $TestMode) {
@@ -153,6 +152,27 @@ function Initialize-HandoffLog {
     Remove-Item -Force -ErrorAction SilentlyContinue
   $script:LogPath = Join-Path $resolved ("work-handoff-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
   New-Item -ItemType File -Path $script:LogPath -Force | Out-Null
+}
+
+function Assert-HandoffRuntimeSafety {
+  param([string]$Root, [switch]$ValidateLogRoot)
+  if (-not $TestMode -and $TestPauseBeforeMetadataPushSeconds -gt 0) { throw "test_pause_requires_test_mode" }
+  if (-not $TestMode -and $AssumeSaved) { throw "assume_saved_requires_test_mode" }
+  if (-not $TestMode) { return }
+  $resolved = if (Test-Path -LiteralPath $Root) { (Resolve-Path -LiteralPath $Root).Path } else { [System.IO.Path]::GetFullPath($Root) }
+  $productionRepo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
+  if ($script:RepoRoot.Equals($productionRepo, [System.StringComparison]::OrdinalIgnoreCase)) {
+    $originProbe = & $GitExe -C $script:RepoRoot remote get-url origin 2>$null
+    if ($LASTEXITCODE -eq 0 -and $originProbe -match "^git@github\.com:maoyifanEE/Personal_Web(\.git)?$") {
+      throw "test_mode_rejects_production_repository"
+    }
+  }
+  if ($ValidateLogRoot) {
+    $productionLog = Join-Path $productionRepo ".local_logs\handoff"
+    if ($resolved.Equals($productionLog, [System.StringComparison]::OrdinalIgnoreCase) -or $resolved.StartsWith($productionLog + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "test_mode_rejects_production_log_root"
+    }
+  }
 }
 
 function Get-GitActionCategory {
@@ -372,31 +392,52 @@ function Assert-HandoffRecord {
   [void][datetime]::ParseExact([string]$Record.recordedAtUtc, "yyyy-MM-ddTHH:mm:ss.fffffffZ", [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal)
 }
 
-function Get-RemoteHandoffCommit {
+function Get-RemoteHandoffState {
   $ls = Invoke-Git @("ls-remote", "--heads", "origin", $metadataBranch) $handoffStages.Fetch -AllowFailure
-  if ($ls.ExitCode -ne 0 -or -not (@($ls.Output) -join "`n").Trim()) { return $null }
-  $line = (@($ls.Output) -join "`n").Trim().Split("`n")[0]
-  return ($line -split "\s+")[0]
+  if ($ls.ExitCode -ne 0) { throw "metadata_remote_probe_failed" }
+  $text = (@($ls.Output) -join "`n").Trim()
+  if (-not $text) { return [pscustomobject]@{ State = "Absent"; Commit = $null } }
+  $lines = @($text -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  if ($lines.Count -ne 1) { throw "metadata_remote_probe_failed" }
+  $parts = @($lines[0] -split "\s+" | Where-Object { $_ })
+  if ($parts.Count -ne 2) { throw "metadata_remote_probe_failed" }
+  if ($parts[0] -notmatch "^[0-9a-f]{40}$") { throw "metadata_remote_probe_failed" }
+  if ($parts[1] -ne "refs/heads/${metadataBranch}") { throw "metadata_remote_probe_failed" }
+  return [pscustomobject]@{ State = "Present"; Commit = $parts[0] }
 }
 
 function Fetch-MetadataBranch {
-  $remoteCommit = Get-RemoteHandoffCommit
-  if (-not $remoteCommit) { return $null }
-  Invoke-Git @("fetch", "origin", "refs/heads/${metadataBranch}:refs/remotes/origin/${metadataBranch}") $handoffStages.Fetch | Out-Null
-  return $remoteCommit
+  param([string]$AuthoritativeCommit, [switch]$ReadOnly)
+  if ($ReadOnly) {
+    Invoke-Git @("fetch", "--no-write-fetch-head", "origin", $AuthoritativeCommit) $handoffStages.Fetch | Out-Null
+    $fetched = Get-GitText @("rev-parse", $AuthoritativeCommit) $handoffStages.Fetch
+  } else {
+    Invoke-Git @("fetch", "origin", "refs/heads/${metadataBranch}:refs/remotes/origin/${metadataBranch}") $handoffStages.Fetch | Out-Null
+    $fetched = Get-GitText @("rev-parse", "origin/${metadataBranch}") $handoffStages.Fetch
+  }
+  if ($fetched -ne $AuthoritativeCommit) { throw "metadata_fetch_readback_mismatch" }
+  return $fetched
 }
 
 function Read-HandoffJson {
-  Fetch-MetadataBranch | Out-Null
-  $json = Get-GitText @("show", "origin/${metadataBranch}:${metadataFile}") $handoffStages.ReadHandoff
+  param([switch]$ReadOnly)
+  $remote = Get-RemoteHandoffState
+  if ($remote.State -eq "Absent") { throw "handoff_not_initialized" }
+  $fetched = Fetch-MetadataBranch -AuthoritativeCommit $remote.Commit -ReadOnly:$ReadOnly
+  $revision = if ($ReadOnly) { $fetched } else { "origin/${metadataBranch}" }
+  $json = Get-GitText @("show", "${revision}:${metadataFile}") $handoffStages.ReadHandoff
   $record = $json | ConvertFrom-Json
   Assert-HandoffRecord $record
-  return [pscustomobject]@{ Json = $json; Record = $record }
+  return [pscustomobject]@{ Json = $json; Record = $record; MetadataCommit = $fetched; AuthoritativeCommit = $remote.Commit }
 }
 
 function Publish-Handoff {
   param([string]$Branch, [string]$Commit)
-  $parent = Fetch-MetadataBranch
+  $remote = Get-RemoteHandoffState
+  $parent = $null
+  if ($remote.State -eq "Present") {
+    $parent = Fetch-MetadataBranch -AuthoritativeCommit $remote.Commit
+  }
   $json = ConvertTo-CanonicalJson -Branch $Branch -Commit $Commit -RecordedAtUtc (Get-Date).ToUniversalTime()
   $tempRoot = if ($script:LogPath) { Split-Path -Parent $script:LogPath } else { $script:RepoRoot }
   $jsonPath = Join-Path $tempRoot ("active-work-{0}.json" -f [guid]::NewGuid().ToString("N"))
@@ -424,7 +465,6 @@ function Publish-Handoff {
   if ($TestMode -and $TestPauseBeforeMetadataPushSeconds -gt 0) { Start-Sleep -Seconds $TestPauseBeforeMetadataPushSeconds }
   $push = Invoke-Git @("push", "origin", "${newCommit}:refs/heads/${metadataBranch}") $handoffStages.HandoffPush -AllowFailure
   if ($push.ExitCode -ne 0) { throw "metadata_push_rejected" }
-  Invoke-Git @("fetch", "origin", "refs/heads/${metadataBranch}:refs/remotes/origin/${metadataBranch}") $handoffStages.HandoffReadback | Out-Null
   $readback = Read-HandoffJson
   if ([string]$readback.Record.branch -ne $Branch -or [string]$readback.Record.commit -ne $Commit) { throw "metadata_readback_mismatch" }
   if (($readback.Json.TrimEnd() + "`n") -ne $json) { throw "metadata_json_readback_mismatch" }
@@ -534,7 +574,7 @@ function Invoke-Status {
   $branch = Get-CurrentBranch
   $commit = Get-HeadCommit
   Write-Host ("Local branch: {0}" -f $branch)
-  Write-Host ("Local commit: {0}" -f $commit)
+  Write-Host ("Local commit: {0}" -f $commit.Substring(0, 12))
   if ($TestMode) {
     Write-Host ("TEST_SCRIPT_PATH={0}" -f $PSCommandPath)
     Write-Host ("TEST_REPO_ROOT={0}" -f $script:RepoRoot)
@@ -547,11 +587,11 @@ function Invoke-Status {
   $dirty = "clean"
   try { Assert-CleanTracked } catch { $dirty = "dirty" }
   Write-Host ("Tracked worktree: {0}" -f $dirty)
-  $remote = Fetch-MetadataBranch
-  if ($remote) {
-    $handoff = Read-HandoffJson
+  $remote = Get-RemoteHandoffState
+  if ($remote.State -eq "Present") {
+    $handoff = Read-HandoffJson -ReadOnly
     Write-Host ("Handoff branch: {0}" -f $handoff.Record.branch)
-    Write-Host ("Handoff commit: {0}" -f $handoff.Record.commit)
+    Write-Host ("Handoff commit: {0}" -f ([string]$handoff.Record.commit).Substring(0, 12))
     Write-Host ("Handoff time: {0}" -f $handoff.Record.recordedAtUtc)
   } else {
     Write-Host "Handoff branch: (not initialized)"
@@ -730,7 +770,12 @@ function Invoke-WithNamedMutex {
 $script:RepoRoot = if ($RepositoryRoot) { (Resolve-Path -LiteralPath $RepositoryRoot).Path } else { (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path }
 Set-Location -LiteralPath $script:RepoRoot
 $effectiveLogRoot = if ($LogRoot) { $LogRoot } else { Join-Path $script:RepoRoot ".local_logs\handoff" }
-Initialize-HandoffLog -Root $effectiveLogRoot
+$statusOnlyInvocation = ($Action -eq "Status") -or ($TestInvokeUiChildAction -eq "Status") -or ($SuppressUi -and $Action -eq "Ui")
+if ($statusOnlyInvocation) {
+  Assert-HandoffRuntimeSafety -Root $effectiveLogRoot
+} else {
+  Initialize-HandoffLog -Root $effectiveLogRoot
+}
 
 try {
   if ($TestMode -and ($TestQuoteArgumentsJson -or $TestQuoteArgumentsBase64)) {

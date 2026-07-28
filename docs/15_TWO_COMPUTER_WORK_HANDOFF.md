@@ -29,6 +29,11 @@ Metadata commits are created with Git plumbing from the application working tree
 `refs/heads/meta/work-handoff`. Existing metadata commits are used as the parent,
 so updates are ordinary fast-forward history. Force push is not used.
 
+Reads of `meta/work-handoff` first classify the authoritative remote state as
+present, absent, or failed. Only a successful empty remote probe is treated as
+not initialized. A failed probe stops the operation, and a stale local
+`origin/meta/work-handoff` ref is never used as authority.
+
 ## End And Handoff
 
 `scripts/work-handoff.ps1 -Action EndAndHandoff` records the current already
@@ -84,6 +89,12 @@ latest handoff branch, handoff abbreviated commit, handoff time, and success or
 failure status. It loads this read-only status automatically when the UI opens.
 Refresh uses the same status path. Synchronization uses the exact recorded
 branch and commit, not automatically the latest `main`.
+
+Standalone `Status` is filesystem read-only: it does not create or prune handoff
+logs, does not write metadata, does not switch branches, and does not start or
+stop shared development. User-facing commit display uses 12-character
+abbreviations; metadata JSON and exact `HEAD` verification continue to use full
+40-character commits.
 
 ## Logs
 
