@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import time
+import base64
 from pathlib import Path
 
 
@@ -44,6 +46,16 @@ def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProces
 
 
 def ps(repo: Path, log_root: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return ps_with_script(SCRIPT, repo, log_root, *args, timeout=timeout)
+
+
+def ps_with_script(
+    script: Path,
+    repo: Path,
+    log_root: Path,
+    *args: str,
+    timeout: int = 60,
+) -> subprocess.CompletedProcess[str]:
     return run(
         [
             "powershell.exe",
@@ -51,7 +63,7 @@ def ps(repo: Path, log_root: Path, *args: str, timeout: int = 60) -> subprocess.
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            str(SCRIPT),
+            str(script),
             "-TestMode",
             "-RepositoryRoot",
             str(repo),
@@ -62,6 +74,11 @@ def ps(repo: Path, log_root: Path, *args: str, timeout: int = 60) -> subprocess.
         repo,
         timeout=timeout,
     )
+
+
+def copy_repo_to_path(source: Path, target: Path) -> None:
+    ignore = shutil.ignore_patterns(".git", ".local_logs", ".pytest_cache", "backend/.venv")
+    shutil.copytree(source, target, ignore=ignore)
 
 
 def seed_repo(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
@@ -158,6 +175,36 @@ def test_bat_help_invalid_and_metacharacters_are_safe(tmp_path: Path) -> None:
     assert payload not in injected.stdout
 
 
+def test_native_windows_argument_quoting_edge_cases(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    result = ps(
+        comp_a,
+        logs,
+        "-TestQuoteArgumentsBase64",
+        base64.b64encode(
+            json.dumps(
+                [
+                    "",
+                    "plain",
+                    "space value",
+                    "tab\tvalue",
+                    'quote"value',
+                    "C:\\Path With Spaces\\",
+                    "slashes\\\\quote\"end",
+                ]
+            ).encode("utf-8")
+        ).decode("ascii"),
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    quoted = result.stdout.split("TEST_QUOTED_ARGUMENTS=", 1)[1].splitlines()[0]
+    assert quoted == (
+        '"" plain "space value" "tab\tvalue" "quote\\"value" '
+        '"C:\\Path With Spaces\\\\" "slashes\\\\quote\\"end"'
+    )
+
+
 def test_successful_handoff_initializes_and_appends_metadata_parent(tmp_path: Path) -> None:
     _, _, comp_a, _ = seed_repo(tmp_path)
     logs = tmp_path / "logs"
@@ -223,6 +270,106 @@ def test_sync_fast_forwards_existing_branch_and_preserves_untracked_file(tmp_pat
     assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == new_target
     assert (comp_b / "test.png").read_bytes() == b"safe untracked"
     assert target != new_target
+
+
+def test_ui_child_process_invocation_handles_paths_with_spaces(tmp_path: Path) -> None:
+    spaced_root = tmp_path / "Repository With Spaces" / "Personal Web"
+    spaced_root.mkdir(parents=True)
+    _, _, comp_a, comp_b = seed_repo(spaced_root)
+    logs = spaced_root / "Log Root With Spaces"
+    script_b = comp_b / "scripts" / "work-handoff.ps1"
+    unexpected = spaced_root / "unexpected-from-split.txt"
+    child_observation = spaced_root / "child observation.txt"
+
+    status = ps_with_script(
+        script_b,
+        comp_b,
+        logs,
+        "-Action",
+        "Ui",
+        "-SuppressUi",
+        "-TestChildObservationPath",
+        str(child_observation),
+    )
+
+    assert status.returncode == 0, status.stdout + status.stderr
+    assert "UI_INITIAL_STATUS=success" in status.stdout
+    assert child_observation.read_text(encoding="utf-8").splitlines() == [
+        f"SCRIPT={script_b}",
+        f"REPO={comp_b}",
+    ]
+    assert git(comp_b, "ls-remote", "--heads", "origin", META_BRANCH).stdout.strip() == ""
+
+    target = make_branch(comp_a, "BugFix/path-spaces", "space path")
+    handoff_setup = ps_with_script(
+        comp_a / "scripts" / "work-handoff.ps1",
+        comp_a,
+        logs,
+        "-Action",
+        "EndAndHandoff",
+        "-AssumeSaved",
+    )
+    assert handoff_setup.returncode == 0, handoff_setup.stdout + handoff_setup.stderr
+
+    launcher_dir = spaced_root / "Fake Launcher With Spaces"
+    launcher_dir.mkdir()
+    launcher = launcher_dir / "start shared fake.bat"
+    marker = spaced_root / "launcher marker.txt"
+    launcher.write_text(
+        "\r\n".join(
+            [
+                "@echo off",
+                f'echo LAUNCHER=%~f0> "{marker}"',
+                f'echo CWD=%CD%>> "{marker}"',
+                f'echo ARG1=%~1>> "{marker}"',
+                f'echo ARG2=%~2>> "{marker}"',
+                "exit /b 0",
+            ]
+        )
+        + "\r\n",
+        encoding="utf-8",
+    )
+    temp_before = {path.name for path in Path(os.environ["TEMP"]).glob("personal-web-handoff-*.txt")}
+
+    sync = ps_with_script(
+        script_b,
+        comp_b,
+        logs,
+        "-TestInvokeUiChildAction",
+        "SyncAndStart",
+        "-FakeLauncher",
+        str(launcher),
+        "-KeepSession",
+        "-TestChildObservationPath",
+        str(child_observation),
+        timeout=90,
+    )
+
+    assert sync.returncode == 0, sync.stdout + sync.stderr
+    assert "UI_CHILD_STATUS=success" in sync.stdout
+    assert "UI_CHILD_KEEP_SESSION=True" in sync.stdout
+    assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == target
+    assert marker.read_text(encoding="utf-8").splitlines() == [
+        f"LAUNCHER={launcher}",
+        f"CWD={comp_b}",
+        "ARG1=keep-session",
+        "ARG2=",
+    ]
+
+    end = ps_with_script(
+        script_b,
+        comp_b,
+        logs,
+        "-TestInvokeUiChildAction",
+        "EndAndHandoff",
+        timeout=90,
+    )
+
+    temp_after = {path.name for path in Path(os.environ["TEMP"]).glob("personal-web-handoff-*.txt")}
+    assert end.returncode == 0, end.stdout + end.stderr
+    assert "UI_CHILD_STATUS=success" in end.stdout
+    assert temp_after == temp_before
+    assert not unexpected.exists()
 
 
 def test_dirty_unpushed_ahead_diverged_and_collision_states_block(tmp_path: Path) -> None:
@@ -465,6 +612,8 @@ def test_production_code_uses_no_destructive_git_commands_and_logs_are_sanitized
 
 def test_ui_button_text_and_test_only_flags_are_explicit() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
+    doc = (REPO_ROOT / "docs" / "15_TWO_COMPUTER_WORK_HANDOFF.md").read_text(encoding="utf-8")
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "同步并开始工作" in text
     assert "结束工作并交接" in text
@@ -477,3 +626,15 @@ def test_ui_button_text_and_test_only_flags_are_explicit() -> None:
     assert "fake_launcher_requires_test_mode" in text
     assert "test_mode_rejects_production_repository" in text
     assert "test_mode_rejects_production_log_root" in text
+    assert 'Invoke-HandoffChildProcess -ChildAction "Status"' in text
+    assert "$initial = Invoke-HandoffChildProcess -ChildAction \"Status\"" in text
+    assert "& $setStatusFromResult $result" in text
+    assert "Personal Web.lnk\n  -> work-handoff.bat\n  -> work-handoff UI" in readme
+    assert "start-shared-dev.bat only after synchronization succeeds" in readme
+    assert "not automatically the latest `main`" in readme
+    assert "targets `work-handoff.bat`" in readme
+    assert "targets\n`start-shared-dev.bat`" not in readme
+    assert "同步并开始工作" in doc
+    assert "结束工作并交接" in doc
+    assert "保留当前登录状态" in doc
+    assert "automatically when the UI opens" in doc

@@ -331,7 +331,7 @@ directory, downloaded files, finalized directory, and retained files. If the
 item already has this exact protected DACL, ACL handling is a no-op and does not
 call `Set-Acl`. If repair is required, only the DACL on the existing security
 descriptor is changed; owner, primary group, and audit/SACL state are preserved
-for the current user's non-elevated Limited scheduled-task context.
+for the current user's non-elevated interactive user context.
 
 If download or verification fails, the script removes only the exact
 run-specific partial directory after path, reparse, and ACL checks. If those
@@ -350,11 +350,8 @@ Local backup pull is manual-only. Run:
 ```
 
 Current tracked code supports no automatic Windows backup pull schedule and no
-Windows task installer. The optional helper
-`.\scripts\remove-shared-dev-backup-pull-task.ps1` is uninstall-only for the
-legacy repository-owned task named `Personal_Web Shared Backup Pull`. It cannot
-install, create, update, or start a task, and it refuses to modify unrelated
-tasks.
+Windows task installer or remover. Legacy task cleanup, if ever needed, is an
+explicit operational task outside this repository code path.
 
 Existing verified server backups and existing verified old-computer pulled
 backups remain valid. Server retention still keeps the newest 14 verified backups

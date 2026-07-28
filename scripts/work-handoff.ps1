@@ -17,7 +17,10 @@
   [string]$TestChildExitCode,
   [switch]$TestUiCancelConfirmation,
   [switch]$TestPortInspectionFailure,
-  [string]$TestNetstatOutput
+  [string]$TestNetstatOutput,
+  [string]$TestQuoteArgumentsJson,
+  [string]$TestQuoteArgumentsBase64,
+  [string]$TestChildObservationPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -72,6 +75,41 @@ function ConvertTo-HandoffDisplayText {
   return $safe
 }
 
+function ConvertTo-NativeWindowsArgument {
+  param([AllowEmptyString()][string]$Argument)
+  if ($null -eq $Argument) { $Argument = "" }
+  if ($Argument -notmatch '[\s"]' -and $Argument.Length -gt 0) { return $Argument }
+  $result = '"'
+  $backslashes = 0
+  foreach ($ch in $Argument.ToCharArray()) {
+    if ($ch -eq "\") {
+      $backslashes += 1
+      continue
+    }
+    if ($ch -eq '"') {
+      $result += ("\" * (($backslashes * 2) + 1))
+      $result += '"'
+      $backslashes = 0
+      continue
+    }
+    if ($backslashes -gt 0) {
+      $result += ("\" * $backslashes)
+      $backslashes = 0
+    }
+    $result += $ch
+  }
+  if ($backslashes -gt 0) {
+    $result += ("\" * ($backslashes * 2))
+  }
+  $result += '"'
+  return $result
+}
+
+function ConvertTo-NativeWindowsArgumentList {
+  param([string[]]$Arguments)
+  return (@($Arguments | ForEach-Object { ConvertTo-NativeWindowsArgument $_ }) -join " ")
+}
+
 function Write-HandoffLog {
   param([string]$Stage, [string]$Message)
   $safeMessage = ConvertTo-HandoffLogMessage $Message
@@ -100,7 +138,10 @@ function Initialize-HandoffLog {
   } else {
     $productionRepo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
     if ($script:RepoRoot.Equals($productionRepo, [System.StringComparison]::OrdinalIgnoreCase)) {
-      throw "test_mode_rejects_production_repository"
+      $originProbe = & $GitExe -C $script:RepoRoot remote get-url origin 2>$null
+      if ($LASTEXITCODE -eq 0 -and $originProbe -match "^git@github\.com:maoyifanEE/Personal_Web(\.git)?$") {
+        throw "test_mode_rejects_production_repository"
+      }
     }
     $productionLog = Join-Path $productionRepo ".local_logs\handoff"
     if ($resolved.Equals($productionLog, [System.StringComparison]::OrdinalIgnoreCase) -or $resolved.StartsWith($productionLog + "\", [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -494,6 +535,15 @@ function Invoke-Status {
   $commit = Get-HeadCommit
   Write-Host ("Local branch: {0}" -f $branch)
   Write-Host ("Local commit: {0}" -f $commit)
+  if ($TestMode) {
+    Write-Host ("TEST_SCRIPT_PATH={0}" -f $PSCommandPath)
+    Write-Host ("TEST_REPO_ROOT={0}" -f $script:RepoRoot)
+    if ($TestChildObservationPath) {
+      $observation = "SCRIPT={0}`nREPO={1}`n" -f $PSCommandPath, $script:RepoRoot
+      $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+      [System.IO.File]::AppendAllText($TestChildObservationPath, $observation, $utf8NoBom)
+    }
+  }
   $dirty = "clean"
   try { Assert-CleanTracked } catch { $dirty = "dirty" }
   Write-Host ("Tracked worktree: {0}" -f $dirty)
@@ -519,19 +569,32 @@ function Invoke-HandoffChildProcess {
     }
   }
   $args = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath, "-Action", $ChildAction)
+  if ($TestMode) {
+    $args += @("-TestMode", "-RepositoryRoot", $script:RepoRoot)
+    if ($script:LogPath) { $args += @("-LogRoot", (Split-Path -Parent $script:LogPath)) }
+    if ($GitExe) { $args += @("-GitExe", $GitExe) }
+    if ($FakeLauncher) { $args += @("-FakeLauncher", $FakeLauncher) }
+    if ($TestChildObservationPath) { $args += @("-TestChildObservationPath", $TestChildObservationPath) }
+  }
   if ($ChildKeepSession) { $args += "-KeepSession" }
   if ($ConfirmedSaved) { $args += "-InternalConfirmedSaved" }
-  $process = Start-Process -FilePath "powershell.exe" -ArgumentList $args -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\personal-web-handoff-out-$PID.txt" -RedirectStandardError "$env:TEMP\personal-web-handoff-err-$PID.txt"
-  $outPath = "$env:TEMP\personal-web-handoff-out-$PID.txt"
-  $errPath = "$env:TEMP\personal-web-handoff-err-$PID.txt"
+  $operationId = [guid]::NewGuid().ToString("N")
+  $outPath = Join-Path $env:TEMP ("personal-web-handoff-out-{0}.txt" -f $operationId)
+  $errPath = Join-Path $env:TEMP ("personal-web-handoff-err-{0}.txt" -f $operationId)
   $output = ""
-  if (Test-Path -LiteralPath $outPath) { $output += Get-Content -LiteralPath $outPath -Raw -ErrorAction SilentlyContinue }
-  if (Test-Path -LiteralPath $errPath) { $output += "`n" + (Get-Content -LiteralPath $errPath -Raw -ErrorAction SilentlyContinue) }
-  Remove-Item -LiteralPath $outPath, $errPath -Force -ErrorAction SilentlyContinue
+  try {
+    $argumentText = ConvertTo-NativeWindowsArgumentList -Arguments $args
+    $process = Start-Process -FilePath "powershell.exe" -ArgumentList $argumentText -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outPath -RedirectStandardError $errPath
+    if (Test-Path -LiteralPath $outPath) { $output += Get-Content -LiteralPath $outPath -Raw -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $errPath) { $output += "`n" + (Get-Content -LiteralPath $errPath -Raw -ErrorAction SilentlyContinue) }
+    $exitCode = [int]$process.ExitCode
+  } finally {
+    Remove-Item -LiteralPath $outPath, $errPath -Force -ErrorAction SilentlyContinue
+  }
   return [pscustomobject]@{
-    ExitCode = [int]$process.ExitCode
+    ExitCode = $exitCode
     Output = ConvertTo-HandoffDisplayText $output
-    StatusText = if ([int]$process.ExitCode -eq 0) { "success" } else { "failure" }
+    StatusText = if ($exitCode -eq 0) { "success" } else { "failure" }
   }
 }
 
@@ -556,7 +619,10 @@ function Invoke-TestUiChildOperation {
 function Invoke-HandoffUi {
   if ($SuppressUi) {
     Write-Host "UI suppressed"
-    Invoke-Status
+    $initial = Invoke-HandoffChildProcess -ChildAction "Status" -ChildKeepSession:$false -ConfirmedSaved:$false
+    Write-Host ("UI_INITIAL_STATUS={0}" -f $initial.StatusText)
+    Write-Host $initial.Output
+    if ($initial.ExitCode -ne 0) { throw "ui_initial_status_failed" }
     return
   }
   Add-Type -AssemblyName System.Windows.Forms
@@ -589,6 +655,14 @@ function Invoke-HandoffUi {
   $refresh.Location = New-Object System.Drawing.Point(12, 275)
   $refresh.Size = New-Object System.Drawing.Size(100, 26)
   $buttons = @($sync, $handoff, $refresh)
+  $setStatusFromResult = {
+    param($Result)
+    if ($Result.ExitCode -eq 0) {
+      $status.Text = $Result.Output
+    } else {
+      $status.Text = "失败`r`n" + $Result.Output
+    }
+  }
   $runChild = {
     param([string]$ChildAction, [bool]$ChildKeepSession, [bool]$ConfirmedSaved)
     foreach ($button in $buttons) { $button.Enabled = $false }
@@ -607,7 +681,7 @@ function Invoke-HandoffUi {
   }
   $refresh.Add_Click({
     $result = Invoke-HandoffChildProcess -ChildAction "Status" -ChildKeepSession:$false -ConfirmedSaved:$false
-    $status.Text = $result.Output
+    & $setStatusFromResult $result
   })
   $sync.Add_Click({ & $runChild "SyncAndStart" ([bool]$keep.Checked) $false })
   $handoff.Add_Click({
@@ -619,6 +693,12 @@ function Invoke-HandoffUi {
     & $runChild "EndAndHandoff" $false $true
   })
   $form.Controls.AddRange(@($status, $keep, $sync, $handoff, $refresh))
+  try {
+    $initial = Invoke-HandoffChildProcess -ChildAction "Status" -ChildKeepSession:$false -ConfirmedSaved:$false
+    & $setStatusFromResult $initial
+  } catch {
+    $status.Text = "失败`r`n" + (ConvertTo-HandoffDisplayText $_.Exception.Message)
+  }
   [void]$form.ShowDialog()
 }
 
@@ -653,7 +733,18 @@ $effectiveLogRoot = if ($LogRoot) { $LogRoot } else { Join-Path $script:RepoRoot
 Initialize-HandoffLog -Root $effectiveLogRoot
 
 try {
-  if ($TestInvokeUiChildAction) {
+  if ($TestMode -and ($TestQuoteArgumentsJson -or $TestQuoteArgumentsBase64)) {
+    $quoteJson = $TestQuoteArgumentsJson
+    if ($TestQuoteArgumentsBase64) {
+      $quoteJson = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TestQuoteArgumentsBase64))
+    }
+    $parsedQuoteArguments = ConvertFrom-Json -InputObject $quoteJson
+    $quoteArguments = New-Object System.Collections.Generic.List[string]
+    foreach ($argument in $parsedQuoteArguments) {
+      $quoteArguments.Add([string]$argument)
+    }
+    Write-Host ("TEST_QUOTED_ARGUMENTS={0}" -f (ConvertTo-NativeWindowsArgumentList -Arguments $quoteArguments))
+  } elseif ($TestInvokeUiChildAction) {
     Invoke-TestUiChildOperation
   } else {
     switch ($Action) {
@@ -669,4 +760,3 @@ try {
   Write-Host $_.Exception.Message
   exit 1
 }
-

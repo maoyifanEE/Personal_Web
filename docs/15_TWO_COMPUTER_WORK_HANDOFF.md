@@ -1,4 +1,4 @@
-# Two-Computer Work Handoff
+﻿# Two-Computer Work Handoff
 
 Personal_Web uses GitHub as the source of truth for two-computer editing handoff.
 
@@ -73,8 +73,17 @@ are:
 结束工作并交接
 ```
 
-The UI displays local branch, local commit, tracked worktree status, latest
-handoff branch, handoff commit, handoff time, and success or failure status.
+The optional checkbox is unchecked by default:
+
+```text
+保留当前登录状态
+```
+
+The UI displays local branch, local abbreviated commit, tracked worktree status,
+latest handoff branch, handoff abbreviated commit, handoff time, and success or
+failure status. It loads this read-only status automatically when the UI opens.
+Refresh uses the same status path. Synchronization uses the exact recorded
+branch and commit, not automatically the latest `main`.
 
 ## Logs
 

@@ -24,17 +24,17 @@ Current implementation boundaries:
 
 ## Two-Computer Shared Development Handoff
 
-`work-handoff.bat` is the desktop entry point for two-computer shared development.
-It opens a compact Windows handoff UI. The sync action reads the dedicated Git
-metadata branch `meta/work-handoff`, fast-forwards the local application branch to
-the exact recorded commit, verifies `HEAD`, and only then invokes
-`start-shared-dev.bat`.
+`Personal Web.lnk` points to `work-handoff.bat`, which opens the compact
+work-handoff UI for two-computer shared development. The sync action reads the
+dedicated Git metadata branch `meta/work-handoff`, fast-forwards the local
+application branch to the exact recorded branch and commit, verifies `HEAD`, and
+only then invokes `start-shared-dev.bat`.
 
 The handoff action records the current already-pushed application branch and
 commit in `active-work.json` on `meta/work-handoff` using normal Git metadata
 commits. That metadata branch contains no application source and must never be
-merged into `main`. Direct `start-shared-dev.bat` remains available for manual
-shared launcher use.
+merged into `main`. Direct `start-shared-dev.bat` remains available only as a
+diagnostic and compatibility entry point.
 
 The repository may contain source code, static structure, safe assets, project notes, and clearly fake sample data.
 
@@ -344,7 +344,18 @@ The recommended beginner workflow on Windows is:
 3. Double-click the desktop icon later to start shared-remote development.
 ```
 
-The shortcut starts the same default flow as `start-shared-dev.bat`.
+The shortcut starts this default flow:
+
+```text
+Personal Web.lnk
+  -> work-handoff.bat
+  -> work-handoff UI
+  -> exact branch/commit synchronization
+  -> start-shared-dev.bat only after synchronization succeeds
+```
+
+Synchronization uses the exact branch and commit recorded by the latest
+handoff, not automatically the latest `main`.
 
 It opens the local homepage with `?devLogout=1`, so old browser sessions are
 cleared by default.
@@ -483,9 +494,12 @@ Advanced PowerShell equivalent:
 .\scripts\create-shared-launch-shortcut.ps1
 ```
 
-This creates `Personal Web.lnk` on the Desktop and targets
-`start-shared-dev.bat` with no arguments. The shortcut stores the absolute
-target path and working directory, so the shortcut itself can be moved.
+This creates `Personal Web.lnk` on the Desktop and targets `work-handoff.bat`
+with no arguments. The shortcut opens the handoff UI first, synchronizes to the
+exact recorded branch and commit, verifies `HEAD`, and invokes
+`start-shared-dev.bat` only after synchronization succeeds. The shortcut stores
+the absolute target path and working directory, so the shortcut itself can be
+moved.
 
 `install-local-shortcut.bat` remains as a compatibility wrapper. It now creates
 the same shared-remote default shortcut and does not make local mode the desktop

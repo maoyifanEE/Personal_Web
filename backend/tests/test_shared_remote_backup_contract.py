@@ -60,7 +60,6 @@ RESTORE_VERIFY = REPO_ROOT / "deploy" / "backup" / "verify-shared-dev-restore.sh
 ARCHIVE_VERIFIER = REPO_ROOT / "deploy" / "backup" / "verify-shared-media-archive.py"
 CANVAS_FINGERPRINT = REPO_ROOT / "deploy" / "backup" / "compute-shared-canvas-fingerprint.py"
 PULL_SCRIPT = REPO_ROOT / "scripts" / "pull-shared-dev-backup.ps1"
-REMOVE_TASK_SCRIPT = REPO_ROOT / "scripts" / "remove-shared-dev-backup-pull-task.ps1"
 TIMER_TEMPLATE = REPO_ROOT / "deploy" / "backup" / "personal-web-shared-dev-backup.timer"
 DOC = REPO_ROOT / "docs" / "14_SHARED_REMOTE_BACKUP_AND_RECOVERY.md"
 BACKUP_TEMP_DB = "pw_bk_v_20260726T033000Z_0123456789abcdef0123456789abcdef"
@@ -1837,11 +1836,13 @@ def test_backup_repository_is_manual_only_static_contract() -> None:
         "New-ScheduledTaskTrigger",
         "Register-ScheduledTask",
         "Set-ScheduledTask",
+        "Unregister-ScheduledTask",
         "-AtLogOn",
         "-Daily",
         "timers.target",
         "systemctl enable",
         "schtasks /create",
+        "schtasks /delete",
     ]
 
     assert service.is_file()
@@ -1853,6 +1854,7 @@ def test_backup_repository_is_manual_only_static_contract() -> None:
     assert PULL_SCRIPT.is_file()
     assert not TIMER_TEMPLATE.exists()
     assert not (REPO_ROOT / "scripts" / "install-shared-dev-backup-pull-task.ps1").exists()
+    assert not (REPO_ROOT / "scripts" / "remove-shared-dev-backup-pull-task.ps1").exists()
 
     checked: list[Path] = []
     for path in scheduling_paths:
@@ -1863,25 +1865,16 @@ def test_backup_repository_is_manual_only_static_contract() -> None:
             if child.is_file() and child.suffix.lower() in {".ps1", ".service", ".timer", ".md"}:
                 checked.append(child)
     for path in checked:
-        if path.name == "remove-shared-dev-backup-pull-task.ps1":
-            continue
         text = read(path)
         assert [value for value in forbidden if value in text] == [], path
 
 
-def test_legacy_backup_task_helper_is_uninstall_only() -> None:
-    script = read(REMOVE_TASK_SCRIPT)
+def test_no_backup_task_install_or_remove_executable_remains() -> None:
+    script_names = {path.name for path in (REPO_ROOT / "scripts").glob("*backup-pull-task*.ps1")}
 
-    assert REMOVE_TASK_SCRIPT.is_file()
-    assert "Personal_Web Shared Backup Pull" in script
-    assert "Unregister-ScheduledTask" in script
-    assert "Test-LegacyTaskOwnedByRepository" in script
-    assert "pull-shared-dev-backup.ps1" in script
-    assert "New-ScheduledTaskTrigger" not in script
-    assert "Register-ScheduledTask" not in script
-    assert "Set-ScheduledTask" not in script
-    assert "-AtLogOn" not in script
-    assert "-Daily" not in script
+    assert "install-shared-dev-backup-pull-task.ps1" not in script_names
+    assert "remove-shared-dev-backup-pull-task.ps1" not in script_names
+    assert not any("backup-pull-task" in name for name in script_names)
 
 
 def test_backup_documentation_is_manual_only() -> None:
@@ -1891,6 +1884,7 @@ def test_backup_documentation_is_manual_only() -> None:
     assert "systemctl start personal-web-shared-dev-backup.service" in doc
     assert "/opt/personal-web/deploy/backup/verify-shared-dev-backup.sh <backup-id>" in doc
     assert ".\\scripts\\pull-shared-dev-backup.ps1" in doc
+    assert "non-elevated interactive user context" in doc
     assert "server timer template" in doc
     assert "newest 14 verified backups" in doc
     assert "newest 7 verified pulled backups" in doc
@@ -1901,6 +1895,8 @@ def test_backup_documentation_is_manual_only() -> None:
         "daily at approximately 03:30",
         "exactly one enabled daily trigger",
         "exactly one enabled current-user logon trigger",
+        "Limited scheduled-task context",
+        "remove-shared-dev-backup-pull-task.ps1",
     ]:
         assert removed_phrase not in doc
 def test_restore_drill_uses_temporary_database_only() -> None:
@@ -1991,7 +1987,7 @@ exit 0
 
 
 def test_scripts_do_not_start_application_services_or_run_migrations() -> None:
-    combined = "\n".join(read(path).lower() for path in [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, PULL_SCRIPT, REMOVE_TASK_SCRIPT])
+    combined = "\n".join(read(path).lower() for path in [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, PULL_SCRIPT])
 
     forbidden = [
         "start-shared-dev",
@@ -2136,7 +2132,7 @@ def test_backup_tests_do_not_invoke_local_or_shared_launchers() -> None:
 
 
 def test_no_hardcoded_current_user_path_in_backup_sources() -> None:
-    paths = [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, ARCHIVE_VERIFIER, CANVAS_FINGERPRINT, PULL_SCRIPT, REMOVE_TASK_SCRIPT, DOC, Path(__file__)]
+    paths = [SERVER_CREATE, SERVER_VERIFY, RESTORE_VERIFY, ARCHIVE_VERIFIER, CANVAS_FINGERPRINT, PULL_SCRIPT, DOC, Path(__file__)]
     offenders = [str(path.relative_to(REPO_ROOT)) for path in paths if re.search(r"C:[/\\\\]Users[/\\\\]maoyi", read(path))]
 
     assert offenders == []
