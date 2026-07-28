@@ -34,6 +34,20 @@ present, absent, or failed. Only a successful empty remote probe is treated as
 not initialized. A failed probe stops the operation, and a stale local
 `origin/meta/work-handoff` ref is never used as authority.
 
+After the authoritative remote commit is fetched and matched, the metadata
+commit is validated before `active-work.json` is read. The object must be a
+commit, the first metadata commit may have zero parents, later commits must have
+exactly one parent, and the complete recursive tree must contain exactly one
+ordinary file:
+
+```text
+100644 blob active-work.json
+```
+
+Extra files, nested paths, executable files, symlinks, submodule entries, merge
+commits, missing JSON, or non-commit objects stop Status, Sync, and Handoff
+without repairing or rewriting the metadata branch.
+
 ## End And Handoff
 
 `scripts/work-handoff.ps1 -Action EndAndHandoff` records the current already

@@ -406,16 +406,49 @@ function Get-RemoteHandoffState {
   return [pscustomobject]@{ State = "Present"; Commit = $parts[0] }
 }
 
+function Assert-MetadataCommitContract {
+  param([string]$MetadataCommit)
+  Assert-CommitShape $MetadataCommit
+  $type = Get-GitText @("cat-file", "-t", $MetadataCommit) $handoffStages.ReadHandoff
+  if ($type -ne "commit") { throw "metadata_object_type_invalid" }
+
+  $commitText = Get-GitText @("cat-file", "-p", $MetadataCommit) $handoffStages.ReadHandoff
+  $parents = @()
+  foreach ($line in @($commitText -split "`n")) {
+    $cleanLine = $line.TrimEnd("`r")
+    if (-not $cleanLine) { break }
+    if ($cleanLine -match "^parent\s+([0-9a-f]{40})$") {
+      $parents += $Matches[1]
+    }
+  }
+  if ($parents.Count -gt 1) { throw "metadata_parent_count_invalid" }
+  foreach ($parent in $parents) { Assert-CommitShape $parent }
+
+  $treeResult = Invoke-Git @("ls-tree", "-r", "-z", "--full-tree", $MetadataCommit) $handoffStages.ReadHandoff
+  $treeText = [string](@($treeResult.Output) -join "`n")
+  if (-not $treeText) { throw "metadata_tree_contract_invalid" }
+  $entries = @($treeText -split "`0" | Where-Object { $_ })
+  if ($entries.Count -ne 1) { throw "metadata_tree_contract_invalid" }
+  $entry = $entries[0]
+  if ($entry -notmatch "^([0-9]{6})\s+(\S+)\s+[0-9a-f]{40}`t(.+)$") { throw "metadata_tree_contract_invalid" }
+  if ($Matches[1] -ne "100644") { throw "metadata_tree_contract_invalid" }
+  if ($Matches[2] -ne "blob") { throw "metadata_tree_contract_invalid" }
+  if ($Matches[3] -ne $metadataFile) { throw "metadata_tree_contract_invalid" }
+}
+
 function Fetch-MetadataBranch {
   param([string]$AuthoritativeCommit, [switch]$ReadOnly)
   if ($ReadOnly) {
     Invoke-Git @("fetch", "--no-write-fetch-head", "origin", $AuthoritativeCommit) $handoffStages.Fetch | Out-Null
-    $fetched = Get-GitText @("rev-parse", $AuthoritativeCommit) $handoffStages.Fetch
+    $resolved = Invoke-Git @("rev-parse", $AuthoritativeCommit) $handoffStages.Fetch -AllowFailure
+    if ($resolved.ExitCode -ne 0) { throw "metadata_fetch_readback_mismatch" }
+    $fetched = (@($resolved.Output) -join "`n").Trim()
   } else {
     Invoke-Git @("fetch", "origin", "refs/heads/${metadataBranch}:refs/remotes/origin/${metadataBranch}") $handoffStages.Fetch | Out-Null
     $fetched = Get-GitText @("rev-parse", "origin/${metadataBranch}") $handoffStages.Fetch
   }
   if ($fetched -ne $AuthoritativeCommit) { throw "metadata_fetch_readback_mismatch" }
+  Assert-MetadataCommitContract -MetadataCommit $fetched
   return $fetched
 }
 
@@ -468,8 +501,6 @@ function Publish-Handoff {
   $readback = Read-HandoffJson
   if ([string]$readback.Record.branch -ne $Branch -or [string]$readback.Record.commit -ne $Commit) { throw "metadata_readback_mismatch" }
   if (($readback.Json.TrimEnd() + "`n") -ne $json) { throw "metadata_json_readback_mismatch" }
-  $files = Get-GitText @("ls-tree", "--name-only", "origin/${metadataBranch}") $handoffStages.HandoffReadback
-  if ($files -ne $metadataFile) { throw "metadata_tree_not_single_file" }
   return $newCommit
 }
 

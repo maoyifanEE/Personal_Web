@@ -153,6 +153,69 @@ def read_metadata(repo: Path) -> dict[str, object]:
     return json.loads(text)
 
 
+def canonical_metadata_json(repo: Path, branch: str = "main") -> str:
+    commit = git(repo, "rev-parse", branch).stdout.strip()
+    return json.dumps(
+        {
+            "schemaVersion": 1,
+            "repository": "maoyifanEE/Personal_Web",
+            "branch": branch,
+            "commit": commit,
+            "recordedAtUtc": "2026-07-27T12:34:56.0000000Z",
+        },
+        indent=2,
+    ) + "\n"
+
+
+def write_blob(repo: Path, name: str, content: str) -> str:
+    path = repo / name
+    path.write_text(content, encoding="utf-8")
+    try:
+        return git(repo, "hash-object", "-w", str(path)).stdout.strip()
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def make_tree(repo: Path, entries: list[tuple[str, str, str, str]]) -> str:
+    tree_input = "".join(f"{mode} {kind} {oid}\t{path}\n" for mode, kind, oid, path in entries)
+    proc = subprocess.run(
+        ["git", "mktree"],
+        cwd=repo,
+        input=tree_input.encode("utf-8"),
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr.decode("utf-8", errors="replace") + proc.stdout.decode("utf-8", errors="replace") + tree_input
+    return proc.stdout.decode("utf-8").strip()
+
+
+def commit_tree(repo: Path, tree: str, *parents: str, message: str = "manual metadata") -> str:
+    args = ["commit-tree", tree, "-m", message]
+    for parent in parents:
+        args.extend(["-p", parent])
+    return git(repo, *args).stdout.strip()
+
+
+def push_metadata_commit(repo: Path, commit: str) -> None:
+    git(repo, "push", "origin", f"{commit}:refs/heads/{META_BRANCH}")
+
+
+def publish_manual_metadata(
+    repo: Path,
+    *,
+    entries: list[tuple[str, str, str, str]],
+    parents: list[str] | None = None,
+) -> str:
+    tree = make_tree(repo, entries)
+    commit = commit_tree(repo, tree, *(parents or []))
+    push_metadata_commit(repo, commit)
+    return commit
+
+
+def valid_metadata_entry(repo: Path, mode: str = "100644", path: str = "active-work.json") -> tuple[str, str, str, str]:
+    return (mode, "blob", write_blob(repo, "metadata.json", canonical_metadata_json(repo)), path)
+
+
 def snapshot_status_immutable_state(repo: Path, log_root: Path) -> dict[str, object]:
     files = sorted(
         str(path.relative_to(repo)).replace("\\", "/")
@@ -320,6 +383,133 @@ def test_successful_handoff_initializes_and_appends_metadata_parent(tmp_path: Pa
     meta = read_metadata(comp_a)
     assert meta["branch"] == "Feature/example"
     assert meta["commit"] == feature_commit
+
+
+def test_valid_metadata_tree_contract_accepts_parentless_and_single_parent_commits(tmp_path: Path) -> None:
+    _, _, comp_a, comp_b = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    first = ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved")
+    assert first.returncode == 0, first.stdout + first.stderr
+    first_meta = git(comp_a, "ls-remote", "--heads", "origin", META_BRANCH).stdout.split()[0]
+    exact = git(comp_a, "ls-tree", "-r", "--full-tree", first_meta).stdout.strip()
+    assert exact.endswith("\tactive-work.json")
+    assert exact.split()[:3] == ["100644", "blob", exact.split()[2]]
+    assert git(comp_a, "show", "-s", "--format=%P", first_meta).stdout.strip() == ""
+
+    status = ps(comp_b, logs, "-Action", "Status")
+    launcher = tmp_path / "fake-launcher.bat"
+    launcher.write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+    sync = ps(comp_b, logs, "-Action", "SyncAndStart", "-FakeLauncher", str(launcher))
+    assert status.returncode == 0, status.stdout + status.stderr
+    assert sync.returncode == 0, sync.stdout + sync.stderr
+
+    make_branch(comp_a, "BugFix/valid-parent", "valid parent")
+    second = ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved")
+    assert second.returncode == 0, second.stdout + second.stderr
+    second_meta = git(comp_a, "ls-remote", "--heads", "origin", META_BRANCH).stdout.split()[0]
+    assert git(comp_a, "show", "-s", "--format=%P", second_meta).stdout.strip() == first_meta
+
+
+def assert_malformed_metadata_blocks_all_actions(
+    tmp_path: Path,
+    entry_builder,
+    expected: str = "metadata_tree_contract_invalid",
+    parent_builder=None,
+) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    _, _, comp_a, comp_b = seed_repo(tmp_path)
+    logs = tmp_path / "logs"
+    entries = entry_builder(comp_a)
+    parents = parent_builder(comp_a, entries) if parent_builder else None
+    malformed = publish_manual_metadata(comp_a, entries=entries, parents=parents)
+    git(comp_b, "fetch", "origin", f"refs/heads/{META_BRANCH}:refs/remotes/origin/{META_BRANCH}")
+    before_branch = git(comp_b, "branch", "--show-current").stdout.strip()
+    before_head = git(comp_b, "rev-parse", "HEAD").stdout.strip()
+    (comp_b / "safe-untracked.txt").write_text("safe\n", encoding="utf-8")
+    launcher = tmp_path / "fake-launcher.bat"
+    marker = tmp_path / "launcher-called.txt"
+    launcher.write_text(f"@echo off\r\necho called> \"{marker}\"\r\nexit /b 0\r\n", encoding="utf-8")
+
+    status = ps(comp_b, logs, "-Action", "Status")
+    sync = ps(comp_b, logs, "-Action", "SyncAndStart", "-FakeLauncher", str(launcher))
+    handoff = ps(comp_a, logs, "-Action", "EndAndHandoff", "-AssumeSaved")
+    after_remote = git(comp_a, "ls-remote", "--heads", "origin", META_BRANCH).stdout.split()[0]
+
+    for result in [status, sync, handoff]:
+        assert result.returncode != 0
+        assert expected in result.stdout
+        assert "Handoff branch:" not in result.stdout or "not initialized" not in result.stdout
+    assert not marker.exists()
+    assert after_remote == malformed
+    assert git(comp_b, "branch", "--show-current").stdout.strip() == before_branch
+    assert git(comp_b, "rev-parse", "HEAD").stdout.strip() == before_head
+    assert git(comp_b, "status", "--short").stdout == "?? safe-untracked.txt\n"
+    if logs.exists():
+        combined_logs = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in logs.glob("work-handoff-*.log"))
+        assert "unexpected.txt" not in combined_logs
+        assert "nested.txt" not in combined_logs
+        assert "active-work.json" not in combined_logs
+        assert "schemaVersion" not in combined_logs
+        assert str(tmp_path) not in combined_logs
+
+
+def test_metadata_tree_contract_rejects_extra_nested_missing_and_bad_modes(tmp_path: Path) -> None:
+    def entries_for(repo: Path, name: str) -> list[tuple[str, str, str, str]]:
+        json_blob = write_blob(repo, "json.txt", canonical_metadata_json(repo))
+        extra_blob = write_blob(repo, "extra.txt", "extra\n")
+        head_commit = git(repo, "rev-parse", "HEAD").stdout.strip()
+        nested_tree = make_tree(repo, [("100644", "blob", extra_blob, "nested.txt")])
+        return {
+            "extra-file": [("100644", "blob", json_blob, "active-work.json"), ("100644", "blob", extra_blob, "unexpected.txt")],
+            "nested-extra": [("100644", "blob", json_blob, "active-work.json"), ("040000", "tree", nested_tree, "extra")],
+            "symlink-json": [("120000", "blob", json_blob, "active-work.json")],
+            "executable-json": [("100755", "blob", json_blob, "active-work.json")],
+            "submodule-json": [("160000", "commit", head_commit, "active-work.json")],
+            "missing-json": [("100644", "blob", extra_blob, "unexpected.txt")],
+        }[name]
+
+    for name in ["extra-file", "nested-extra", "symlink-json", "executable-json", "submodule-json", "missing-json"]:
+        assert_malformed_metadata_blocks_all_actions(tmp_path / name, lambda repo, case=name: entries_for(repo, case))
+
+
+def test_metadata_commit_contract_rejects_merge_parent_count(tmp_path: Path) -> None:
+    def parents_for(repo: Path, entries: list[tuple[str, str, str, str]]) -> list[str]:
+        parent_one = commit_tree(repo, make_tree(repo, entries), message="manual metadata parent one")
+        parent_two = commit_tree(repo, make_tree(repo, entries), message="manual metadata parent two")
+        return [parent_one, parent_two]
+
+    assert_malformed_metadata_blocks_all_actions(
+        tmp_path / "merge",
+        lambda repo: [valid_metadata_entry(repo)],
+        expected="metadata_parent_count_invalid",
+        parent_builder=parents_for,
+    )
+
+
+def test_metadata_object_type_rejects_non_commit_when_constructible(tmp_path: Path) -> None:
+    _, _, comp_a, _ = seed_repo(tmp_path)
+    blob = "b" * 40
+    fake_git = tmp_path / "fake-non-commit-git.bat"
+    fake_git.write_text(
+        "\r\n".join(
+                [
+                    "@echo off",
+                    "if /I \"%~1\"==\"ls-remote\" echo " + blob + f" refs/heads/{META_BRANCH}& exit /b 0",
+                    "if /I \"%~1\"==\"fetch\" exit /b 0",
+                    "if /I \"%~1\"==\"rev-parse\" if /I \"%~2\"==\"" + blob + "\" echo " + blob + "& exit /b 0",
+                    "if /I \"%~1\"==\"cat-file\" echo blob& exit /b 0",
+                "git %*",
+                "exit /b %ERRORLEVEL%",
+            ]
+        )
+        + "\r\n",
+        encoding="utf-8",
+    )
+
+    result = ps(comp_a, tmp_path / "logs", "-Action", "Status", "-GitExe", str(fake_git))
+
+    assert result.returncode != 0
+    assert "metadata_object_type_invalid" in result.stdout
 
 
 def test_successful_sync_creates_branch_and_starts_launcher_after_exact_head(tmp_path: Path) -> None:
