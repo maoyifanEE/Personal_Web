@@ -1062,7 +1062,31 @@ try {
   }
   $classification = Get-StateClassification -Path $statePath -RepoRoot $repoRoot
   if ($classification -eq "active_verified") {
-    throw "A verified shared session is already running; run stop-shared-dev.bat first"
+    Write-SharedLog "Verified shared session is already running; reusing existing listeners"
+    $existingBackendUris = if ($TestMode -and $TestSyntheticProcesses) {
+      @("http://127.0.0.1:${backendPort}/")
+    } else {
+      @("http://127.0.0.1:${backendPort}/api/health", "http://127.0.0.1:${backendPort}/api/auth/me")
+    }
+    $existingBackendAccepted = if ($TestMode -and $TestSyntheticProcesses) { @(200, 401, 403, 404) } else { @(200, 401, 403) }
+    if (-not (Wait-ForUrl -Name "Backend" -Uris $existingBackendUris -TimeoutSeconds 10 -AcceptedStatusCodes $existingBackendAccepted)) {
+      throw "Existing backend readiness failed"
+    }
+    if (-not (Wait-ForUrl -Name "Frontend" -Uris @($baseHomepageUrl) -TimeoutSeconds 10)) {
+      throw "Existing frontend readiness failed"
+    }
+    if (-not (Test-FrontendNoStore -Uri $baseHomepageUrl)) {
+      throw "Existing frontend no-store verification failed"
+    }
+    if (-not $TestSkipBrowser) {
+      try {
+        Start-Process $homepageUrl
+      } catch {
+        Write-SharedLog "Browser open failed nonfatally"
+      }
+    }
+    Write-SharedLog "Personal_Web shared development is already ready"
+    return
   }
   if ($classification -eq "stale_all_gone") {
     Remove-Item -LiteralPath $statePath -Force

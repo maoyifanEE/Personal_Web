@@ -27,7 +27,7 @@ def test_shared_shortcut_targets_shared_launcher_with_empty_arguments() -> None:
     assert "$shortcut.TargetPath = $handoffBatPath" in script
     assert "$shortcut.WorkingDirectory = $repoRoot" in script
     assert '$shortcut.Arguments = ""' in script
-    assert 'Synchronize Personal_Web work branch, then start shared development' in script
+    assert 'Start Personal_Web shared development' in script
 
 
 def test_shared_shortcut_paths_are_dynamic_and_not_user_specific() -> None:
@@ -73,8 +73,10 @@ def test_direct_shared_launcher_remains_available() -> None:
     assert (REPO_ROOT / "start-shared-dev.bat").is_file()
     handoff = read(REPO_ROOT / "work-handoff.bat")
 
-    assert "scripts\\work-handoff.ps1" in handoff
-    assert "exit /b %ERRORLEVEL%" in handoff
+    assert "start-shared-dev.bat" in handoff
+    assert "scripts\\work-handoff.ps1" not in handoff
+    assert "SyncAndStart" not in handoff
+    assert "EndAndHandoff" not in handoff
 
 
 def test_old_local_shortcut_removal_requires_exact_target_and_working_directory() -> None:
@@ -108,6 +110,7 @@ def test_installer_entry_points_use_shared_shortcut_creator() -> None:
     install_bat = read(INSTALL_BAT)
 
     assert "scripts\\create-shared-launch-shortcut.ps1" in install_script
+    assert "synchronize work" not in install_script
     assert "scripts\\install-shared-shortcut.ps1" in install_bat
 
 

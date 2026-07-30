@@ -2,6 +2,56 @@
 
 Personal_Web uses GitHub as the source of truth for two-computer editing handoff.
 
+## Normal Daily Use
+
+The normal user-facing Windows entry point is a single Desktop shortcut:
+
+```text
+Personal Web.lnk
+  -> work-handoff.bat
+  -> start-shared-dev.bat
+  -> shared development starts
+  -> website opens
+```
+
+Normal startup does not synchronize Git, does not update handoff metadata, and
+does not ask the user to choose an operation. It only starts the reviewed shared
+development launcher and opens the local Personal_Web site.
+
+The shortcut is for daily site startup only. It is not a cross-computer transfer
+button.
+
+## Changing Computers
+
+Only one computer should actively edit this repository at a time.
+
+When leaving one computer, ask Codex to complete the leaving-computer procedure:
+
+```text
+checks status
+  -> commits
+  -> pushes
+  -> reports exact branch and commit
+```
+
+When receiving work on another computer, ask Codex to complete the
+receiving-computer procedure:
+
+```text
+checks local state
+  -> fetches
+  -> switches safely
+  -> fast-forwards to the exact commit
+  -> validates SSH and secret
+  -> starts development
+```
+
+Codex may use the existing reviewed internal handoff implementation when the
+user explicitly asks for that metadata-backed workflow. There are no separate
+user-facing Sync or Handoff BAT files.
+
+## Internal Metadata Model
+
 The application branch and commit are recorded on the dedicated metadata branch
 `meta/work-handoff`. That branch is an orphan metadata branch and contains only
 `active-work.json`. It is not an application branch and must never be merged into
@@ -82,27 +132,16 @@ validation, database identity, Alembic compatibility, SFTP validation, and proce
 startup. Guest reset remains the default; `-KeepSession` maps to the existing
 `keep-session` launcher option.
 
-## UI
+## Internal UI
 
-`work-handoff.bat` opens the compact Windows UI by default. The primary buttons
-are:
+`scripts/work-handoff.ps1 -Action Ui` remains available as an internal
+Codex/diagnostic implementation. It is not exposed by the normal Desktop
+shortcut.
 
-```text
-同步并开始工作
-结束工作并交接
-```
-
-The optional checkbox is unchecked by default:
-
-```text
-保留当前登录状态
-```
-
-The UI displays local branch, local abbreviated commit, tracked worktree status,
-latest handoff branch, handoff abbreviated commit, handoff time, and success or
-failure status. It loads this read-only status automatically when the UI opens.
-Refresh uses the same status path. Synchronization uses the exact recorded
-branch and commit, not automatically the latest `main`.
+The internal UI displays local branch, local abbreviated commit, tracked
+worktree status, latest handoff branch, handoff abbreviated commit, handoff time,
+and success or failure status. Synchronization uses the exact recorded branch and
+commit, not automatically the latest `main`.
 
 Standalone `Status` is filesystem read-only: it does not create or prune handoff
 logs, does not write metadata, does not switch branches, and does not start or

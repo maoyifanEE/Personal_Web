@@ -1,96 +1,55 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title Personal_Web Work Handoff
+title Personal_Web
 
-set "HANDOFF_SCRIPT=%~dp0scripts\work-handoff.ps1"
+set "START_SCRIPT=%~dp0start-shared-dev.bat"
 set "ARG1=%~1"
 set "ARG2=%~2"
+
+if not "%ARG2%"=="" goto :usage_error
 
 if /I "%ARG1%"=="--help" goto :usage
 if /I "%ARG1%"=="/?" goto :usage
 
-if not "%ARG2%"=="" goto :usage_error
-
-if not exist "%HANDOFF_SCRIPT%" (
-  if "%ARG1%"=="" goto :missing_script_ui
-  goto :missing_script_cli
-)
-
-if "%ARG1%"=="" goto :run_ui
-if /I "%ARG1%"=="status" goto :run_status
-if /I "%ARG1%"=="sync" goto :run_sync
-if /I "%ARG1%"=="sync-keep-session" goto :run_sync_keep_session
-if /I "%ARG1%"=="handoff" goto :run_handoff
+if "%ARG1%"=="" goto :run_shared_dev
 
 goto :usage_error
 
-:run_ui
-powershell.exe ^
-  -NoLogo ^
-  -NoProfile ^
-  -ExecutionPolicy Bypass ^
-  -Sta ^
-  -File "%HANDOFF_SCRIPT%" ^
-  -Action Ui
-set "PS_EXIT=%ERRORLEVEL%"
-if not "%PS_EXIT%"=="0" goto :ui_error
+:run_shared_dev
+if not exist "%START_SCRIPT%" goto :missing_start_script
+call "%START_SCRIPT%"
+set "START_EXIT=%ERRORLEVEL%"
+if not "%START_EXIT%"=="0" goto :startup_error
 exit /b 0
 
-:run_status
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HANDOFF_SCRIPT%" -Action Status
-exit /b %ERRORLEVEL%
-
-:run_sync
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HANDOFF_SCRIPT%" -Action SyncAndStart
-exit /b %ERRORLEVEL%
-
-:run_sync_keep_session
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HANDOFF_SCRIPT%" -Action SyncAndStart -KeepSession
-exit /b %ERRORLEVEL%
-
-:run_handoff
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HANDOFF_SCRIPT%" -Action EndAndHandoff
-exit /b %ERRORLEVEL%
-
 :usage
-echo Personal_Web work handoff launcher
+echo Personal_Web launcher
 echo Usage: work-handoff.bat
-echo        work-handoff.bat status
-echo        work-handoff.bat sync
-echo        work-handoff.bat sync-keep-session
-echo        work-handoff.bat handoff
 echo        work-handoff.bat --help
+echo.
+echo Starts shared development and opens the local Personal_Web site.
 exit /b 0
 
 :usage_error
-echo Personal_Web work handoff launcher
+echo Personal_Web launcher
 echo Usage: work-handoff.bat --help
 exit /b 2
 
-:ui_error
-echo Personal_Web work handoff could not start.
-echo Exit code: %PS_EXIT%
+:startup_error
+echo Personal_Web could not start shared development.
+echo Exit code: %START_EXIT%
 echo.
-echo Run this command from CMD for more information:
-echo work-handoff.bat status
-echo.
-echo Press any key to close this window.
-pause >nul
-exit /b %PS_EXIT%
-
-:missing_script_ui
-echo Personal_Web work handoff could not start.
-echo Required launcher script is missing.
-echo.
-echo Run this command from CMD for more information:
-echo work-handoff.bat status
+echo The startup launcher returned a nonzero exit code.
 echo.
 echo Press any key to close this window.
 pause >nul
-exit /b 3
+exit /b %START_EXIT%
 
-:missing_script_cli
-echo Personal_Web work handoff could not start.
-echo Required launcher script is missing.
+:missing_start_script
+echo Personal_Web could not start shared development.
+echo Required startup launcher is missing.
+echo.
+echo Press any key to close this window.
+pause >nul
 exit /b 3

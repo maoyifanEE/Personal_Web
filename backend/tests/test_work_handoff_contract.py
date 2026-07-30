@@ -111,36 +111,43 @@ def create_fake_powershell(fake_dir: Path) -> Path:
     return exe
 
 
-def make_bat_sandbox(tmp_path: Path, *, include_script: bool = True) -> Path:
+def make_bat_sandbox(
+    tmp_path: Path,
+    *,
+    include_start_script: bool = True,
+    start_exit_code: int = 0,
+) -> Path:
     repo = tmp_path / "Repo With Spaces"
     repo.mkdir(parents=True)
     (repo / "work-handoff.bat").write_bytes(BAT.read_bytes())
-    if include_script:
-        script = repo / "scripts" / "work-handoff.ps1"
-        script.parent.mkdir()
-        script.write_text("# fake script placeholder\n", encoding="utf-8")
+    if include_start_script:
+        start_script = repo / "start-shared-dev.bat"
+        marker = repo / "start-invoked.txt"
+        start_script.write_text(
+            "\n".join(
+                [
+                    "@echo off",
+                    "echo start-shared-dev invoked",
+                    f"echo cwd=%CD%> \"{marker}\"",
+                    "echo args=%*>> \"" + str(marker) + "\"",
+                    f"exit /b {start_exit_code}",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     return repo
 
 
 def run_sandbox_bat(
     repo: Path,
     *bat_args: str,
-    fake_dir: Path,
-    exit_code: int = 0,
     input_text: str | None = None,
-) -> tuple[subprocess.CompletedProcess[str], list[str], Path]:
-    create_fake_powershell(fake_dir)
-    args_path = fake_dir / "args.txt"
-    marker_path = fake_dir / "invoked.txt"
-    env = os.environ.copy()
-    env["PATH"] = str(fake_dir) + os.pathsep + env.get("PATH", "")
-    env["FAKE_PS_ARGS"] = str(args_path)
-    env["FAKE_PS_MARKER"] = str(marker_path)
-    env["FAKE_PS_EXIT"] = str(exit_code)
+) -> subprocess.CompletedProcess[str]:
     command = f'cmd.exe /d /v:off /c call "{repo / "work-handoff.bat"}"'
     for arg in bat_args:
         command += f' "{arg}"'
-    result = subprocess.run(
+    return subprocess.run(
         command,
         cwd=repo,
         text=True,
@@ -149,15 +156,8 @@ def run_sandbox_bat(
         capture_output=True,
         timeout=60,
         check=False,
-        env=env,
         input=input_text,
     )
-    captured_args = (
-        args_path.read_text(encoding="utf-8-sig").splitlines()
-        if args_path.exists()
-        else []
-    )
-    return result, captured_args, marker_path
 
 
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -234,6 +234,7 @@ def seed_repo(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     (source / "scripts").mkdir()
     (source / "config").mkdir()
     (source / "start-shared-dev.bat").write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
+    (source / "stop-shared-dev.bat").write_text("@echo off\r\nexit /b 0\r\n", encoding="utf-8")
     for path in ["work-handoff.bat", "scripts/work-handoff.ps1", "config/work-handoff-contract.json"]:
       src = REPO_ROOT / path
       dst = source / path
@@ -372,159 +373,74 @@ def test_contract_file_is_minimal_and_metadata_safe() -> None:
     }
 
 
-def test_bat_launches_ui_with_exact_sta_arguments(tmp_path: Path) -> None:
+def test_bat_no_args_delegates_to_start_shared_dev_from_repo_root(tmp_path: Path) -> None:
     repo = make_bat_sandbox(tmp_path)
-    result, captured_args, marker = run_sandbox_bat(repo, fake_dir=tmp_path / "fake-ps")
+    result = run_sandbox_bat(repo)
+    marker = repo / "start-invoked.txt"
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert marker.exists()
-    assert captured_args == [
-        "-NoLogo",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Sta",
-        "-File",
-        str(repo / "scripts" / "work-handoff.ps1"),
-        "-Action",
-        "Ui",
-    ]
+    marker_text = marker.read_text(encoding="utf-8")
+    assert f"cwd={repo}" in marker_text
+    assert "args=" in marker_text
+    assert "start-shared-dev invoked" in result.stdout
 
 
-def test_bat_ui_preserves_success_and_failure_exit_codes(tmp_path: Path) -> None:
+def test_bat_preserves_startup_success_and_failure_exit_codes(tmp_path: Path) -> None:
     success_repo = make_bat_sandbox(tmp_path / "success")
-    failure_repo = make_bat_sandbox(tmp_path / "failure")
+    failure_repo = make_bat_sandbox(tmp_path / "failure", start_exit_code=37)
 
-    success, _, _ = run_sandbox_bat(
-        success_repo,
-        fake_dir=tmp_path / "fake-success",
-        exit_code=0,
-    )
-    failure, _, _ = run_sandbox_bat(
+    success = run_sandbox_bat(success_repo)
+    failure = run_sandbox_bat(
         failure_repo,
-        fake_dir=tmp_path / "fake-failure",
-        exit_code=37,
         input_text="\n",
     )
 
     assert success.returncode == 0, success.stdout + success.stderr
     assert failure.returncode == 37
-    assert "Personal_Web work handoff could not start." in failure.stdout
+    assert "Personal_Web could not start shared development." in failure.stdout
     assert "Exit code: 37" in failure.stdout
-    assert "work-handoff.bat status" in failure.stdout
+    assert "The startup launcher returned a nonzero exit code." in failure.stdout
     assert "PATH=" not in failure.stdout
     assert "DATABASE_URL" not in failure.stdout
 
 
-def test_bat_missing_script_is_visible_and_invokes_no_powershell(tmp_path: Path) -> None:
-    repo = make_bat_sandbox(tmp_path, include_script=False)
-    result, captured_args, marker = run_sandbox_bat(
+def test_bat_missing_start_script_is_visible_and_invokes_no_startup(tmp_path: Path) -> None:
+    repo = make_bat_sandbox(tmp_path, include_start_script=False)
+    result = run_sandbox_bat(
         repo,
-        fake_dir=tmp_path / "fake-ps",
         input_text="\n",
     )
 
     assert result.returncode == 3
-    assert captured_args == []
-    assert not marker.exists()
-    assert "Personal_Web work handoff could not start." in result.stdout
-    assert "Required launcher script is missing." in result.stdout
-    assert "work-handoff.bat status" in result.stdout
+    assert not (repo / "start-invoked.txt").exists()
+    assert "Personal_Web could not start shared development." in result.stdout
+    assert "Required startup launcher is missing." in result.stdout
 
 
-def test_bat_allowlist_maps_exact_actions_and_never_forwards_arbitrary_args(tmp_path: Path) -> None:
+def test_bat_allowlist_accepts_only_no_args_and_help(tmp_path: Path) -> None:
     repo = make_bat_sandbox(tmp_path)
     text = (repo / "work-handoff.bat").read_text(encoding="utf-8")
 
     assert "%*" not in text
     assert 'cd /d "%~dp0"' in text
-    assert "title Personal_Web Work Handoff" in text
+    assert "title Personal_Web" in text
 
-    expected = {
-        "status": [
-            "-NoLogo",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(repo / "scripts" / "work-handoff.ps1"),
-            "-Action",
-            "Status",
-        ],
-        "sync": [
-            "-NoLogo",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(repo / "scripts" / "work-handoff.ps1"),
-            "-Action",
-            "SyncAndStart",
-        ],
-        "sync-keep-session": [
-            "-NoLogo",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(repo / "scripts" / "work-handoff.ps1"),
-            "-Action",
-            "SyncAndStart",
-            "-KeepSession",
-        ],
-        "handoff": [
-            "-NoLogo",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(repo / "scripts" / "work-handoff.ps1"),
-            "-Action",
-            "EndAndHandoff",
-        ],
-    }
-    for name, expected_args in expected.items():
-        result, captured_args, marker = run_sandbox_bat(
-            repo,
-            name,
-            fake_dir=tmp_path / f"fake-{name}",
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert marker.exists()
-        assert captured_args == expected_args
-
-    help_result, help_args, help_marker = run_sandbox_bat(
-        repo,
-        "--help",
-        fake_dir=tmp_path / "fake-help",
-    )
-    slash_help, slash_args, slash_marker = run_sandbox_bat(
-        repo,
-        "/?",
-        fake_dir=tmp_path / "fake-slash-help",
-    )
-    invalid, invalid_args, invalid_marker = run_sandbox_bat(
-        repo,
-        "unknown",
-        fake_dir=tmp_path / "fake-invalid",
-    )
-    too_many, too_many_args, too_many_marker = run_sandbox_bat(
-        repo,
-        "status",
-        "extra",
-        fake_dir=tmp_path / "fake-too-many",
-    )
+    help_result = run_sandbox_bat(repo, "--help")
+    slash_help = run_sandbox_bat(repo, "/?")
+    help_extra = run_sandbox_bat(repo, "--help", "extra")
+    slash_extra = run_sandbox_bat(repo, "/?", "extra")
+    invalid = run_sandbox_bat(repo, "status")
+    too_many = run_sandbox_bat(repo, "unknown", "extra")
 
     assert help_result.returncode == 0
     assert slash_help.returncode == 0
+    assert help_extra.returncode == 2
+    assert slash_extra.returncode == 2
     assert invalid.returncode == 2
     assert too_many.returncode == 2
-    assert help_args == slash_args == invalid_args == too_many_args == []
-    assert not help_marker.exists()
-    assert not slash_marker.exists()
-    assert not invalid_marker.exists()
-    assert not too_many_marker.exists()
-    assert "unknown" not in invalid.stdout
+    assert not (repo / "start-invoked.txt").exists()
+    assert "status" not in invalid.stdout
     assert "extra" not in too_many.stdout
 
 
@@ -545,33 +461,28 @@ def test_bat_rejects_metacharacters_without_command_execution(tmp_path: Path) ->
 
     for index, metacharacter in enumerate(payloads):
         payload = f'bad{metacharacter}value'
-        result, captured_args, marker = run_sandbox_bat(
-            repo,
-            payload,
-            fake_dir=tmp_path / f"fake-meta-{index}",
-        )
+        result = run_sandbox_bat(repo, payload)
         assert result.returncode == 2
-        assert captured_args == []
-        assert not marker.exists()
+        assert not (repo / "start-invoked.txt").exists()
         assert not sentinel.exists()
         assert payload not in result.stdout
 
 
-def test_bat_contract_text_keeps_fail_closed_shape() -> None:
+def test_bat_contract_text_uses_direct_shared_startup_only() -> None:
     text = BAT.read_text(encoding="utf-8")
 
-    assert "scripts\\work-handoff.ps1" in text
+    assert "start-shared-dev.bat" in text
+    assert "scripts\\work-handoff.ps1" not in text
     assert "%*" not in text
     assert 'set "ARG1=%~1"' in text
     assert 'set "ARG2=%~2"' in text
-    assert "-Action Ui" in text
-    assert "-Action Status" in text
-    assert "-Action SyncAndStart" in text
-    assert "-Action EndAndHandoff" in text
-    assert "exit /b %ERRORLEVEL%" in text
-    assert "-NoLogo" in text
-    assert "-Sta" in text
-    assert "Personal_Web work handoff could not start." in text
+    assert "-Action Ui" not in text
+    assert "-Action Status" not in text
+    assert "-Action SyncAndStart" not in text
+    assert "-Action EndAndHandoff" not in text
+    assert "SyncAndStart" not in text
+    assert "EndAndHandoff" not in text
+    assert "Personal_Web could not start shared development." in text
     assert 'if /I "%ARG1%"=="--help" goto :usage' in text
 
 
@@ -579,7 +490,7 @@ def test_bat_help_invalid_and_metacharacters_are_safe(tmp_path: Path) -> None:
     sentinel = tmp_path / "sentinel.txt"
     help_result = run(["cmd.exe", "/d", "/c", str(BAT), "--help"], REPO_ROOT)
     invalid = run(["cmd.exe", "/d", "/c", str(BAT), "unknown"], REPO_ROOT)
-    too_many = run(["cmd.exe", "/d", "/c", str(BAT), "status", "extra"], REPO_ROOT)
+    too_many = run(["cmd.exe", "/d", "/c", str(BAT), "--help", "extra"], REPO_ROOT)
     payload = f'unknown & echo owned > "{sentinel}"'
     injected = run(f'cmd.exe /d /s /c call "{BAT}" "{payload}"', REPO_ROOT)
 
@@ -1310,7 +1221,6 @@ def test_production_code_uses_no_destructive_git_commands_and_logs_are_sanitized
 def test_ui_button_text_and_test_only_flags_are_explicit() -> None:
     text = SCRIPT.read_text(encoding="utf-8")
     doc = (REPO_ROOT / "docs" / "15_TWO_COMPUTER_WORK_HANDOFF.md").read_text(encoding="utf-8")
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "同步并开始工作" in text
     assert "结束工作并交接" in text
@@ -1326,12 +1236,9 @@ def test_ui_button_text_and_test_only_flags_are_explicit() -> None:
     assert 'Invoke-HandoffChildProcess -ChildAction "Status"' in text
     assert "$initial = Invoke-HandoffChildProcess -ChildAction \"Status\"" in text
     assert "& $setStatusFromResult $result" in text
-    assert "Personal Web.lnk\n  -> work-handoff.bat\n  -> work-handoff UI" in readme
-    assert "start-shared-dev.bat only after synchronization succeeds" in readme
-    assert "not automatically the latest `main`" in readme
-    assert "targets `work-handoff.bat`" in readme
-    assert "targets\n`start-shared-dev.bat`" not in readme
-    assert "同步并开始工作" in doc
-    assert "结束工作并交接" in doc
-    assert "保留当前登录状态" in doc
-    assert "automatically when the UI opens" in doc
+    assert "Personal Web.lnk\n  -> work-handoff.bat\n  -> start-shared-dev.bat" in doc
+    assert "Normal startup does not synchronize Git" in doc
+    assert "does not update handoff metadata" in doc
+    assert "There are no separate\nuser-facing Sync or Handoff BAT files." in doc
+    assert "scripts/work-handoff.ps1 -Action Ui" in doc
+    assert "not exposed by the normal Desktop\nshortcut" in doc

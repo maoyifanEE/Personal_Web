@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 $shortcutName = "Personal Web.lnk"
 $oldLocalShortcutName = "Personal Web Local.lnk"
-$shortcutDescription = "Synchronize Personal_Web work branch, then start shared development"
+$shortcutDescription = "Start Personal_Web shared development"
 $iconLocation = "$env:SystemRoot\System32\shell32.dll,220"
 
 function Write-ShortcutLog {

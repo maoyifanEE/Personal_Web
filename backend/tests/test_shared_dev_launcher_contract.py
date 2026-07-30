@@ -1279,6 +1279,34 @@ def test_abandoned_mutex_recovery_allows_next_synthetic_launch(tmp_path):
     assert_real_runtime_unchanged(snapshot)
 
 
+def test_verified_running_shared_session_reopens_without_duplicate_processes(tmp_path):
+    runtime, logs = isolated_roots(tmp_path)
+    snapshot = snapshot_real_runtime()
+    secret = synthetic_secret(tmp_path, local_port=free_port())
+    fake_ssh = tmp_path / "ssh.exe"
+    fake_ssh.write_text("synthetic", encoding="utf-8")
+    backend_port = free_port()
+    frontend_port = free_port()
+    args = synthetic_launch_args(secret, fake_ssh, runtime, logs, backend_port, frontend_port)
+
+    first = run_launcher(args, timeout=90, capture=False)
+    try:
+        assert first.returncode == 0
+        state_path = runtime / "shared-session-state.json"
+        assert state_path.exists()
+        before = state_path.read_text(encoding="utf-8")
+
+        second = run_launcher(args, timeout=90)
+
+        assert second.returncode == 0, second.stdout + second.stderr
+        assert "already running" in second.stdout
+        assert state_path.read_text(encoding="utf-8") == before
+    finally:
+        stop = run_stop(runtime, logs)
+        assert stop.returncode == 0, stop.stdout + stop.stderr
+    assert_real_runtime_unchanged(snapshot)
+
+
 def test_stop_preserves_state_when_recorded_port_is_reused(tmp_path):
     runtime, logs = isolated_roots(tmp_path)
     snapshot = snapshot_real_runtime()
