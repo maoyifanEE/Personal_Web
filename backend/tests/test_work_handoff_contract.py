@@ -30,10 +30,12 @@ def run(
     *,
     timeout: int = 60,
     env: dict[str, str] | None = None,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         cwd=cwd,
+        input=input_text,
         text=True,
         encoding="utf-8",
         errors="replace",
@@ -42,6 +44,120 @@ def run(
         check=False,
         env=env,
     )
+
+
+def find_csharp_compiler() -> Path:
+    windir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+    candidates = [
+        windir / "Microsoft.NET" / "Framework64" / "v4.0.30319" / "csc.exe",
+        windir / "Microsoft.NET" / "Framework" / "v4.0.30319" / "csc.exe",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise AssertionError("csc.exe is required for isolated fake powershell.exe tests")
+
+
+def create_fake_powershell(fake_dir: Path) -> Path:
+    fake_dir.mkdir(parents=True, exist_ok=True)
+    source = fake_dir / "FakePowerShell.cs"
+    exe = fake_dir / "powershell.exe"
+    source.write_text(
+        "\n".join(
+            [
+                "using System;",
+                "using System.IO;",
+                "using System.Text;",
+                "",
+                "public static class FakePowerShell",
+                "{",
+                "    public static int Main(string[] args)",
+                "    {",
+                "        string argsPath = Environment.GetEnvironmentVariable(\"FAKE_PS_ARGS\");",
+                "        if (!String.IsNullOrEmpty(argsPath))",
+                "        {",
+                "            File.WriteAllLines(argsPath, args, Encoding.UTF8);",
+                "        }",
+                "        string markerPath = Environment.GetEnvironmentVariable(\"FAKE_PS_MARKER\");",
+                "        if (!String.IsNullOrEmpty(markerPath))",
+                "        {",
+                "            File.WriteAllText(markerPath, \"invoked\", Encoding.UTF8);",
+                "        }",
+                "        int exitCode;",
+                "        string exitText = Environment.GetEnvironmentVariable(\"FAKE_PS_EXIT\");",
+                "        if (!Int32.TryParse(exitText, out exitCode))",
+                "        {",
+                "            exitCode = 0;",
+                "        }",
+                "        return exitCode;",
+                "    }",
+                "}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result = run(
+        [
+            str(find_csharp_compiler()),
+            "/nologo",
+            "/target:exe",
+            f"/out:{exe}",
+            str(source),
+        ],
+        fake_dir,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return exe
+
+
+def make_bat_sandbox(tmp_path: Path, *, include_script: bool = True) -> Path:
+    repo = tmp_path / "Repo With Spaces"
+    repo.mkdir(parents=True)
+    (repo / "work-handoff.bat").write_bytes(BAT.read_bytes())
+    if include_script:
+        script = repo / "scripts" / "work-handoff.ps1"
+        script.parent.mkdir()
+        script.write_text("# fake script placeholder\n", encoding="utf-8")
+    return repo
+
+
+def run_sandbox_bat(
+    repo: Path,
+    *bat_args: str,
+    fake_dir: Path,
+    exit_code: int = 0,
+    input_text: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[str], Path]:
+    create_fake_powershell(fake_dir)
+    args_path = fake_dir / "args.txt"
+    marker_path = fake_dir / "invoked.txt"
+    env = os.environ.copy()
+    env["PATH"] = str(fake_dir) + os.pathsep + env.get("PATH", "")
+    env["FAKE_PS_ARGS"] = str(args_path)
+    env["FAKE_PS_MARKER"] = str(marker_path)
+    env["FAKE_PS_EXIT"] = str(exit_code)
+    command = f'cmd.exe /d /v:off /c call "{repo / "work-handoff.bat"}"'
+    for arg in bat_args:
+        command += f' "{arg}"'
+    result = subprocess.run(
+        command,
+        cwd=repo,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env=env,
+        input=input_text,
+    )
+    captured_args = (
+        args_path.read_text(encoding="utf-8-sig").splitlines()
+        if args_path.exists()
+        else []
+    )
+    return result, captured_args, marker_path
 
 
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -256,7 +372,192 @@ def test_contract_file_is_minimal_and_metadata_safe() -> None:
     }
 
 
-def test_bat_launches_ui_and_returns_powershell_exit_code() -> None:
+def test_bat_launches_ui_with_exact_sta_arguments(tmp_path: Path) -> None:
+    repo = make_bat_sandbox(tmp_path)
+    result, captured_args, marker = run_sandbox_bat(repo, fake_dir=tmp_path / "fake-ps")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert marker.exists()
+    assert captured_args == [
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Sta",
+        "-File",
+        str(repo / "scripts" / "work-handoff.ps1"),
+        "-Action",
+        "Ui",
+    ]
+
+
+def test_bat_ui_preserves_success_and_failure_exit_codes(tmp_path: Path) -> None:
+    success_repo = make_bat_sandbox(tmp_path / "success")
+    failure_repo = make_bat_sandbox(tmp_path / "failure")
+
+    success, _, _ = run_sandbox_bat(
+        success_repo,
+        fake_dir=tmp_path / "fake-success",
+        exit_code=0,
+    )
+    failure, _, _ = run_sandbox_bat(
+        failure_repo,
+        fake_dir=tmp_path / "fake-failure",
+        exit_code=37,
+        input_text="\n",
+    )
+
+    assert success.returncode == 0, success.stdout + success.stderr
+    assert failure.returncode == 37
+    assert "Personal_Web work handoff could not start." in failure.stdout
+    assert "Exit code: 37" in failure.stdout
+    assert "work-handoff.bat status" in failure.stdout
+    assert "PATH=" not in failure.stdout
+    assert "DATABASE_URL" not in failure.stdout
+
+
+def test_bat_missing_script_is_visible_and_invokes_no_powershell(tmp_path: Path) -> None:
+    repo = make_bat_sandbox(tmp_path, include_script=False)
+    result, captured_args, marker = run_sandbox_bat(
+        repo,
+        fake_dir=tmp_path / "fake-ps",
+        input_text="\n",
+    )
+
+    assert result.returncode == 3
+    assert captured_args == []
+    assert not marker.exists()
+    assert "Personal_Web work handoff could not start." in result.stdout
+    assert "Required launcher script is missing." in result.stdout
+    assert "work-handoff.bat status" in result.stdout
+
+
+def test_bat_allowlist_maps_exact_actions_and_never_forwards_arbitrary_args(tmp_path: Path) -> None:
+    repo = make_bat_sandbox(tmp_path)
+    text = (repo / "work-handoff.bat").read_text(encoding="utf-8")
+
+    assert "%*" not in text
+    assert 'cd /d "%~dp0"' in text
+    assert "title Personal_Web Work Handoff" in text
+
+    expected = {
+        "status": [
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "scripts" / "work-handoff.ps1"),
+            "-Action",
+            "Status",
+        ],
+        "sync": [
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "scripts" / "work-handoff.ps1"),
+            "-Action",
+            "SyncAndStart",
+        ],
+        "sync-keep-session": [
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "scripts" / "work-handoff.ps1"),
+            "-Action",
+            "SyncAndStart",
+            "-KeepSession",
+        ],
+        "handoff": [
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo / "scripts" / "work-handoff.ps1"),
+            "-Action",
+            "EndAndHandoff",
+        ],
+    }
+    for name, expected_args in expected.items():
+        result, captured_args, marker = run_sandbox_bat(
+            repo,
+            name,
+            fake_dir=tmp_path / f"fake-{name}",
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert marker.exists()
+        assert captured_args == expected_args
+
+    help_result, help_args, help_marker = run_sandbox_bat(
+        repo,
+        "--help",
+        fake_dir=tmp_path / "fake-help",
+    )
+    slash_help, slash_args, slash_marker = run_sandbox_bat(
+        repo,
+        "/?",
+        fake_dir=tmp_path / "fake-slash-help",
+    )
+    invalid, invalid_args, invalid_marker = run_sandbox_bat(
+        repo,
+        "unknown",
+        fake_dir=tmp_path / "fake-invalid",
+    )
+    too_many, too_many_args, too_many_marker = run_sandbox_bat(
+        repo,
+        "status",
+        "extra",
+        fake_dir=tmp_path / "fake-too-many",
+    )
+
+    assert help_result.returncode == 0
+    assert slash_help.returncode == 0
+    assert invalid.returncode == 2
+    assert too_many.returncode == 2
+    assert help_args == slash_args == invalid_args == too_many_args == []
+    assert not help_marker.exists()
+    assert not slash_marker.exists()
+    assert not invalid_marker.exists()
+    assert not too_many_marker.exists()
+    assert "unknown" not in invalid.stdout
+    assert "extra" not in too_many.stdout
+
+
+def test_bat_rejects_metacharacters_without_command_execution(tmp_path: Path) -> None:
+    repo = make_bat_sandbox(tmp_path)
+    sentinel = tmp_path / "sentinel.txt"
+    payloads = [
+        "&",
+        "|",
+        "<",
+        ">",
+        "(",
+        ")",
+        "^",
+        "%",
+        "!",
+    ]
+
+    for index, metacharacter in enumerate(payloads):
+        payload = f'bad{metacharacter}value'
+        result, captured_args, marker = run_sandbox_bat(
+            repo,
+            payload,
+            fake_dir=tmp_path / f"fake-meta-{index}",
+        )
+        assert result.returncode == 2
+        assert captured_args == []
+        assert not marker.exists()
+        assert not sentinel.exists()
+        assert payload not in result.stdout
+
+
+def test_bat_contract_text_keeps_fail_closed_shape() -> None:
     text = BAT.read_text(encoding="utf-8")
 
     assert "scripts\\work-handoff.ps1" in text
@@ -268,6 +569,9 @@ def test_bat_launches_ui_and_returns_powershell_exit_code() -> None:
     assert "-Action SyncAndStart" in text
     assert "-Action EndAndHandoff" in text
     assert "exit /b %ERRORLEVEL%" in text
+    assert "-NoLogo" in text
+    assert "-Sta" in text
+    assert "Personal_Web work handoff could not start." in text
     assert 'if /I "%ARG1%"=="--help" goto :usage' in text
 
 
