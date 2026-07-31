@@ -22,7 +22,7 @@ LOCAL_LOG_RETENTION_DAYS = 7
 LOCAL_LOG_RETENTION_SECONDS = LOCAL_LOG_RETENTION_DAYS * 24 * 60 * 60
 LOCAL_LOG_RETENTION_THROTTLE_SECONDS = 15 * 60
 _last_retention_prune_monotonic = 0.0
-RETENTION_CATEGORIES = {"backend", "frontend", "launcher", "debug-bundles"}
+RETENTION_CATEGORIES = {"backend", "frontend", "launcher", "debug-bundles", "sticker-tool"}
 SENSITIVE_KEYS = {
     "password",
     "oldpassword",

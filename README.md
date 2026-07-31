@@ -110,6 +110,15 @@ Current homepage media behavior:
 * This is local-development only and was not deployed to the public server.
 * Journey sticker upload reuses the same media upload API; editor preview uses the protected admin file route and public preview uses the public file route.
 
+Journey editor can optionally call a machine-local `Sticker_Preprocessor`
+checkout through `/api/sticker-tool/*` in local development. The bridge is
+disabled outside development, requires loopback access, authentication,
+`homepage:edit`, and CSRF for unsafe requests. It stores tool configuration and
+pre-review artifacts only under ignored `.runtime/` paths. Processed sticker
+media is uploaded through the existing homepage media API only after explicit
+visual acceptance, and the canvas is not saved until the user clicks
+`保存画布`.
+
 ## Navigation Behavior
 
 * Visible visitor entrance on `index.html` opens the Journey public preview at `journey.html?view=public`.

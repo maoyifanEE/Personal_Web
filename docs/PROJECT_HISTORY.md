@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-07-31 - Add local Sticker_Preprocessor Journey handoff bridge
+
+### Goal
+
+* Work on `Feature/sticker-preprocessor-external-tool-v1`.
+* Integrate a machine-local Sticker_Preprocessor checkout as an optional Journey
+  sticker preprocessing tool.
+
+### Actual changes
+
+* Added versioned handoff contract copies under `docs/contracts/`.
+* Added local-only `/api/sticker-tool/*` routes with development, loopback,
+  authenticated `homepage:edit`, and CSRF guards.
+* Added local bridge run state, manifest/hash/path/PNG Alpha verification, and
+  integration diagnostic bundle support under ignored `.runtime/` paths.
+* Added a Journey editor preprocessing panel that previews source/result images,
+  records accept/reject review, and uploads only accepted processed PNGs through
+  the existing homepage media API.
+* Added contract, route, service, and local synthetic smoke validation scripts.
+
+### Safety boundaries
+
+* No database migration, seed, real database write, real media upload during
+  automated smoke, startup workflow change, deployment, SSH, SFTP write,
+  Journey save, Auth/RBAC policy weakening, or production server change was
+  added.
+
 ## 2026-07-13 - Fix Journey sticker rendering halo artifacts
 
 ### Goal

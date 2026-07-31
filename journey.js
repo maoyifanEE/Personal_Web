@@ -6,6 +6,7 @@ const REMOTE_CANVAS_PATH = "/homepage/canvas";
 const REMOTE_CANVAS_RESET_PATH = "/homepage/canvas/reset";
 const PUBLISH_BUNDLE_EXPORT_PATH = "/homepage/publish-bundle/export";
 const HOMEPAGE_MEDIA_PATH = "/homepage/media";
+const STICKER_TOOL_PATH = "/sticker-tool";
 const CURVE_IMPORT_FILE_LIMIT_BYTES = 10 * 1024 * 1024;
 const CURVE_IMPORT_MAX_DECODED_SIDE = 4096;
 const CURVE_IMPORT_MAX_PROCESSING_SIDE = 2048;
@@ -333,6 +334,20 @@ let journeyHasEditPermission = false;
 let journeyCanEdit = false;
 let nodeGalleryUploadState = {
   uploading: false
+};
+let stickerToolState = {
+  statusLoaded: false,
+  status: null,
+  busy: false,
+  sourceFile: null,
+  sourcePreviewUrl: "",
+  outputPreviewUrl: "",
+  run: null,
+  browserAlpha: null,
+  configInput: "",
+  error: "",
+  message: "",
+  accepted: false
 };
 let remoteCanvasMeta = {
   loaded: false,
@@ -2744,6 +2759,431 @@ function renderCurveImportDialog() {
   return overlay;
 }
 
+function stickerToolBridge() {
+  return window.JourneyStickerTool || {};
+}
+
+function releaseStickerToolPreview(url) {
+  if (url && typeof URL !== "undefined") {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function resetStickerToolRunState() {
+  releaseStickerToolPreview(stickerToolState.sourcePreviewUrl);
+  releaseStickerToolPreview(stickerToolState.outputPreviewUrl);
+  stickerToolState = {
+    ...stickerToolState,
+    busy: false,
+    sourceFile: null,
+    sourcePreviewUrl: "",
+    outputPreviewUrl: "",
+    run: null,
+    browserAlpha: null,
+    configInput: stickerToolState.configInput,
+    error: "",
+    message: "",
+    accepted: false
+  };
+}
+
+function renderStickerToolPanel() {
+  const bridge = stickerToolBridge();
+  const status = stickerToolState.status || {};
+  const run = stickerToolState.run || {};
+  const compatibility = run.compatibility || {};
+  const alpha = stickerToolState.browserAlpha || {};
+  const statusLabel = bridge.statusLabel?.(status.state) || status.state || "未检查";
+  const verdictLabel = bridge.verdictLabel?.(compatibility.overallHandoffVerdict) ||
+    compatibility.overallHandoffVerdict ||
+    "待处理";
+  const alphaPercent = bridge.formatPercent?.(alpha.transparentFraction) || "-";
+  const outputUrl = stickerToolState.outputPreviewUrl || (run.outputUrl ? `${apiBaseUrl()}${run.outputUrl}` : "");
+
+  return `
+    <details class="journey-sticker-tool-panel" ${stickerToolState.statusLoaded || stickerToolState.run ? "open" : ""}>
+      <summary>贴纸预处理</summary>
+      <p class="journey-sticker-tool-hint">
+        本地调用 Sticker_Preprocessor 生成透明 PNG。接受结果前不会上传媒体，也不会保存画布。
+      </p>
+      <div class="journey-sticker-tool-actions">
+        <button type="button" data-sticker-tool-action="status" ${stickerToolState.busy ? "disabled" : ""}>检查工具</button>
+        <button type="button" data-sticker-tool-action="select-file" ${stickerToolState.busy ? "disabled" : ""}>选择图片处理</button>
+      </div>
+      <label class="journey-sticker-tool-config">
+        <span>本机工具目录</span>
+        <input
+          type="text"
+          data-sticker-tool-config-input
+          value="${escapeHtml(stickerToolState.configInput)}"
+          placeholder="例如 C:\\Users\\...\\Sticker_Preprocessor"
+          autocomplete="off"
+        >
+      </label>
+      <div class="journey-sticker-tool-actions">
+        <button type="button" data-sticker-tool-action="save-config" ${stickerToolState.busy ? "disabled" : ""}>保存本机配置</button>
+        <button type="button" data-sticker-tool-action="clear-config" ${stickerToolState.busy ? "disabled" : ""}>清除配置</button>
+      </div>
+      <dl class="journey-sticker-tool-status">
+        <div><dt>工具状态</dt><dd>${escapeHtml(statusLabel)}</dd></div>
+        <div><dt>配置来源</dt><dd>${escapeHtml(status.source || "-")}</dd></div>
+        <div><dt>数据模式</dt><dd>${escapeHtml(status.dataProfile || "-")}</dd></div>
+        <div><dt>协议</dt><dd>${escapeHtml(status.contractVersion || run.contractVersion || "-")}</dd></div>
+        <div><dt>处理结果</dt><dd>${escapeHtml(verdictLabel)}</dd></div>
+        <div><dt>透明像素</dt><dd>${escapeHtml(alphaPercent)}</dd></div>
+      </dl>
+      <div class="journey-sticker-tool-preview-grid">
+        <figure>
+          <figcaption>原图</figcaption>
+          ${stickerToolState.sourcePreviewUrl ? `<img src="${escapeHtml(stickerToolState.sourcePreviewUrl)}" alt="待处理贴纸原图">` : "<span>未选择</span>"}
+        </figure>
+        <figure>
+          <figcaption>处理结果</figcaption>
+          ${outputUrl ? `<img src="${escapeHtml(outputUrl)}" alt="Sticker_Preprocessor 处理结果" data-sticker-tool-output-preview>` : "<span>暂无结果</span>"}
+        </figure>
+      </div>
+      <div class="journey-sticker-tool-actions">
+        <button type="button" data-sticker-tool-action="accept" ${run.outputUrl && !stickerToolState.busy ? "" : "disabled"}>接受并加入草稿</button>
+        <button type="button" data-sticker-tool-action="reject" ${run.bridgeRunId && !stickerToolState.busy ? "" : "disabled"}>拒绝结果</button>
+        <button type="button" data-sticker-tool-action="bundle" ${run.bridgeRunId && !stickerToolState.busy ? "" : "disabled"}>导出联动诊断包</button>
+      </div>
+      <p class="journey-sticker-tool-message" data-error="${Boolean(stickerToolState.error)}">
+        ${escapeHtml(stickerToolState.error || stickerToolState.message || "工具按需调用；普通启动不依赖它。")}
+      </p>
+      <input type="file" accept="image/png,image/jpeg,image/webp" hidden data-file-input="sticker-tool">
+    </details>
+  `;
+}
+
+async function refreshStickerToolStatus() {
+  if (!guardJourneyMutation("stickerToolStatus")) {
+    return;
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    stickerToolState.error = "认证服务不可用，无法检查外部工具。";
+    renderEditorPanel();
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在检查本机 Sticker_Preprocessor...";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/status`, { method: "GET" });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `工具检查失败：${response.status}`);
+    }
+    stickerToolState.statusLoaded = true;
+    stickerToolState.status = body;
+    stickerToolState.message = body.state === "compatible"
+      ? "本机工具可用。"
+      : "本机工具尚未可用，请检查路径或协议版本。";
+    logJourney("Sticker_Preprocessor status checked.", {
+      state: body.state,
+      dataProfile: body.dataProfile,
+      source: body.source,
+      pathFingerprint: body.pathFingerprint
+    });
+  } catch (error) {
+    stickerToolState.error = error.message || "工具检查失败。";
+    logJourney("Sticker_Preprocessor status check failed.", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function saveStickerToolConfig() {
+  if (!guardJourneyMutation("stickerToolSaveConfig")) {
+    return;
+  }
+  const toolRoot = stickerToolState.configInput.trim();
+  if (!toolRoot) {
+    stickerToolState.error = "请输入本机 Sticker_Preprocessor 目录。";
+    renderEditorPanel();
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在保存并验证本机工具配置...";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/config`, {
+      method: "POST",
+      body: JSON.stringify({ toolRoot })
+    });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `保存配置失败：${response.status}`);
+    }
+    stickerToolState.statusLoaded = true;
+    stickerToolState.status = body;
+    stickerToolState.message = "本机工具配置已保存。";
+    logJourney("Sticker_Preprocessor local config saved.", {
+      source: body.source,
+      pathFingerprint: body.pathFingerprint
+    });
+    await refreshStickerToolStatus();
+  } catch (error) {
+    stickerToolState.error = error.message || "保存配置失败。";
+    logJourney("Sticker_Preprocessor config save failed.", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function clearStickerToolConfig() {
+  if (!guardJourneyMutation("stickerToolClearConfig")) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在清除本机工具配置...";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/config`, {
+      method: "DELETE"
+    });
+    if (!response.ok) {
+      const body = await parseJsonResponse(response);
+      throw new Error(body.detail?.message || body.detail || `清除配置失败：${response.status}`);
+    }
+    stickerToolState.configInput = "";
+    stickerToolState.status = null;
+    stickerToolState.statusLoaded = false;
+    stickerToolState.message = "已清除本机工具配置。";
+    logJourney("Sticker_Preprocessor local config cleared.");
+    await refreshStickerToolStatus();
+  } catch (error) {
+    stickerToolState.error = error.message || "清除配置失败。";
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function handleStickerToolFileInput(input) {
+  if (!guardJourneyMutation("stickerToolFileInput")) {
+    input.value = "";
+    return;
+  }
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) {
+    return;
+  }
+  if (!file.type?.startsWith("image/")) {
+    stickerToolState.error = "请选择图片文件。";
+    renderEditorPanel();
+    return;
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    stickerToolState.error = "认证服务不可用，无法调用外部工具。";
+    renderEditorPanel();
+    return;
+  }
+  resetStickerToolRunState();
+  stickerToolState.sourceFile = file;
+  stickerToolState.sourcePreviewUrl = URL.createObjectURL(file);
+  stickerToolState.busy = true;
+  stickerToolState.message = "正在本机预处理贴纸...";
+  renderEditorPanel();
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("mode", "auto");
+    formData.append("ai_model", "silueta");
+    formData.append("alpha_matting", "false");
+    formData.append("padding_pixels", "8");
+    formData.append("alpha_crop_threshold", "8");
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/runs`, {
+      method: "POST",
+      body: formData
+    });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `贴纸预处理失败：${response.status}`);
+    }
+    stickerToolState.run = body;
+    await loadStickerToolOutputPreview(body);
+    stickerToolState.message = "处理完成。请预览后选择接受或拒绝。";
+    logJourney("Sticker_Preprocessor run ready for review.", {
+      bridgeRunId: body.bridgeRunId,
+      status: body.status,
+      verdict: body.compatibility?.overallHandoffVerdict
+    });
+  } catch (error) {
+    stickerToolState.error = error.message || "贴纸预处理失败。";
+    logJourney("Sticker_Preprocessor run failed.", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function loadStickerToolOutputPreview(run) {
+  if (!run?.outputUrl || !window.PersonalWebAuth?.authFetch) {
+    return;
+  }
+  const response = await window.PersonalWebAuth.authFetch(run.outputUrl, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`读取预处理结果失败：${response.status}`);
+  }
+  const blob = await response.blob();
+  releaseStickerToolPreview(stickerToolState.outputPreviewUrl);
+  stickerToolState.outputPreviewUrl = URL.createObjectURL(blob);
+  stickerToolState.browserAlpha = await analyzeStickerToolBlobAlpha(blob);
+}
+
+function analyzeStickerToolBlobAlpha(blob) {
+  return new Promise((resolve) => {
+    const bridge = stickerToolBridge();
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(blob);
+    const finish = (result) => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(result);
+    };
+    image.onload = () => {
+      try {
+        finish(bridge.analyzeImageElementAlpha?.(image) || {});
+      } catch (error) {
+        logJourney("Sticker_Preprocessor browser alpha analysis failed.", { error: error.message });
+        finish({});
+      }
+    };
+    image.onerror = () => finish({});
+    image.src = objectUrl;
+  });
+}
+
+async function reviewStickerToolRun(verdict) {
+  if (!guardJourneyMutation(`stickerToolReview:${verdict}`) || !stickerToolState.run?.bridgeRunId) {
+    return null;
+  }
+  const response = await window.PersonalWebAuth.authFetch(
+    `${STICKER_TOOL_PATH}/runs/${stickerToolState.run.bridgeRunId}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({ verdict })
+    }
+  );
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(body.detail?.message || body.detail || `审核结果记录失败：${response.status}`);
+  }
+  stickerToolState.run = body;
+  return body;
+}
+
+async function acceptStickerToolResult() {
+  if (!stickerToolState.run?.outputUrl || stickerToolState.busy) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在接受结果并上传为首页媒体...";
+  renderEditorPanel();
+  try {
+    await reviewStickerToolRun("accepted");
+    const response = await window.PersonalWebAuth.authFetch(stickerToolState.run.outputUrl, { method: "GET" });
+    if (!response.ok) {
+      throw new Error(`读取处理结果失败：${response.status}`);
+    }
+    const blob = await response.blob();
+    const baseName = stickerToolState.sourceFile?.name?.replace(/\.[^.]+$/, "") || "processed-sticker";
+    const file = new File([blob], `${baseName}-processed.png`, { type: "image/png" });
+    await addPersistentStickerFromFile(file);
+    stickerToolState.accepted = true;
+    stickerToolState.message = "已加入当前草稿。请点击“保存画布”后才会发布到公开预览。";
+    logJourney("Accepted Sticker_Preprocessor output into Journey draft.", {
+      bridgeRunId: stickerToolState.run?.bridgeRunId,
+      stickerCount: state.canvas.stickers.length
+    });
+    render();
+  } catch (error) {
+    stickerToolState.error = error.message || "接受处理结果失败。";
+    logJourney("Accepting Sticker_Preprocessor output failed.", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    render();
+  }
+}
+
+async function rejectStickerToolResult() {
+  if (!stickerToolState.run?.bridgeRunId || stickerToolState.busy) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  renderEditorPanel();
+  try {
+    await reviewStickerToolRun("rejected");
+    stickerToolState.message = "已拒绝本次结果；未上传媒体。";
+    logJourney("Rejected Sticker_Preprocessor output.", {
+      bridgeRunId: stickerToolState.run?.bridgeRunId
+    });
+  } catch (error) {
+    stickerToolState.error = error.message || "拒绝结果失败。";
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function downloadStickerToolBundle() {
+  if (!stickerToolState.run?.bridgeRunId || stickerToolState.busy) {
+    return;
+  }
+  const confirmed = window.confirm(
+    "联动诊断包会包含本次输入图片、处理结果和诊断数据。仅在你确认需要分享给排查人员时导出。"
+  );
+  if (!confirmed) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(
+      `${STICKER_TOOL_PATH}/runs/${stickerToolState.run.bridgeRunId}/diagnostic-bundle`,
+      { method: "POST" }
+    );
+    if (!response.ok) {
+      const body = await parseJsonResponse(response);
+      throw new Error(body.detail?.message || body.detail || `诊断包导出失败：${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sticker-tool-${stickerToolState.run.bridgeRunId.slice(0, 8)}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+    stickerToolState.message = "已生成联动诊断包。";
+  } catch (error) {
+    stickerToolState.error = error.message || "诊断包导出失败。";
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+function handleStickerToolAction(action) {
+  const actions = {
+    status: refreshStickerToolStatus,
+    "select-file": () => document.querySelector("[data-file-input='sticker-tool']")?.click(),
+    "save-config": saveStickerToolConfig,
+    "clear-config": clearStickerToolConfig,
+    accept: acceptStickerToolResult,
+    reject: rejectStickerToolResult,
+    bundle: downloadStickerToolBundle
+  };
+  actions[action]?.();
+}
+
 function renderEditorPanel() {
   if (!editorRoot) {
     return;
@@ -2816,6 +3256,7 @@ function renderEditorPanel() {
       <button type="button" data-action="enter-focus">专注绘制</button>
       <button type="button" data-action="import-curve">导入曲线</button>
       <button type="button" data-action="upload-sticker">上传贴纸</button>
+      <button type="button" data-action="preprocess-sticker">预处理贴纸</button>
       <button type="button" data-action="save-canvas" ${remoteCanvasMeta.saving ? "disabled" : ""}>
         ${remoteCanvasMeta.saving ? "保存中..." : "保存画布"}
       </button>
@@ -2829,6 +3270,7 @@ function renderEditorPanel() {
       保存画布后，公开预览会读取最新版本。
     </p>
     ${renderSelectedStickerActions()}
+    ${renderStickerToolPanel()}
     <p class="journey-sketch-tool-hint" data-tool-hint>
       ${escapeHtml(activeToolHint())}
     </p>
@@ -2871,6 +3313,12 @@ function renderEditorPanel() {
   toolbar.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => handleToolbarAction(button.dataset.action));
   });
+  toolbar.querySelectorAll("[data-sticker-tool-action]").forEach((button) => {
+    button.addEventListener("click", () => handleStickerToolAction(button.dataset.stickerToolAction));
+  });
+  toolbar.querySelector("[data-sticker-tool-config-input]")?.addEventListener("input", (event) => {
+    stickerToolState.configInput = event.currentTarget.value;
+  });
   toolbar.querySelectorAll("[data-sticker-action]").forEach((button) => {
     button.addEventListener("click", () => handleSelectedStickerAction(button.dataset.stickerAction));
   });
@@ -2885,7 +3333,11 @@ function renderEditorPanel() {
     state.editor.showCurveSettings = event.currentTarget.open;
   });
   toolbar.querySelectorAll("[data-file-input]").forEach((input) => {
-    input.addEventListener("change", () => handleFileInput(input));
+    if (input.dataset.fileInput === "sticker-tool") {
+      input.addEventListener("change", () => handleStickerToolFileInput(input));
+    } else {
+      input.addEventListener("change", () => handleFileInput(input));
+    }
   });
   sidebarBody.append(toolbar);
   sidebar.append(sidebarHeader, sidebarBody);
@@ -3204,6 +3656,10 @@ function handleToolbarAction(action) {
     "enter-focus": enterEditorFocusMode,
     "import-curve": openCurveImportDialog,
     "upload-sticker": () => stickerFileInput?.click(),
+    "preprocess-sticker": () => {
+      refreshStickerToolStatus();
+      document.querySelector("[data-file-input='sticker-tool']")?.click();
+    },
     "save-canvas": saveRemoteCanvasState,
     "export-publish-bundle": exportPublishBundle,
     clear: clearCanvasState,

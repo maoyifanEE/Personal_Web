@@ -165,6 +165,40 @@ Journey sticker upload also uses the homepage media upload API.
 
 Runtime uploads under `data/uploads/homepage/` must not be committed to Git.
 
+## Journey Sticker Preprocessor Bridge
+
+The Journey editor has an optional local-only sticker preprocessing flow.
+
+The flow is:
+
+* Admin selects `预处理贴纸` in Journey edit mode.
+* Personal_Web calls `/api/sticker-tool/*` only from local development.
+* The backend invokes a machine-local `Sticker_Preprocessor` checkout through a
+  fixed subprocess contract.
+* The provider writes a PNG, result manifest, report, and events under its own
+  ignored runtime directory.
+* Personal_Web verifies the manifest, hashes, output path, PNG dimensions, and
+  Alpha metrics.
+* The editor previews the original image and processed PNG for visual review.
+* Rejecting the result does not upload media.
+* Accepting the result uploads the processed PNG through the existing homepage
+  media API and adds it to the unsaved Journey draft.
+* The public canvas is not updated until the user separately clicks
+  `保存画布`.
+
+The bridge must not run in production, must not be part of normal startup, must
+not write PostgreSQL records for processing runs, and must not send pre-review
+files to SFTP-backed media storage.
+
+Each computer owns its own local tool path configuration in:
+
+```text
+.runtime/local-tools/sticker-preprocessor.json
+```
+
+That path must not be committed, synchronized, or written to shared handoff
+metadata.
+
 ## Journey Mode Model
 
 Journey has two route modes:

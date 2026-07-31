@@ -3024,6 +3024,137 @@ select {
   color: #ad3c2d;
 }
 
+.journey-sticker-tool-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(23, 37, 52, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.journey-sticker-tool-panel summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.journey-sticker-tool-hint,
+.journey-sticker-tool-message {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.journey-sticker-tool-message[data-error="true"] {
+  color: #ad3c2d;
+}
+
+.journey-sticker-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.journey-sticker-tool-config {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.journey-sticker-tool-config input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(23, 37, 52, 0.14);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  font: inherit;
+}
+
+.journey-sticker-tool-config input:focus-visible {
+  outline: 3px solid rgba(22, 143, 144, 0.18);
+  border-color: rgba(22, 143, 144, 0.6);
+}
+
+.journey-sticker-tool-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.journey-sticker-tool-status div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(23, 37, 52, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.journey-sticker-tool-status dt {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.journey-sticker-tool-status dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.journey-sticker-tool-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.journey-sticker-tool-preview-grid figure {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.journey-sticker-tool-preview-grid figcaption {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.journey-sticker-tool-preview-grid img,
+.journey-sticker-tool-preview-grid span {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(23, 37, 52, 0.1);
+  border-radius: 7px;
+  background:
+    linear-gradient(45deg, rgba(23, 37, 52, 0.06) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(23, 37, 52, 0.06) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(23, 37, 52, 0.06) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(23, 37, 52, 0.06) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
+  object-fit: contain;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .journey-sticker-tool-status,
+  .journey-sticker-tool-preview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .journey-curve-import-modal {
   position: fixed;
   z-index: 120;

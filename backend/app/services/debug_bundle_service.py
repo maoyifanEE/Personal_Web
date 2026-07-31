@@ -20,7 +20,7 @@ from app.core.diagnostics import (
 )
 
 MAX_TOTAL_LOG_BYTES = 250 * 1024 * 1024
-ALLOWED_LOG_DIRS = ("backend", "frontend", "launcher", "debug-bundles")
+ALLOWED_LOG_DIRS = ("backend", "frontend", "launcher", "debug-bundles", "sticker-tool")
 DEBUG_PAYLOAD_SCHEMA_VERSION = "personal-web-debug-payload-v2"
 DEBUG_LOGGER_VERSION = "2026-07-11-debug-v4"
 SKIPPED_PARTS = {

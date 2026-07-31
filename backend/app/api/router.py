@@ -11,6 +11,7 @@ from app.api.routes import (
     dev_data,
     health,
     homepage,
+    sticker_tool,
     visitor_messages,
 )
 
@@ -18,6 +19,7 @@ api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(homepage.router, tags=["homepage"])
+api_router.include_router(sticker_tool.router, tags=["sticker tool"])
 api_router.include_router(visitor_messages.router, tags=["visitor messages"])
 api_router.include_router(admin_visitor_messages.router, tags=["admin visitor messages"])
 api_router.include_router(dev_data.router, prefix="/dev", tags=["development data"])

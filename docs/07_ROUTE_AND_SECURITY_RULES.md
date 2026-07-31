@@ -40,6 +40,7 @@ It explains what is public, what is a placeholder, and what must not be treated 
 | Backend homepage media admin file | `/api/homepage/media/{media_id}/admin-file` GET | Admin preview of uploaded media | Requires `homepage:edit` |
 | Backend homepage media admin | `/api/homepage/media` GET/POST and `/api/homepage/media/{media_id}` PATCH | Local homepage media management | Requires `homepage:edit`; writes require CSRF |
 | Backend homepage item admin | `/api/homepage/items` GET/POST/PATCH/DELETE | Local homepage display item management | Requires `homepage:edit`; writes require CSRF |
+| Backend sticker tool bridge | `/api/sticker-tool/*` | Local Sticker_Preprocessor handoff adapter | Development and loopback only; requires auth, `homepage:edit`, and CSRF for writes |
 | Backend debug status | `/api/debug/status` GET | Local diagnostics status | Development tools only |
 | Backend client debug log | `/api/debug/client-log` POST | Local frontend diagnostics collection | Development tools only |
 
@@ -89,6 +90,20 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * The homepage content admin page must not be treated as production route protection by itself.
 * Uploading media from the admin UI does not publish it until a visible homepage item references enabled media.
 * Hiding a homepage item in the admin UI is a soft hide, not physical deletion.
+* `/api/sticker-tool/*` is a local-development adapter for an external
+  Sticker_Preprocessor checkout.
+* The sticker tool adapter is disabled outside development, disabled when
+  `ALLOW_DEV_TOOLS` is false, and restricted to loopback clients.
+* Sticker tool routes require an authenticated user with `homepage:edit`; unsafe
+  routes require CSRF.
+* Sticker tool configuration and bridge artifacts remain in ignored local
+  `.runtime/` paths and must not be synchronized through Git, PostgreSQL, SFTP,
+  handoff metadata, or browser storage.
+* The provider never calls Personal_Web APIs and never uploads media.
+* A processed sticker is uploaded through the existing homepage media API only
+  after explicit visual acceptance.
+* Accepting a processed sticker adds it to the current Journey draft only;
+  publication still requires the separate `保存画布` action.
 * Local diagnostics write only to `.local_logs/`, which must not be committed to GitHub.
 * Read `docs/11_HOMEPAGE_JOURNEY_FLOW_SPEC.md` before changing homepage/Journey flow behavior.
 * There is no active hidden private entrance link in current HTML.
