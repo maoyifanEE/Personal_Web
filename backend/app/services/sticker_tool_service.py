@@ -758,7 +758,10 @@ def create_integration_bundle(bridge_run_id: str) -> tuple[Path, str]:
         archive.writestr("web/provider-result.json", json.dumps(state.get("manifest"), ensure_ascii=False, indent=2))
         request_path = PROJECT_ROOT / state.get("requestRelativePath", "")
         if request_path.is_file():
-            archive.write(request_path, "web/request.json")
+            archive.writestr(
+                "web/request.json",
+                json.dumps(sanitize_request_for_bundle(request_path), ensure_ascii=False, indent=2),
+            )
         input_dir = runs_root() / bridge_run_id / "input"
         if input_dir.is_dir():
             for input_path in input_dir.iterdir():
@@ -771,3 +774,11 @@ def create_integration_bundle(bridge_run_id: str) -> tuple[Path, str]:
         archive.write(output_path, "output/processed.png")
     write_jsonl_event("sticker-tool", "sticker_tool.bundle.created", {"bridgeRunId": bridge_run_id, "bytes": zip_path.stat().st_size})
     return zip_path, filename
+
+
+def sanitize_request_for_bundle(request_path: Path) -> dict[str, Any]:
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    input_data = request.get("input")
+    if isinstance(input_data, dict):
+        input_data["path"] = f"input/{input_data.get('safeBasename') or 'source-image'}"
+    return request
