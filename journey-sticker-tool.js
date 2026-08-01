@@ -29,6 +29,7 @@
     "CROP_OR_PADDING_WRONG",
     "OTHER"
   ];
+  const PREVIEW_CONTEXTS = ["light", "dark", "web", "journey"];
 
   function clampByte(value) {
     return Math.max(0, Math.min(255, Number(value) || 0));
@@ -47,6 +48,50 @@
       return "-";
     }
     return `${(Number(value) * 100).toFixed(1)}%`;
+  }
+
+  function sanitizeCssValue(value, fallback = "") {
+    const text = String(value || "").trim();
+    if (!text || text.length > 160) {
+      return fallback;
+    }
+    return text.replace(/url\(([^)]*)\)/gi, "url([redacted])");
+  }
+
+  function computedStyleFor(element) {
+    if (!element) {
+      return {};
+    }
+    if (element.__computedStyle) {
+      return element.__computedStyle;
+    }
+    const view = element.ownerDocument?.defaultView || root;
+    if (typeof view.getComputedStyle === "function") {
+      return view.getComputedStyle(element);
+    }
+    return {};
+  }
+
+  function rectFor(element) {
+    if (typeof element?.getBoundingClientRect === "function") {
+      return element.getBoundingClientRect();
+    }
+    return {
+      width: Number(element?.renderedWidth || element?.clientWidth || 0),
+      height: Number(element?.renderedHeight || element?.clientHeight || 0)
+    };
+  }
+
+  function queryPreview(container, context, suffix = "") {
+    return container?.querySelector?.(`[data-sticker-preview-context="${context}"]${suffix}`) || null;
+  }
+
+  function contextFailure(base, failureCode) {
+    return {
+      ...base,
+      rendered: false,
+      failureCode
+    };
   }
 
   function emptyBox() {
@@ -210,17 +255,165 @@
     return summarizeAlphaPixels(context.getImageData(0, 0, width, height).data, width, height);
   }
 
-  function completePreviewMatrix() {
-    return { light: true, dark: true, web: true, journey: true };
+  async function waitForPreviewImage(image) {
+    if (!image) {
+      return;
+    }
+    if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+      if (typeof image.decode === "function") {
+        try {
+          await image.decode();
+        } catch (_error) {
+          // The later matrix inspection records decode/layout failure.
+        }
+      }
+      return;
+    }
+    if (typeof image.decode === "function") {
+      try {
+        await image.decode();
+        return;
+      } catch (_error) {
+        // Fall back to event listeners when available.
+      }
+    }
+    if (typeof image.addEventListener !== "function") {
+      return;
+    }
+    await new Promise((resolve) => {
+      const done = () => {
+        image.removeEventListener("load", done);
+        image.removeEventListener("error", done);
+        resolve();
+      };
+      image.addEventListener("load", done, { once: true });
+      image.addEventListener("error", done, { once: true });
+      setTimeout(done, 1200);
+    });
+  }
+
+  async function settleLayout() {
+    if (typeof root.requestAnimationFrame !== "function") {
+      return;
+    }
+    await new Promise((resolve) => root.requestAnimationFrame(() => resolve()));
+  }
+
+  async function inspectRenderedPreviewMatrix(container) {
+    const matrix = {};
+    for (const context of PREVIEW_CONTEXTS) {
+      const frame = queryPreview(container, context);
+      const image = queryPreview(container, context, " img");
+      await waitForPreviewImage(image);
+      await settleLayout();
+      const style = computedStyleFor(frame);
+      const rect = rectFor(frame);
+      const opacity = Number(style.opacity ?? 1);
+      const backgroundImage = String(style.backgroundImage || "none");
+      const base = {
+        rendered: false,
+        imageComplete: Boolean(image?.complete),
+        naturalWidth: Math.max(0, Math.floor(Number(image?.naturalWidth || 0))),
+        naturalHeight: Math.max(0, Math.floor(Number(image?.naturalHeight || 0))),
+        renderedWidth: Number(rect.width || 0),
+        renderedHeight: Number(rect.height || 0),
+        visible: Boolean(
+          frame &&
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          opacity > 0 &&
+          Number(rect.width || 0) > 0 &&
+          Number(rect.height || 0) > 0
+        ),
+        backgroundColor: sanitizeCssValue(style.backgroundColor, "rgba(0, 0, 0, 0)"),
+        backgroundImagePresent: Boolean(backgroundImage && backgroundImage !== "none"),
+        contextSource: sanitizeCssValue(frame?.dataset?.contextSource || "", "unknown"),
+        failureCode: null
+      };
+      if (!frame) {
+        matrix[context] = contextFailure(base, "CONTAINER_MISSING");
+      } else if (!image) {
+        matrix[context] = contextFailure(base, "IMAGE_MISSING");
+      } else if (!base.imageComplete) {
+        matrix[context] = contextFailure(base, "IMAGE_NOT_COMPLETE");
+      } else if (base.naturalWidth <= 0 || base.naturalHeight <= 0) {
+        matrix[context] = contextFailure(base, "ZERO_NATURAL_SIZE");
+      } else if (base.renderedWidth <= 0 || base.renderedHeight <= 0) {
+        matrix[context] = contextFailure(base, "ZERO_RENDERED_SIZE");
+      } else if (style.display === "none") {
+        matrix[context] = contextFailure(base, "DISPLAY_NONE");
+      } else if (style.visibility === "hidden") {
+        matrix[context] = contextFailure(base, "VISIBILITY_HIDDEN");
+      } else if (opacity <= 0) {
+        matrix[context] = contextFailure(base, "OPACITY_ZERO");
+      } else if (!frame.dataset?.contextSource || frame.dataset.contextSource === "unknown") {
+        matrix[context] = contextFailure(base, "CONTEXT_SOURCE_MISSING");
+      } else if ((context === "web" || context === "journey") && frame.dataset.backgroundDerived !== "true") {
+        matrix[context] = contextFailure(base, "BACKGROUND_CONTEXT_NOT_DERIVED");
+      } else {
+        matrix[context] = {
+          ...base,
+          rendered: true,
+          failureCode: null
+        };
+      }
+    }
+    return matrix;
+  }
+
+  function isPreviewMatrixComplete(matrix) {
+    return PREVIEW_CONTEXTS.every((context) => matrix?.[context]?.rendered === true);
+  }
+
+  async function capturePreviewPng(frame) {
+    if (typeof document === "undefined") {
+      throw new Error("CAPTURE_UNSUPPORTED");
+    }
+    const image = frame?.querySelector?.("img");
+    const style = computedStyleFor(frame);
+    if (!image || !image.complete || !image.naturalWidth || !image.naturalHeight) {
+      throw new Error("IMAGE_NOT_READY");
+    }
+    if (String(style.backgroundImage || "none") !== "none") {
+      throw new Error("BACKGROUND_IMAGE_CAPTURE_UNSUPPORTED");
+    }
+    const rect = rectFor(frame);
+    const width = Math.max(1, Math.min(1024, Math.round(rect.width || image.naturalWidth)));
+    const height = Math.max(1, Math.min(1024, Math.round(rect.height || image.naturalHeight)));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("CANVAS_UNSUPPORTED");
+    }
+    context.fillStyle = sanitizeCssValue(style.backgroundColor, "rgba(255, 255, 255, 1)");
+    context.fillRect(0, 0, width, height);
+    const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+    const drawWidth = image.naturalWidth * scale;
+    const drawHeight = image.naturalHeight * scale;
+    context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          reject(new Error("PNG_BLOB_FAILED"));
+        } else {
+          resolve(blob);
+        }
+      }, "image/png");
+    });
   }
 
   root.JourneyStickerTool = {
+    PREVIEW_CONTEXTS,
     REVIEW_ISSUES,
     analyzeImageElementAlpha,
     canUploadAfterReview,
-    completePreviewMatrix,
+    capturePreviewPng,
     formatPercent,
+    inspectRenderedPreviewMatrix,
     isRunAcceptableForUpload,
+    isPreviewMatrixComplete,
     normalizeReviewIssues,
     statusLabel,
     summarizeAlphaPixels,

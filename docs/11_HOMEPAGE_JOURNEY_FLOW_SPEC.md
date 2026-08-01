@@ -187,6 +187,11 @@ The flow is:
 * The backend rejects accepted review if machine checks are blocked, browser
   analysis is missing or mismatched, the preview matrix is incomplete, or the
   run is not ready for review.
+* The preview matrix records detailed rendered DOM state for the light, dark,
+  web, and Journey contexts instead of using hard-coded success booleans.
+* When the user exports a diagnostic bundle, the editor may submit actual
+  captured PNG preview evidence for rendered contexts. Missing captures are
+  recorded as omissions; text placeholders must not be used as preview proof.
 * The editor previews the original image and processed PNG for visual review.
 * Rejecting the result does not upload media.
 * Accepting the result uploads the processed PNG through the existing homepage

@@ -170,6 +170,31 @@ def pass_compatibility() -> dict:
     )
 
 
+def preview_record(source: str, rendered: bool = True) -> dict:
+    return {
+        "rendered": rendered,
+        "imageComplete": True,
+        "naturalWidth": 4,
+        "naturalHeight": 4,
+        "renderedWidth": 120,
+        "renderedHeight": 120,
+        "visible": True,
+        "backgroundColor": "rgb(255, 255, 255)",
+        "backgroundImagePresent": False,
+        "contextSource": source,
+        "failureCode": None if rendered else "TEST_FAILURE",
+    }
+
+
+def preview_matrix(rendered: bool = True) -> dict:
+    return {
+        "light": preview_record("fixed-light", rendered),
+        "dark": preview_record("fixed-dark", rendered),
+        "web": preview_record("web-computed", rendered),
+        "journey": preview_record("journey-computed", rendered),
+    }
+
+
 def ready_state(run_id: str) -> dict:
     metrics = alpha_metrics()
     return {
@@ -192,7 +217,8 @@ def ready_state(run_id: str) -> dict:
         "providerAlphaMetrics": metrics,
         "clientAlphaMetrics": metrics,
         "browserAnalysis": {"comparison": {"ok": True, "mismatches": []}},
-        "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+        "previewMatrix": preview_matrix(),
+        "previewEvidence": {},
         "review": None,
         "compatibility": pass_compatibility(),
         "userVisualVerdict": "PENDING",
@@ -240,7 +266,7 @@ def test_browser_analysis_updates_compatibility_and_accept_review_persists(
         run_id,
         {
             "alpha": alpha_metrics(),
-            "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+            "previewMatrix": preview_matrix(),
             "frontendEvents": [{"name": "alpha.analyzed"}],
         },
     )
@@ -267,7 +293,7 @@ def test_browser_analysis_mismatch_blocks_acceptance(monkeypatch: pytest.MonkeyP
         run_id,
         {
             "alpha": browser_alpha,
-            "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+            "previewMatrix": preview_matrix(),
         },
     )
 
@@ -314,6 +340,70 @@ def test_stale_processing_run_becomes_interrupted(monkeypatch: pytest.MonkeyPatc
     assert service.get_run_state(run_id)["status"] == "interrupted"
 
 
+def test_preview_matrix_validation_accepts_four_records_and_ignores_complete_flag():
+    matrix = preview_matrix()
+    matrix["complete"] = True
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.normalize_preview_matrix(matrix)
+
+    assert error.value.code == "PREVIEW_CONTEXT_UNKNOWN"
+
+    normalized = service.normalize_preview_matrix(preview_matrix())
+    assert service.preview_matrix_complete(normalized) is True
+
+
+def test_preview_matrix_validation_blocks_missing_invalid_or_failed_context():
+    missing = preview_matrix()
+    missing.pop("journey")
+    with pytest.raises(service.StickerToolError) as error:
+        service.normalize_preview_matrix(missing)
+    assert error.value.code == "PREVIEW_CONTEXT_MISSING"
+
+    invalid = preview_matrix()
+    invalid["light"]["renderedWidth"] = -1
+    with pytest.raises(service.StickerToolError) as error:
+        service.normalize_preview_matrix(invalid)
+    assert error.value.code == "PREVIEW_CONTEXT_INVALID"
+
+    failed = preview_matrix()
+    failed["journey"]["rendered"] = False
+    normalized = service.normalize_preview_matrix(failed)
+    assert service.preview_matrix_complete(normalized) is False
+
+
+def test_submit_preview_evidence_accepts_png_and_rejects_invalid_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(service, "PROJECT_ROOT", tmp_path)
+    run_id = bridge_id()
+    write_state(run_id, ready_state(run_id), monkeypatch, tmp_path)
+
+    response = service.submit_preview_evidence(run_id, [("output-light.png", rgba_png(4, 4))])
+
+    assert response["bridgeRunId"] == run_id
+    state = service.get_run_state(run_id)
+    assert state["previewEvidence"]["light"]["captured"] is True
+    assert (service.run_dir_for_id(run_id) / "preview-evidence" / "output-light.png").is_file()
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.submit_preview_evidence(run_id, [("../output-web.png", rgba_png(4, 4))])
+    assert error.value.code == "PREVIEW_EVIDENCE_CONTEXT_INVALID"
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.submit_preview_evidence(run_id, [("output-web.png", b"<svg></svg>")])
+    assert error.value.code == "PREVIEW_EVIDENCE_NOT_PNG"
+
+    blocked_id = bridge_id("c")
+    blocked = ready_state(blocked_id)
+    blocked["previewMatrix"]["web"]["rendered"] = False
+    write_state(blocked_id, blocked, monkeypatch, tmp_path)
+    with pytest.raises(service.StickerToolError) as error:
+        service.submit_preview_evidence(blocked_id, [("output-web.png", rgba_png(4, 4))])
+    assert error.value.code == "PREVIEW_CONTEXT_NOT_RENDERED"
+
+
 def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -357,6 +447,7 @@ def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest
     state["manifest"]["input"] = {"sha256": "inputhash"}
     state["manifest"]["output"].update({"sha256": service.sha256_path(output_path)})
     service.write_run_state(run_dir, state)
+    service.submit_preview_evidence(run_id, [("output-light.png", rgba_png(4, 4))])
 
     zip_path, _name = service.create_integration_bundle(run_id)
 
@@ -365,6 +456,12 @@ def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest
         assert len(names) == len(set(names))
         manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
         assert "web/request.json" in names
+        assert "previews/output-light.png" in names
+        assert "previews/output-web.txt" not in names
+        assert not any(name.startswith("previews/") and name.endswith(".txt") for name in names)
+        assert manifest["previewEvidence"]["light"]["captured"] is True
+        assert manifest["previewEvidence"]["web"]["captured"] is False
+        assert manifest["previewEvidence"]["web"]["omissionCode"] == "CAPTURE_NOT_SUBMITTED"
         request = json.loads(archive.read("web/request.json").decode("utf-8"))
         assert request["input"]["path"] == "input/source.png"
         for name, expected_hash in manifest["fileInventory"].items():

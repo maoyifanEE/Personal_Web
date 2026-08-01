@@ -45,6 +45,13 @@ SUPPORTED_REVIEW_ISSUES = {
     "CROP_OR_PADDING_WRONG",
     "OTHER",
 }
+PREVIEW_CONTEXTS = ("light", "dark", "web", "journey")
+PREVIEW_EVIDENCE_FILES = {
+    "light": "output-light.png",
+    "dark": "output-dark.png",
+    "web": "output-web.png",
+    "journey": "output-journey.png",
+}
 PROCESSING_STATES = {"queued", "validating_tool", "running", "validating_result"}
 TERMINAL_STATES = {"ready_for_review", "blocked", "failed", "accepted", "rejected", "uploaded", "interrupted"}
 BLOCKING_CODES = {
@@ -64,6 +71,8 @@ BLOCKING_CODES = {
     "BROWSER_DECODE_FAILED",
 }
 MAX_INPUT_BYTES = 50 * 1024 * 1024
+MAX_PREVIEW_EVIDENCE_BYTES = 5 * 1024 * 1024
+MAX_PREVIEW_EVIDENCE_DIMENSION = 4096
 PROCESS_TIMEOUT_SECONDS = 90
 MAX_ACTIVE_RUNS = 3
 ALPHA_FRACTION_TOLERANCE = 0.0001
@@ -531,6 +540,7 @@ def initial_run_state(bridge_run_id: str, source: str, tool_root: Path, request_
         "clientAlphaMetrics": None,
         "browserAnalysis": None,
         "previewMatrix": {},
+        "previewEvidence": {},
         "review": None,
         "compatibility": compatibility_payload(overall="PROCESSING"),
         "userVisualVerdict": "PENDING",
@@ -984,8 +994,7 @@ def evaluate_compatibility(
         if browser_verdict == "FAIL":
             issues.append("PROVIDER_BROWSER_ALPHA_MISMATCH")
     if preview_matrix:
-        required = {"light", "dark", "web", "journey"}
-        journey_verdict = "PASS" if all(preview_matrix.get(key) for key in required) else "FAIL"
+        journey_verdict = "PASS" if preview_matrix_complete(preview_matrix) else "FAIL"
         if journey_verdict == "FAIL":
             issues.append("PREVIEW_MATRIX_INCOMPLETE")
     overall = "BLOCKED" if any(issue in BLOCKING_CODES for issue in issues) else "REVIEW_REQUIRED"
@@ -1001,6 +1010,10 @@ def evaluate_compatibility(
     )
     log_event("sticker_tool.compatibility.evaluated", result)
     return result
+
+
+def preview_matrix_complete(preview_matrix: dict[str, Any]) -> bool:
+    return all((preview_matrix.get(context) or {}).get("rendered") is True for context in PREVIEW_CONTEXTS)
 
 
 def compatibility_payload(
@@ -1041,6 +1054,7 @@ def public_run_payload(state: dict[str, Any]) -> dict[str, Any]:
         "compatibility": state.get("compatibility"),
         "userVisualVerdict": state.get("userVisualVerdict", "PENDING"),
         "previewMatrix": state.get("previewMatrix") or {},
+        "previewEvidence": preview_evidence_manifest(state) if state.get("previewMatrix") else {},
         "outputUrl": f"/api/sticker-tool/runs/{state['bridgeRunId']}/output"
         if state.get("outputRelativePath")
         else None,
@@ -1070,9 +1084,13 @@ def submit_browser_analysis(bridge_run_id: str, payload: dict[str, Any]) -> dict
         "sticker_tool.browser_analysis.received",
         {"bridgeRunId": bridge_run_id, "previewMatrix": previews},
     )
+    log_event("sticker_tool.preview_matrix.received", {"bridgeRunId": bridge_run_id, "previewMatrix": previews})
     event_name = "sticker_tool.browser_analysis.validated" if comparison["ok"] else "sticker_tool.browser_analysis.mismatch"
     log_event(event_name, {"bridgeRunId": bridge_run_id, "mismatches": comparison.get("mismatches", [])})
-    log_event("sticker_tool.preview_matrix.completed", {"bridgeRunId": bridge_run_id, "previewMatrix": previews})
+    log_event(
+        "sticker_tool.preview_matrix.validated" if preview_matrix_complete(previews) else "sticker_tool.preview_matrix.incomplete",
+        {"bridgeRunId": bridge_run_id, "previewMatrix": previews},
+    )
     provider_client_comparison = compare_alpha_metrics(
         state.get("providerAlphaMetrics") or {},
         state["clientAlphaMetrics"],
@@ -1121,14 +1139,99 @@ def normalize_browser_analysis(payload: dict[str, Any]) -> dict[str, Any]:
     for key in ("width", "height", "totalPixels"):
         if not isinstance(normalized.get(key), int) or normalized[key] <= 0:
             raise StickerToolError("BROWSER_ANALYSIS_INVALID", f"浏览器分析字段无效: {key}", status_code=422)
-    preview_matrix = payload.get("previewMatrix") or {}
+    preview_matrix = normalize_preview_matrix(payload.get("previewMatrix") or {})
     return {
         "schemaVersion": "personal-web-sticker-browser-analysis-v1",
         "createdAt": utc_now_iso(),
         "alpha": normalized,
-        "previewMatrix": {key: bool(preview_matrix.get(key)) for key in ("light", "dark", "web", "journey")},
+        "previewMatrix": preview_matrix,
         "frontendEvents": payload.get("frontendEvents") if isinstance(payload.get("frontendEvents"), list) else [],
     }
+
+
+def normalize_preview_matrix(matrix: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if not isinstance(matrix, dict):
+        raise StickerToolError("PREVIEW_MATRIX_INVALID", "预览矩阵格式无效。", status_code=422)
+    unknown = sorted(set(matrix) - set(PREVIEW_CONTEXTS))
+    if unknown:
+        raise StickerToolError("PREVIEW_CONTEXT_UNKNOWN", "预览上下文无效。", status_code=422)
+    missing = [context for context in PREVIEW_CONTEXTS if context not in matrix]
+    if missing:
+        raise StickerToolError("PREVIEW_CONTEXT_MISSING", "预览上下文不完整。", status_code=422)
+    return {context: normalize_preview_context(context, matrix[context]) for context in PREVIEW_CONTEXTS}
+
+
+def normalize_preview_context(context: str, raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise StickerToolError("PREVIEW_CONTEXT_INVALID", "预览上下文字段无效。", status_code=422)
+    rendered = bool(raw.get("rendered"))
+    image_complete = bool(raw.get("imageComplete"))
+    natural_width = bounded_number(raw.get("naturalWidth"), "naturalWidth", integer=True)
+    natural_height = bounded_number(raw.get("naturalHeight"), "naturalHeight", integer=True)
+    rendered_width = bounded_number(raw.get("renderedWidth"), "renderedWidth")
+    rendered_height = bounded_number(raw.get("renderedHeight"), "renderedHeight")
+    visible = bool(raw.get("visible"))
+    background_color = safe_css_fragment(raw.get("backgroundColor"))
+    background_image_present = bool(raw.get("backgroundImagePresent"))
+    context_source = safe_css_fragment(raw.get("contextSource"))
+    failure_code = raw.get("failureCode")
+    if failure_code is not None:
+        failure_code = safe_failure_code(failure_code)
+    expected_sources = {
+        "light": "fixed-light",
+        "dark": "fixed-dark",
+        "web": "web-computed",
+        "journey": "journey-computed",
+    }
+    if context_source != expected_sources[context]:
+        rendered = False
+        failure_code = failure_code or "CONTEXT_SOURCE_MISMATCH"
+    if rendered and (
+        not image_complete or
+        natural_width <= 0 or
+        natural_height <= 0 or
+        rendered_width <= 0 or
+        rendered_height <= 0 or
+        not visible
+    ):
+        rendered = False
+        failure_code = failure_code or "RENDER_VALIDATION_FAILED"
+    return {
+        "rendered": rendered,
+        "imageComplete": image_complete,
+        "naturalWidth": int(natural_width),
+        "naturalHeight": int(natural_height),
+        "renderedWidth": float(rendered_width),
+        "renderedHeight": float(rendered_height),
+        "visible": visible,
+        "backgroundColor": background_color,
+        "backgroundImagePresent": background_image_present,
+        "contextSource": context_source,
+        "failureCode": None if rendered else (failure_code or "PREVIEW_NOT_RENDERED"),
+    }
+
+
+def bounded_number(value: Any, field: str, *, integer: bool = False) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise StickerToolError("PREVIEW_CONTEXT_INVALID", f"预览数值字段无效: {field}", status_code=422)
+    number = float(value)
+    if number < 0 or number > 10000:
+        raise StickerToolError("PREVIEW_CONTEXT_INVALID", f"预览数值字段越界: {field}", status_code=422)
+    if integer and int(number) != number:
+        raise StickerToolError("PREVIEW_CONTEXT_INVALID", f"预览整数字段无效: {field}", status_code=422)
+    return number
+
+
+def safe_css_fragment(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"url\([^)]*\)", "url([redacted])", text, flags=re.I)
+    text = re.sub(r"[^a-zA-Z0-9#(),.% _\\-\\[\\]]+", "", text)
+    return text[:160]
+
+
+def safe_failure_code(value: Any) -> str:
+    code = re.sub(r"[^A-Z0-9_\\-]+", "", str(value or "").upper())
+    return code[:80] or "PREVIEW_FAILED"
 
 
 def record_review(bridge_run_id: str, payload: dict[str, Any] | str) -> dict[str, Any]:
@@ -1142,7 +1245,9 @@ def record_review(bridge_run_id: str, payload: dict[str, Any] | str) -> dict[str
         "schemaVersion": "personal-web-sticker-user-review-v1",
         "visualVerdict": visual_verdict,
         "issueCodes": issue_codes,
-        "previewContextsReviewed": sorted([key for key, ok in (state.get("previewMatrix") or {}).items() if ok]),
+        "previewContextsReviewed": sorted(
+            [key for key, record in (state.get("previewMatrix") or {}).items() if (record or {}).get("rendered")]
+        ),
         "reviewedAt": utc_now_iso(),
     }
     (run_dir / "user-review.json").write_text(json.dumps(state["review"], ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1214,6 +1319,73 @@ def mark_uploaded(bridge_run_id: str) -> dict[str, Any]:
     return public_run_payload(state)
 
 
+def submit_preview_evidence(bridge_run_id: str, files: list[tuple[str, bytes]]) -> dict[str, Any]:
+    run_dir = run_dir_for_id(bridge_run_id)
+    state = get_run_state(bridge_run_id)
+    preview_matrix = state.get("previewMatrix") or {}
+    if not preview_matrix:
+        raise StickerToolError("PREVIEW_MATRIX_REQUIRED", "预览矩阵尚未验证。", status_code=409)
+    evidence = dict(state.get("previewEvidence") or {})
+    seen: set[str] = set()
+    for filename, data in files:
+        context = preview_context_from_filename(filename or "")
+        if context in seen:
+            raise StickerToolError("PREVIEW_EVIDENCE_DUPLICATE", "预览证据重复。", status_code=422)
+        seen.add(context)
+        record = preview_matrix.get(context) or {}
+        if record.get("rendered") is not True:
+            log_event("sticker_tool.preview_evidence.rejected", {"bridgeRunId": bridge_run_id, "context": context})
+            raise StickerToolError("PREVIEW_CONTEXT_NOT_RENDERED", "预览上下文尚未通过渲染验证。", status_code=409)
+        if not data or len(data) > MAX_PREVIEW_EVIDENCE_BYTES:
+            raise StickerToolError("PREVIEW_EVIDENCE_SIZE_INVALID", "预览证据大小无效。", status_code=413)
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            log_event("sticker_tool.preview_evidence.rejected", {"bridgeRunId": bridge_run_id, "context": context})
+            raise StickerToolError("PREVIEW_EVIDENCE_NOT_PNG", "预览证据必须是 PNG。", status_code=422)
+        target = run_dir / "preview-evidence" / PREVIEW_EVIDENCE_FILES[context]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_bytes(data)
+        metrics = analyze_png_alpha(tmp)
+        if metrics["width"] > MAX_PREVIEW_EVIDENCE_DIMENSION or metrics["height"] > MAX_PREVIEW_EVIDENCE_DIMENSION:
+            tmp.unlink(missing_ok=True)
+            raise StickerToolError("PREVIEW_EVIDENCE_DIMENSION_INVALID", "预览证据尺寸无效。", status_code=422)
+        os.replace(tmp, target)
+        evidence[context] = {
+            "rendered": True,
+            "captured": True,
+            "file": f"previews/{PREVIEW_EVIDENCE_FILES[context]}",
+            "relativePath": repo_relative(target),
+            "sha256": sha256_path(target),
+            "bytes": target.stat().st_size,
+            "width": metrics["width"],
+            "height": metrics["height"],
+            "omissionCode": None,
+        }
+        log_event(
+            "sticker_tool.preview_evidence.stored",
+            {
+                "bridgeRunId": bridge_run_id,
+                "context": context,
+                "bytes": target.stat().st_size,
+                "sha256": evidence[context]["sha256"],
+            },
+        )
+    state["previewEvidence"] = evidence
+    write_run_state(run_dir, state)
+    log_event("sticker_tool.preview_evidence.received", {"bridgeRunId": bridge_run_id, "contexts": sorted(seen)})
+    log_event("sticker_tool.preview_evidence.validated", {"bridgeRunId": bridge_run_id, "contexts": sorted(seen)})
+    return public_run_payload(state)
+
+
+def preview_context_from_filename(filename: str) -> str:
+    if "/" in filename or "\\" in filename or Path(filename).name != filename:
+        raise StickerToolError("PREVIEW_EVIDENCE_CONTEXT_INVALID", "预览证据文件名无效。", status_code=422)
+    for context, expected in PREVIEW_EVIDENCE_FILES.items():
+        if filename == expected:
+            return context
+    raise StickerToolError("PREVIEW_EVIDENCE_CONTEXT_INVALID", "预览证据文件名无效。", status_code=422)
+
+
 def output_path_for_run(bridge_run_id: str) -> Path:
     state = get_run_state(bridge_run_id)
     relative = state.get("outputRelativePath")
@@ -1244,6 +1416,7 @@ def create_integration_bundle(bridge_run_id: str) -> tuple[Path, str]:
         request_path = PROJECT_ROOT / state.get("requestRelativePath", "")
         if request_path.is_file():
             add_json(archive, inventory, "web/request.json", sanitize_request_for_bundle(request_path))
+        add_json(archive, inventory, "web/preview-matrix.json", state.get("previewMatrix") or {})
         for name in ("web-analysis.json", "user-review.json"):
             path = run_dir_for_id(bridge_run_id) / name
             if path.is_file():
@@ -1263,7 +1436,7 @@ def create_integration_bundle(bridge_run_id: str) -> tuple[Path, str]:
             if artifact_path.is_file():
                 add_file(archive, inventory, artifact_path, f"tool/{artifact_path.name}")
         add_file(archive, inventory, output_path, "output/processed.png")
-        add_preview_placeholders(archive, inventory, state)
+        add_preview_evidence_files(archive, inventory, state)
         manifest["fileInventory"] = inventory
         add_json(archive, inventory, "manifest.json", manifest)
     verify_zip_safety(zip_path)
@@ -1283,18 +1456,16 @@ def add_file(archive: ZipFile, inventory: dict[str, str], path: Path, name: str)
     inventory[name] = sha256_bytes(data)
 
 
-def add_preview_placeholders(archive: ZipFile, inventory: dict[str, str], state: dict[str, Any]) -> None:
-    matrix = state.get("previewMatrix") or {}
-    for key, filename in {
-        "light": "output-light.txt",
-        "dark": "output-dark.txt",
-        "web": "output-web.txt",
-        "journey": "output-journey.txt",
-    }.items():
-        if matrix.get(key):
-            data = f"{key} preview rendered by browser; PNG capture omitted in synthetic smoke.\n".encode("utf-8")
-            archive.writestr(f"previews/{filename}", data)
-            inventory[f"previews/{filename}"] = sha256_bytes(data)
+def add_preview_evidence_files(archive: ZipFile, inventory: dict[str, str], state: dict[str, Any]) -> None:
+    evidence = state.get("previewEvidence") or {}
+    for context in PREVIEW_CONTEXTS:
+        record = evidence.get(context) or {}
+        relative = record.get("relativePath")
+        if not relative:
+            continue
+        path = PROJECT_ROOT / relative
+        if path.is_file() and not path.is_symlink():
+            add_file(archive, inventory, path, f"previews/{PREVIEW_EVIDENCE_FILES[context]}")
 
 
 def add_backend_events(archive: ZipFile, inventory: dict[str, str], bridge_run_id: str) -> None:
@@ -1341,10 +1512,45 @@ def diagnostic_manifest(state: dict[str, Any]) -> dict[str, Any]:
         "userVisualVerdict": state.get("userVisualVerdict"),
         "userIssueCodes": (state.get("review") or {}).get("issueCodes", []),
         "previewCompletionMatrix": state.get("previewMatrix") or {},
+        "previewEvidence": preview_evidence_manifest(state),
         "fileInventory": {},
-        "omissions": ["backend-events.jsonl and frontend preview PNGs are omitted in synthetic smoke unless submitted by browser UI"],
+        "omissions": preview_omissions(state),
         "privacyWarning": "联动诊断包包含本次输入图片、处理结果和预览证据，仅在确认后手动分享。",
     }
+
+
+def preview_evidence_manifest(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    matrix = state.get("previewMatrix") or {}
+    evidence = state.get("previewEvidence") or {}
+    result: dict[str, dict[str, Any]] = {}
+    for context in PREVIEW_CONTEXTS:
+        rendered = bool((matrix.get(context) or {}).get("rendered"))
+        record = evidence.get(context) or {}
+        captured = bool(record.get("captured") and record.get("sha256"))
+        result[context] = {
+            "rendered": rendered,
+            "captured": captured,
+            "file": f"previews/{PREVIEW_EVIDENCE_FILES[context]}" if captured else None,
+            "sha256": record.get("sha256") if captured else None,
+            "omissionCode": None if captured else preview_omission_code(context, matrix),
+        }
+    return result
+
+
+def preview_omissions(state: dict[str, Any]) -> list[str]:
+    evidence = preview_evidence_manifest(state)
+    return [
+        f"{context}:{record['omissionCode']}"
+        for context, record in evidence.items()
+        if not record.get("captured")
+    ]
+
+
+def preview_omission_code(context: str, matrix: dict[str, Any]) -> str:
+    record = matrix.get(context) or {}
+    if not record.get("rendered"):
+        return str(record.get("failureCode") or "PREVIEW_NOT_RENDERED")
+    return "CAPTURE_NOT_SUBMITTED"
 
 
 def git_branch(repo: Path) -> str | None:

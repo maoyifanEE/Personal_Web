@@ -99,6 +99,9 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Sticker tool configuration and bridge artifacts remain in ignored local
   `.runtime/` paths and must not be synchronized through Git, PostgreSQL, SFTP,
   handoff metadata, or browser storage.
+* Sticker preview evidence is accepted only through local guarded multipart
+  submission, must be PNG, and is stored only under the ignored bridge-run
+  directory for the diagnostic bundle.
 * The provider never calls Personal_Web APIs and never uploads media.
 * A processed sticker is uploaded through the existing homepage media API only
   after asynchronous processing, backend result validation, browser Alpha

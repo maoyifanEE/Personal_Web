@@ -120,6 +120,9 @@ PNG Alpha checks, browser Alpha analysis, the Journey preview matrix, and the
 explicit visual review all pass. Processed sticker media is uploaded through the
 existing homepage media API only after that accepted review gate, and the canvas
 is not saved until the user clicks `保存画布`.
+When the user exports an integration diagnostic bundle, the editor submits
+verified preview PNG evidence for the light, dark, web, and Journey contexts;
+the bundle does not use text placeholders to claim preview success.
 
 ## Navigation Behavior
 

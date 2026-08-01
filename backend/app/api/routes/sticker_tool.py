@@ -148,6 +148,21 @@ def submit_analysis(
         raise_service_error(error)
 
 
+@router.post("/runs/{bridge_run_id}/preview-evidence")
+async def submit_preview_evidence(
+    bridge_run_id: str,
+    files: list[UploadFile] = File(default=[]),
+    _: AppUser = Depends(require_local_sticker_tool),
+) -> dict[str, Any]:
+    try:
+        payload = []
+        for file in files:
+            payload.append((file.filename or "", await file.read()))
+        return service.submit_preview_evidence(bridge_run_id, payload)
+    except service.StickerToolError as error:
+        raise_service_error(error)
+
+
 @router.post("/runs/{bridge_run_id}/review")
 def review_run(
     bridge_run_id: str,

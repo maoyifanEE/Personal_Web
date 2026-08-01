@@ -191,3 +191,36 @@ def test_sticker_tool_create_run_returns_accepted_queued_state(db_session: Sessi
         assert body["outputUrl"] is None
     finally:
         close_client(client)
+
+
+def test_sticker_tool_preview_evidence_endpoint_accepts_multipart(db_session: Session, admin_user, monkeypatch):
+    run_id = "a" * 32
+    captured = {}
+
+    def fake_submit_preview_evidence(bridge_run_id, files):
+        captured["bridgeRunId"] = bridge_run_id
+        captured["files"] = files
+        return {
+            "schemaVersion": "personal-web-sticker-tool-run-v1",
+            "bridgeRunId": bridge_run_id,
+            "status": "ready_for_review",
+            "previewMatrix": {},
+            "compatibility": {},
+            "userVisualVerdict": "PENDING",
+            "outputUrl": None,
+        }
+
+    monkeypatch.setattr(sticker_tool_service, "submit_preview_evidence", fake_submit_preview_evidence)
+    client = client_with_settings(db_session, dev_settings())
+    try:
+        csrf = login_and_csrf(client, "admin", "adminpass")
+        response = client.post(
+            f"/api/sticker-tool/runs/{run_id}/preview-evidence",
+            files={"files": ("output-light.png", b"\x89PNG\r\n\x1a\nfake", "image/png")},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 200
+        assert captured["bridgeRunId"] == run_id
+        assert captured["files"] == [("output-light.png", b"\x89PNG\r\n\x1a\nfake")]
+    finally:
+        close_client(client)

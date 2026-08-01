@@ -1,5 +1,32 @@
 # Project History
 
+## 2026-08-01 - Validate real Journey sticker preview evidence
+
+### Goal
+
+* Continue on `Feature/sticker-preprocessor-external-tool-v1`.
+* Fix the remaining fixed-commit review blockers in the local
+  Sticker_Preprocessor bridge.
+
+### Actual changes
+
+* Removed the obsolete duplicate sticker-tool workflow implementation from
+  `journey.js` so each workflow function has one top-level declaration.
+* Replaced the hard-coded four-context preview success helper with rendered DOM
+  inspection for light, dark, web, and Journey preview contexts.
+* Added detailed backend preview-matrix validation and a local guarded multipart
+  preview-evidence endpoint for verified PNG captures.
+* Updated diagnostic bundle generation to include real submitted preview PNGs
+  and explicit omission metadata instead of `.txt` preview placeholders.
+* Added focused frontend and backend regression tests for duplicate functions,
+  preview matrix validation, preview evidence, and diagnostic bundle contents.
+
+### Safety boundaries
+
+* No Sticker_Preprocessor source change, provider contract change, database
+  migration, real media upload, Journey save, deployment, SSH, SFTP, main merge,
+  or production server action was added.
+
 ## 2026-07-31 - Complete sticker handoff validation and review gating
 
 ### Goal

@@ -64,6 +64,58 @@ def synthetic_rgba_png(path: Path) -> None:
     path.write_bytes(payload)
 
 
+def synthetic_preview_png_bytes(red: int, green: int, blue: int) -> bytes:
+    width = 64
+    height = 64
+    rows = []
+    for _y in range(height):
+        row = bytearray([0])
+        for _x in range(width):
+            row.extend([red, green, blue, 255])
+        rows.append(bytes(row))
+    return b"".join(
+        [
+            b"\x89PNG\r\n\x1a\n",
+            png_chunk(b"IHDR", pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)),
+            png_chunk(b"IDAT", zlib.compress(b"".join(rows))),
+            png_chunk(b"IEND", b""),
+        ]
+    )
+
+
+def synthetic_preview_matrix() -> dict[str, dict[str, object]]:
+    values = {}
+    for context, color, source in [
+        ("light", "rgb(255, 255, 255)", "fixed-light"),
+        ("dark", "rgb(31, 41, 51)", "fixed-dark"),
+        ("web", "rgb(246, 250, 250)", "web-computed"),
+        ("journey", "rgb(239, 247, 247)", "journey-computed"),
+    ]:
+        values[context] = {
+            "rendered": True,
+            "imageComplete": True,
+            "naturalWidth": 48,
+            "naturalHeight": 48,
+            "renderedWidth": 180,
+            "renderedHeight": 180,
+            "visible": True,
+            "backgroundColor": color,
+            "backgroundImagePresent": False,
+            "contextSource": source,
+            "failureCode": None,
+        }
+    return values
+
+
+def synthetic_preview_files() -> list[tuple[str, bytes]]:
+    return [
+        ("output-light.png", synthetic_preview_png_bytes(255, 255, 255)),
+        ("output-dark.png", synthetic_preview_png_bytes(31, 41, 51)),
+        ("output-web.png", synthetic_preview_png_bytes(246, 250, 250)),
+        ("output-journey.png", synthetic_preview_png_bytes(239, 247, 247)),
+    ]
+
+
 def git_value(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
 
@@ -116,6 +168,7 @@ def enrich_review_zip(zip_path: Path, tool_root: Path, state: dict[str, object])
         "userVisualVerdict": state.get("userVisualVerdict"),
         "userIssueCodes": (state.get("review") or {}).get("issueCodes", []),
         "previewCompletionMatrix": state.get("previewMatrix") or {},
+        "previewEvidence": original_manifest.get("previewEvidence", {}),
         "fileInventory": original_manifest.get("fileInventory", {}),
         "omissions": original_manifest.get("omissions", []),
         "privacyWarning": original_manifest.get("privacyWarning"),
@@ -201,7 +254,7 @@ def main() -> int:
         result["bridgeRunId"],
         {
             "alpha": state.get("clientAlphaMetrics"),
-            "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+            "previewMatrix": synthetic_preview_matrix(),
             "frontendEvents": [
                 {"name": "output.decoded"},
                 {"name": "alpha.analyzed"},
@@ -211,6 +264,7 @@ def main() -> int:
     )
     if analyzed.get("status") != "ready_for_review":
         raise SystemExit(f"Browser analysis blocked smoke run: {analyzed.get('status')}")
+    service.submit_preview_evidence(result["bridgeRunId"], synthetic_preview_files())
     reviewed = service.record_review(result["bridgeRunId"], {"visualVerdict": "accepted", "issueCodes": []})
     if reviewed.get("compatibility", {}).get("overallHandoffVerdict") != "ACCEPTED_FOR_UPLOAD":
         raise SystemExit("Accepted review did not produce ACCEPTED_FOR_UPLOAD")
