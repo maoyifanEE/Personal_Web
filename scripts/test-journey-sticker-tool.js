@@ -78,12 +78,30 @@ function fakeFrame(context, overrides = {}) {
   const image = overrides.image === undefined ? {
     complete: true,
     naturalWidth: 80,
-    naturalHeight: 60
+    naturalHeight: 60,
+    dataset: {},
+    __computedStyle: {
+      display: overrides.imageDisplay || "block",
+      visibility: overrides.imageVisibility || "visible",
+      opacity: overrides.imageOpacity ?? "1"
+    },
+    getBoundingClientRect: () => ({
+      width: overrides.imageRenderedWidth ?? 100,
+      height: overrides.imageRenderedHeight ?? 75
+    })
   } : overrides.image;
   const frame = {
     dataset: {
       contextSource: overrides.contextSource,
-      backgroundDerived: overrides.backgroundDerived ?? "true"
+      backgroundDerived: overrides.backgroundDerived ?? "true",
+      journeyBackgroundImagePresent: overrides.journeyBackgroundImagePresent ?? "false",
+      journeyBackgroundImageComplete: overrides.journeyBackgroundImageComplete ?? "false",
+      journeyBackgroundNaturalWidth: overrides.journeyBackgroundNaturalWidth ?? "0",
+      journeyBackgroundNaturalHeight: overrides.journeyBackgroundNaturalHeight ?? "0",
+      journeyBackgroundObjectFit: overrides.journeyBackgroundObjectFit || "",
+      journeyBackgroundObjectPosition: overrides.journeyBackgroundObjectPosition || "",
+      journeyBackgroundOpacity: overrides.journeyBackgroundOpacity || "",
+      journeyBackgroundCaptureFailed: overrides.journeyBackgroundCaptureFailed ?? "false"
     },
     __computedStyle: {
       display: overrides.display || "block",
@@ -96,21 +114,25 @@ function fakeFrame(context, overrides = {}) {
       width: overrides.renderedWidth ?? 120,
       height: overrides.renderedHeight ?? 120
     }),
-    querySelector: (selector) => selector === "img" ? image : null
+    querySelector: (selector) => selector.includes("img") ? image : null
   };
   return [context, frame];
 }
 
-function fakeContainer(entries) {
+function fakeContainer(entries, options = {}) {
   const frames = Object.fromEntries(entries);
   return {
+    dataset: {
+      processedOutputNaturalWidth: String(options.processedOutputNaturalWidth || ""),
+      processedOutputNaturalHeight: String(options.processedOutputNaturalHeight || "")
+    },
     querySelector(selector) {
       const match = selector.match(/data-sticker-preview-context="([^"]+)"/);
       const context = match?.[1];
       if (!context || !frames[context]) {
         return null;
       }
-      if (selector.endsWith(" img")) {
+      if (selector.includes(" img")) {
         return frames[context].querySelector("img");
       }
       return frames[context];
@@ -129,6 +151,25 @@ async function runPreviewTests() {
   assert.strictEqual(tool.isPreviewMatrixComplete(validMatrix), true);
   assert.strictEqual(validMatrix.light.rendered, true);
   assert.strictEqual(validMatrix.web.contextSource, "web-computed");
+
+  const journeyBackground = await tool.inspectRenderedPreviewMatrix(fakeContainer([
+    fakeFrame("light", { contextSource: "fixed-light" }),
+    fakeFrame("dark", { contextSource: "fixed-dark" }),
+    fakeFrame("web", { contextSource: "web-computed" }),
+    fakeFrame("journey", {
+      contextSource: "journey-computed",
+      journeyBackgroundImagePresent: "true",
+      journeyBackgroundImageComplete: "true",
+      journeyBackgroundNaturalWidth: "640",
+      journeyBackgroundNaturalHeight: "360",
+      journeyBackgroundObjectFit: "cover",
+      journeyBackgroundObjectPosition: "50% 50%",
+      journeyBackgroundOpacity: "0.75"
+    })
+  ]));
+  assert.strictEqual(journeyBackground.journey.rendered, true);
+  assert.strictEqual(journeyBackground.journey.journeyBackgroundImagePresent, true);
+  assert.strictEqual(journeyBackground.journey.journeyBackgroundObjectFit, "cover");
 
   const missingContainer = await tool.inspectRenderedPreviewMatrix(null);
   assert.strictEqual(missingContainer.light.rendered, false);
@@ -158,13 +199,27 @@ async function runPreviewTests() {
   ]));
   assert.strictEqual(zeroNatural.light.failureCode, "ZERO_NATURAL_SIZE");
 
+  const wrongNatural = await tool.inspectRenderedPreviewMatrix(fakeContainer([
+    fakeFrame("light", { contextSource: "fixed-light", image: {
+      complete: true,
+      naturalWidth: 48,
+      naturalHeight: 48,
+      __computedStyle: { display: "block", visibility: "visible", opacity: "1" },
+      getBoundingClientRect: () => ({ width: 100, height: 100 })
+    } }),
+    fakeFrame("dark", { contextSource: "fixed-dark" }),
+    fakeFrame("web", { contextSource: "web-computed" }),
+    fakeFrame("journey", { contextSource: "journey-computed" })
+  ], { processedOutputNaturalWidth: 80, processedOutputNaturalHeight: 60 }));
+  assert.strictEqual(wrongNatural.light.failureCode, "PREVIEW_OUTPUT_DIMENSION_MISMATCH");
+
   const zeroRendered = await tool.inspectRenderedPreviewMatrix(fakeContainer([
     fakeFrame("light", { contextSource: "fixed-light", renderedWidth: 0 }),
     fakeFrame("dark", { contextSource: "fixed-dark" }),
     fakeFrame("web", { contextSource: "web-computed" }),
     fakeFrame("journey", { contextSource: "journey-computed" })
   ]));
-  assert.strictEqual(zeroRendered.light.failureCode, "ZERO_RENDERED_SIZE");
+  assert.strictEqual(zeroRendered.light.failureCode, "ZERO_FRAME_RENDERED_SIZE");
 
   const displayNone = await tool.inspectRenderedPreviewMatrix(fakeContainer([
     fakeFrame("light", { contextSource: "fixed-light", display: "none" }),
@@ -172,7 +227,7 @@ async function runPreviewTests() {
     fakeFrame("web", { contextSource: "web-computed" }),
     fakeFrame("journey", { contextSource: "journey-computed" })
   ]));
-  assert.strictEqual(displayNone.light.failureCode, "DISPLAY_NONE");
+  assert.strictEqual(displayNone.light.failureCode, "FRAME_DISPLAY_NONE");
 
   const hidden = await tool.inspectRenderedPreviewMatrix(fakeContainer([
     fakeFrame("light", { contextSource: "fixed-light", visibility: "hidden" }),
@@ -180,7 +235,7 @@ async function runPreviewTests() {
     fakeFrame("web", { contextSource: "web-computed" }),
     fakeFrame("journey", { contextSource: "journey-computed" })
   ]));
-  assert.strictEqual(hidden.light.failureCode, "VISIBILITY_HIDDEN");
+  assert.strictEqual(hidden.light.failureCode, "FRAME_VISIBILITY_HIDDEN");
 
   const transparent = await tool.inspectRenderedPreviewMatrix(fakeContainer([
     fakeFrame("light", { contextSource: "fixed-light", opacity: "0" }),
@@ -188,7 +243,39 @@ async function runPreviewTests() {
     fakeFrame("web", { contextSource: "web-computed" }),
     fakeFrame("journey", { contextSource: "journey-computed" })
   ]));
-  assert.strictEqual(transparent.light.failureCode, "OPACITY_ZERO");
+  assert.strictEqual(transparent.light.failureCode, "FRAME_OPACITY_ZERO");
+
+  const imageDisplayNone = await tool.inspectRenderedPreviewMatrix(fakeContainer([
+    fakeFrame("light", { contextSource: "fixed-light", imageDisplay: "none" }),
+    fakeFrame("dark", { contextSource: "fixed-dark" }),
+    fakeFrame("web", { contextSource: "web-computed" }),
+    fakeFrame("journey", { contextSource: "journey-computed" })
+  ]));
+  assert.strictEqual(imageDisplayNone.light.failureCode, "IMAGE_DISPLAY_NONE");
+
+  const imageHidden = await tool.inspectRenderedPreviewMatrix(fakeContainer([
+    fakeFrame("light", { contextSource: "fixed-light", imageVisibility: "hidden" }),
+    fakeFrame("dark", { contextSource: "fixed-dark" }),
+    fakeFrame("web", { contextSource: "web-computed" }),
+    fakeFrame("journey", { contextSource: "journey-computed" })
+  ]));
+  assert.strictEqual(imageHidden.light.failureCode, "IMAGE_VISIBILITY_HIDDEN");
+
+  const imageTransparent = await tool.inspectRenderedPreviewMatrix(fakeContainer([
+    fakeFrame("light", { contextSource: "fixed-light", imageOpacity: "0" }),
+    fakeFrame("dark", { contextSource: "fixed-dark" }),
+    fakeFrame("web", { contextSource: "web-computed" }),
+    fakeFrame("journey", { contextSource: "journey-computed" })
+  ]));
+  assert.strictEqual(imageTransparent.light.failureCode, "IMAGE_OPACITY_ZERO");
+
+  const zeroImageRendered = await tool.inspectRenderedPreviewMatrix(fakeContainer([
+    fakeFrame("light", { contextSource: "fixed-light", imageRenderedWidth: 0 }),
+    fakeFrame("dark", { contextSource: "fixed-dark" }),
+    fakeFrame("web", { contextSource: "web-computed" }),
+    fakeFrame("journey", { contextSource: "journey-computed" })
+  ]));
+  assert.strictEqual(zeroImageRendered.light.failureCode, "ZERO_IMAGE_RENDERED_SIZE");
 
   const incomplete = await tool.inspectRenderedPreviewMatrix(fakeContainer([
     fakeFrame("light", { contextSource: "fixed-light" }),

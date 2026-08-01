@@ -1,5 +1,37 @@
 # Project History
 
+## 2026-08-01 - Bind sticker preview evidence to processed output
+
+### Goal
+
+* Continue on `Feature/sticker-preprocessor-external-tool-v1`.
+* Fix the review finding that synthetic preview PNG evidence contained only
+  background colors and did not include the processed sticker.
+
+### Actual changes
+
+* Reworked the synthetic smoke preview generation to alpha-composite the
+  verified processed output over light, dark, web, and Journey backgrounds.
+* Added independent smoke verification that rejects single-color or
+  background-only preview images and prints
+  `STICKER_TOOL_SYNTHETIC_PREVIEW_CONTENT_PASS`.
+* Bound preview matrix natural dimensions to the verified processed output
+  dimensions instead of input-image dimensions.
+* Added backend preview evidence content verification fields, including
+  `contentVerified`, `contentVerificationMethod`, `foregroundPixelCount`,
+  `foregroundBoundingBox`, and `uniqueColorCount`.
+* Added `evidenceSource` and `reviewSource` so automated smoke evidence cannot
+  be confused with human browser visual approval.
+* Extended frontend preview inspection to validate the actual sticker image
+  element, not only the preview frame, and to detect Journey background image
+  metadata from `.journey-sketch-background img`.
+
+### Safety boundaries
+
+* No Sticker_Preprocessor source change, provider contract change, database
+  migration, media upload, Journey save, deployment, SSH, SFTP, main merge, or
+  production server action was added.
+
 ## 2026-08-01 - Validate real Journey sticker preview evidence
 
 ### Goal

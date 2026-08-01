@@ -41,6 +41,23 @@ def rgba_png(width: int = 2, height: int = 2) -> bytes:
     )
 
 
+def solid_rgba_png(width: int, height: int, color: tuple[int, int, int, int]) -> bytes:
+    rows = []
+    for _y in range(height):
+        row = bytearray([0])
+        for _x in range(width):
+            row.extend(color)
+        rows.append(bytes(row))
+    return b"".join(
+        [
+            b"\x89PNG\r\n\x1a\n",
+            png_chunk(b"IHDR", pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)),
+            png_chunk(b"IDAT", zlib.compress(b"".join(rows))),
+            png_chunk(b"IEND", b""),
+        ]
+    )
+
+
 def test_parse_single_json_stdout_requires_one_object():
     assert service.parse_single_json_stdout('{"ok": true}\n') == {"ok": True}
 
@@ -178,10 +195,18 @@ def preview_record(source: str, rendered: bool = True) -> dict:
         "naturalHeight": 4,
         "renderedWidth": 120,
         "renderedHeight": 120,
+        "frameRenderedWidth": 120,
+        "frameRenderedHeight": 120,
+        "imageRenderedWidth": 100,
+        "imageRenderedHeight": 100,
+        "imageDisplay": "block",
+        "imageVisibility": "visible",
+        "imageOpacity": 1,
         "visible": True,
         "backgroundColor": "rgb(255, 255, 255)",
         "backgroundImagePresent": False,
         "contextSource": source,
+        "evidenceSource": "browser-rendered-composite",
         "failureCode": None if rendered else "TEST_FAILURE",
     }
 
@@ -192,6 +217,29 @@ def preview_matrix(rendered: bool = True) -> dict:
         "dark": preview_record("fixed-dark", rendered),
         "web": preview_record("web-computed", rendered),
         "journey": preview_record("journey-computed", rendered),
+    }
+
+
+def preview_evidence() -> dict:
+    return {
+        context: {
+            "rendered": True,
+            "captured": True,
+            "file": f"previews/{service.PREVIEW_EVIDENCE_FILES[context]}",
+            "relativePath": f"preview-evidence/{service.PREVIEW_EVIDENCE_FILES[context]}",
+            "sha256": f"{context}-hash",
+            "bytes": 128,
+            "width": 120,
+            "height": 120,
+            "evidenceSource": "browser-rendered-composite",
+            "contentVerified": True,
+            "contentVerificationMethod": "test",
+            "foregroundPixelCount": 4,
+            "foregroundBoundingBox": {"minX": 1, "minY": 1, "maxX": 2, "maxY": 2},
+            "uniqueColorCount": 2,
+            "omissionCode": None,
+        }
+        for context in service.PREVIEW_CONTEXTS
     }
 
 
@@ -218,10 +266,11 @@ def ready_state(run_id: str) -> dict:
         "clientAlphaMetrics": metrics,
         "browserAnalysis": {"comparison": {"ok": True, "mismatches": []}},
         "previewMatrix": preview_matrix(),
-        "previewEvidence": {},
+        "previewEvidence": preview_evidence(),
         "review": None,
         "compatibility": pass_compatibility(),
         "userVisualVerdict": "PENDING",
+        "reviewSource": None,
     }
 
 
@@ -248,6 +297,18 @@ def test_accept_review_rejects_blocked_or_unanalyzed_run(monkeypatch: pytest.Mon
     persisted = service.get_run_state(run_id)
     assert persisted["userVisualVerdict"] == "PENDING"
     assert persisted["review"] is None
+
+
+def test_accept_review_requires_verified_preview_evidence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["previewEvidence"]["light"]["contentVerified"] = False
+    write_state(run_id, state, monkeypatch, tmp_path)
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+
+    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
 
 
 def test_browser_analysis_updates_compatibility_and_accept_review_persists(
@@ -351,6 +412,14 @@ def test_preview_matrix_validation_accepts_four_records_and_ignores_complete_fla
 
     normalized = service.normalize_preview_matrix(preview_matrix())
     assert service.preview_matrix_complete(normalized) is True
+    normalized = service.normalize_preview_matrix(preview_matrix(), output_dimensions=(4, 4))
+    assert service.preview_matrix_complete(normalized) is True
+
+    mismatched = preview_matrix()
+    mismatched["light"]["naturalWidth"] = 48
+    normalized = service.normalize_preview_matrix(mismatched, output_dimensions=(4, 4))
+    assert normalized["light"]["rendered"] is False
+    assert normalized["light"]["failureCode"] == "PREVIEW_OUTPUT_DIMENSION_MISMATCH"
 
 
 def test_preview_matrix_validation_blocks_missing_invalid_or_failed_context():
@@ -378,14 +447,22 @@ def test_submit_preview_evidence_accepts_png_and_rejects_invalid_inputs(
 ):
     monkeypatch.setattr(service, "PROJECT_ROOT", tmp_path)
     run_id = bridge_id()
-    write_state(run_id, ready_state(run_id), monkeypatch, tmp_path)
+    state = ready_state(run_id)
+    state["previewEvidence"] = {}
+    write_state(run_id, state, monkeypatch, tmp_path)
 
     response = service.submit_preview_evidence(run_id, [("output-light.png", rgba_png(4, 4))])
 
     assert response["bridgeRunId"] == run_id
     state = service.get_run_state(run_id)
     assert state["previewEvidence"]["light"]["captured"] is True
+    assert state["previewEvidence"]["light"]["contentVerified"] is True
+    assert state["previewEvidence"]["light"]["foregroundPixelCount"] > 0
     assert (service.run_dir_for_id(run_id) / "preview-evidence" / "output-light.png").is_file()
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.submit_preview_evidence(run_id, [("output-dark.png", solid_rgba_png(4, 4, (31, 41, 51, 255)))])
+    assert error.value.code == "PREVIEW_EVIDENCE_STICKER_MISSING"
 
     with pytest.raises(service.StickerToolError) as error:
         service.submit_preview_evidence(run_id, [("../output-web.png", rgba_png(4, 4))])
@@ -438,6 +515,7 @@ def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest
     review_path = run_dir / "user-review.json"
     review_path.write_text(json.dumps({"visualVerdict": "accepted", "issueCodes": []}), encoding="utf-8")
     state = ready_state(run_id)
+    state["previewEvidence"] = {}
     state["outputRelativePath"] = service.repo_relative(output_path)
     state["requestRelativePath"] = service.repo_relative(request_path)
     state["review"] = {"issueCodes": []}

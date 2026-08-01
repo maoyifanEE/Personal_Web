@@ -122,7 +122,10 @@ existing homepage media API only after that accepted review gate, and the canvas
 is not saved until the user clicks `保存画布`.
 When the user exports an integration diagnostic bundle, the editor submits
 verified preview PNG evidence for the light, dark, web, and Journey contexts;
-the bundle does not use text placeholders to claim preview success.
+the bundle does not use text placeholders to claim preview success. Preview
+evidence must be composited from the verified processed output over the preview
+background, must contain foreground sticker pixels, and records whether it came
+from a browser-rendered composite or an automated synthetic smoke composite.
 
 ## Navigation Behavior
 

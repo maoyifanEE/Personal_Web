@@ -2843,6 +2843,29 @@ function stickerToolComputedBackground(selector, contextSource) {
   };
 }
 
+function stickerToolJourneyBackgroundConfig() {
+  const canvasConfig = stickerToolComputedBackground(".journey-canvas", "journey-computed");
+  const backgroundLayer = document.querySelector(".journey-sketch-background");
+  const image = backgroundLayer?.querySelector?.("img");
+  const imageStyle = image && typeof getComputedStyle === "function"
+    ? getComputedStyle(image)
+    : null;
+  return {
+    ...canvasConfig,
+    contextSource: "journey-computed",
+    derived: Boolean(canvasConfig.derived || backgroundLayer),
+    journeyBackgroundImagePresent: Boolean(image),
+    journeyBackgroundImageComplete: Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0),
+    journeyBackgroundNaturalWidth: Math.max(0, Math.floor(Number(image?.naturalWidth || 0))),
+    journeyBackgroundNaturalHeight: Math.max(0, Math.floor(Number(image?.naturalHeight || 0))),
+    journeyBackgroundObjectFit: imageStyle?.objectFit || "",
+    journeyBackgroundObjectPosition: imageStyle?.objectPosition || "",
+    journeyBackgroundOpacity: imageStyle?.opacity || "1",
+    journeyBackgroundCaptureFailed: Boolean(image && !(image.complete && image.naturalWidth > 0 && image.naturalHeight > 0)),
+    journeyBackgroundSrc: image?.currentSrc || image?.src || ""
+  };
+}
+
 function stickerToolPreviewContextConfig(context) {
   if (context === "light") {
     return {
@@ -2861,9 +2884,31 @@ function stickerToolPreviewContextConfig(context) {
     };
   }
   if (context === "journey") {
-    return stickerToolComputedBackground(".journey-canvas", "journey-computed");
+    return stickerToolJourneyBackgroundConfig();
   }
   return stickerToolComputedBackground(".timeline-home, main, body", "web-computed");
+}
+
+function stickerToolPreviewBackgroundLayer(context) {
+  if (context !== "journey") {
+    return "";
+  }
+  const config = stickerToolJourneyBackgroundConfig();
+  if (!config.journeyBackgroundImagePresent || config.journeyBackgroundCaptureFailed || !config.journeyBackgroundSrc) {
+    return "";
+  }
+  const style = [
+    "position:absolute",
+    "inset:0",
+    "width:100%",
+    "height:100%",
+    `object-fit:${safeStickerToolPreviewCss(config.journeyBackgroundObjectFit, "cover")}`,
+    `object-position:${safeStickerToolPreviewCss(config.journeyBackgroundObjectPosition, "50% 50%")}`,
+    `opacity:${safeStickerToolPreviewCss(config.journeyBackgroundOpacity, "1")}`,
+    "z-index:0",
+    "pointer-events:none"
+  ].join("; ");
+  return `<img src="${escapeHtml(config.journeyBackgroundSrc)}" alt="" aria-hidden="true" data-sticker-preview-background style="${style}">`;
 }
 
 function stickerToolPreviewContextAttributes(context) {
@@ -2879,6 +2924,15 @@ function stickerToolPreviewContextAttributes(context) {
     `data-sticker-preview-context="${escapeHtml(context)}"`,
     `data-context-source="${escapeHtml(config.contextSource)}"`,
     `data-background-derived="${config.derived ? "true" : "false"}"`,
+    `data-journey-background-image-present="${config.journeyBackgroundImagePresent ? "true" : "false"}"`,
+    `data-journey-background-image-complete="${config.journeyBackgroundImageComplete ? "true" : "false"}"`,
+    `data-journey-background-natural-width="${escapeHtml(config.journeyBackgroundNaturalWidth || 0)}"`,
+    `data-journey-background-natural-height="${escapeHtml(config.journeyBackgroundNaturalHeight || 0)}"`,
+    `data-journey-background-object-fit="${escapeHtml(config.journeyBackgroundObjectFit || "")}"`,
+    `data-journey-background-object-position="${escapeHtml(config.journeyBackgroundObjectPosition || "")}"`,
+    `data-journey-background-opacity="${escapeHtml(config.journeyBackgroundOpacity || "")}"`,
+    `data-journey-background-capture-failed="${config.journeyBackgroundCaptureFailed ? "true" : "false"}"`,
+    `data-web-background-capture-supported="${backgroundImage === "none" ? "true" : "false"}"`,
     `style="${style}"`
   ].join(" ");
 }
@@ -2947,10 +3001,15 @@ function renderStickerToolPanel() {
           ${outputUrl ? `<img src="${escapeHtml(outputUrl)}" alt="Sticker_Preprocessor 处理结果" data-sticker-tool-output-preview>` : "<span>暂无结果</span>"}
         </figure>
       </div>
-      <div class="journey-sticker-tool-preview-grid journey-sticker-tool-preview-matrix">
+      <div
+        class="journey-sticker-tool-preview-grid journey-sticker-tool-preview-matrix"
+        data-processed-output-natural-width="${escapeHtml(alpha.width || "")}"
+        data-processed-output-natural-height="${escapeHtml(alpha.height || "")}"
+      >
         ${previewLabels.map(([key, label]) => `
           <figure ${stickerToolPreviewContextAttributes(key)}>
             <figcaption>${label}</figcaption>
+            ${stickerToolPreviewBackgroundLayer(key)}
             ${outputUrl ? `<img src="${escapeHtml(outputUrl)}" alt="${label}预览">` : "<span>暂无结果</span>"}
           </figure>
         `).join("")}

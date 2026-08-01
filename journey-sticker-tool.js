@@ -301,33 +301,55 @@
 
   async function inspectRenderedPreviewMatrix(container) {
     const matrix = {};
+    const expectedNaturalWidth = Number(container?.dataset?.processedOutputNaturalWidth || 0);
+    const expectedNaturalHeight = Number(container?.dataset?.processedOutputNaturalHeight || 0);
     for (const context of PREVIEW_CONTEXTS) {
       const frame = queryPreview(container, context);
-      const image = queryPreview(container, context, " img");
+      const image = queryPreview(container, context, " img[data-sticker-preview-image]") ||
+        queryPreview(container, context, " img:not([data-sticker-preview-background])");
       await waitForPreviewImage(image);
       await settleLayout();
       const style = computedStyleFor(frame);
-      const rect = rectFor(frame);
-      const opacity = Number(style.opacity ?? 1);
+      const imageStyle = computedStyleFor(image);
+      const frameRect = rectFor(frame);
+      const imageRect = rectFor(image);
+      const frameOpacity = Number(style.opacity ?? 1);
+      const imageOpacity = Number(imageStyle.opacity ?? 1);
       const backgroundImage = String(style.backgroundImage || "none");
       const base = {
         rendered: false,
         imageComplete: Boolean(image?.complete),
         naturalWidth: Math.max(0, Math.floor(Number(image?.naturalWidth || 0))),
         naturalHeight: Math.max(0, Math.floor(Number(image?.naturalHeight || 0))),
-        renderedWidth: Number(rect.width || 0),
-        renderedHeight: Number(rect.height || 0),
+        renderedWidth: Number(frameRect.width || 0),
+        renderedHeight: Number(frameRect.height || 0),
+        frameRenderedWidth: Number(frameRect.width || 0),
+        frameRenderedHeight: Number(frameRect.height || 0),
+        imageRenderedWidth: Number(imageRect.width || 0),
+        imageRenderedHeight: Number(imageRect.height || 0),
+        imageDisplay: sanitizeCssValue(imageStyle.display, "inline"),
+        imageVisibility: sanitizeCssValue(imageStyle.visibility, "visible"),
+        imageOpacity: Number.isFinite(imageOpacity) ? imageOpacity : 1,
         visible: Boolean(
           frame &&
           style.display !== "none" &&
           style.visibility !== "hidden" &&
-          opacity > 0 &&
-          Number(rect.width || 0) > 0 &&
-          Number(rect.height || 0) > 0
+          frameOpacity > 0 &&
+          Number(frameRect.width || 0) > 0 &&
+          Number(frameRect.height || 0) > 0
         ),
         backgroundColor: sanitizeCssValue(style.backgroundColor, "rgba(0, 0, 0, 0)"),
         backgroundImagePresent: Boolean(backgroundImage && backgroundImage !== "none"),
         contextSource: sanitizeCssValue(frame?.dataset?.contextSource || "", "unknown"),
+        evidenceSource: "browser-rendered-composite",
+        journeyBackgroundImagePresent: frame?.dataset?.journeyBackgroundImagePresent === "true",
+        journeyBackgroundImageComplete: frame?.dataset?.journeyBackgroundImageComplete === "true",
+        journeyBackgroundNaturalWidth: Math.max(0, Math.floor(Number(frame?.dataset?.journeyBackgroundNaturalWidth || 0))),
+        journeyBackgroundNaturalHeight: Math.max(0, Math.floor(Number(frame?.dataset?.journeyBackgroundNaturalHeight || 0))),
+        journeyBackgroundObjectFit: sanitizeCssValue(frame?.dataset?.journeyBackgroundObjectFit || "", "none"),
+        journeyBackgroundObjectPosition: sanitizeCssValue(frame?.dataset?.journeyBackgroundObjectPosition || "", "50% 50%"),
+        journeyBackgroundOpacity: Number(frame?.dataset?.journeyBackgroundOpacity || 0),
+        webBackgroundCaptureSupported: frame?.dataset?.webBackgroundCaptureSupported !== "false",
         failureCode: null
       };
       if (!frame) {
@@ -338,18 +360,34 @@
         matrix[context] = contextFailure(base, "IMAGE_NOT_COMPLETE");
       } else if (base.naturalWidth <= 0 || base.naturalHeight <= 0) {
         matrix[context] = contextFailure(base, "ZERO_NATURAL_SIZE");
-      } else if (base.renderedWidth <= 0 || base.renderedHeight <= 0) {
-        matrix[context] = contextFailure(base, "ZERO_RENDERED_SIZE");
+      } else if (
+        expectedNaturalWidth > 0 &&
+        expectedNaturalHeight > 0 &&
+        (base.naturalWidth !== expectedNaturalWidth || base.naturalHeight !== expectedNaturalHeight)
+      ) {
+        matrix[context] = contextFailure(base, "PREVIEW_OUTPUT_DIMENSION_MISMATCH");
+      } else if (base.frameRenderedWidth <= 0 || base.frameRenderedHeight <= 0) {
+        matrix[context] = contextFailure(base, "ZERO_FRAME_RENDERED_SIZE");
+      } else if (base.imageRenderedWidth <= 0 || base.imageRenderedHeight <= 0) {
+        matrix[context] = contextFailure(base, "ZERO_IMAGE_RENDERED_SIZE");
       } else if (style.display === "none") {
-        matrix[context] = contextFailure(base, "DISPLAY_NONE");
+        matrix[context] = contextFailure(base, "FRAME_DISPLAY_NONE");
       } else if (style.visibility === "hidden") {
-        matrix[context] = contextFailure(base, "VISIBILITY_HIDDEN");
-      } else if (opacity <= 0) {
-        matrix[context] = contextFailure(base, "OPACITY_ZERO");
+        matrix[context] = contextFailure(base, "FRAME_VISIBILITY_HIDDEN");
+      } else if (frameOpacity <= 0) {
+        matrix[context] = contextFailure(base, "FRAME_OPACITY_ZERO");
+      } else if (base.imageDisplay === "none") {
+        matrix[context] = contextFailure(base, "IMAGE_DISPLAY_NONE");
+      } else if (base.imageVisibility === "hidden") {
+        matrix[context] = contextFailure(base, "IMAGE_VISIBILITY_HIDDEN");
+      } else if (base.imageOpacity <= 0) {
+        matrix[context] = contextFailure(base, "IMAGE_OPACITY_ZERO");
       } else if (!frame.dataset?.contextSource || frame.dataset.contextSource === "unknown") {
         matrix[context] = contextFailure(base, "CONTEXT_SOURCE_MISSING");
       } else if ((context === "web" || context === "journey") && frame.dataset.backgroundDerived !== "true") {
         matrix[context] = contextFailure(base, "BACKGROUND_CONTEXT_NOT_DERIVED");
+      } else if (context === "journey" && frame.dataset.journeyBackgroundCaptureFailed === "true") {
+        matrix[context] = contextFailure(base, "JOURNEY_BACKGROUND_CAPTURE_FAILED");
       } else {
         matrix[context] = {
           ...base,
@@ -369,7 +407,9 @@
     if (typeof document === "undefined") {
       throw new Error("CAPTURE_UNSUPPORTED");
     }
-    const image = frame?.querySelector?.("img");
+    const image = frame?.querySelector?.("img[data-sticker-preview-image]") ||
+      frame?.querySelector?.("img:not([data-sticker-preview-background])");
+    const backgroundImage = frame?.querySelector?.("img[data-sticker-preview-background]");
     const style = computedStyleFor(frame);
     if (!image || !image.complete || !image.naturalWidth || !image.naturalHeight) {
       throw new Error("IMAGE_NOT_READY");
@@ -389,6 +429,14 @@
     }
     context.fillStyle = sanitizeCssValue(style.backgroundColor, "rgba(255, 255, 255, 1)");
     context.fillRect(0, 0, width, height);
+    if (backgroundImage) {
+      if (!backgroundImage.complete || !backgroundImage.naturalWidth || !backgroundImage.naturalHeight) {
+        throw new Error("JOURNEY_BACKGROUND_CAPTURE_FAILED");
+      }
+      context.globalAlpha = Number(frame?.dataset?.journeyBackgroundOpacity || 1);
+      context.drawImage(backgroundImage, 0, 0, width, height);
+      context.globalAlpha = 1;
+    }
     const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);
     const drawWidth = image.naturalWidth * scale;
     const drawHeight = image.naturalHeight * scale;

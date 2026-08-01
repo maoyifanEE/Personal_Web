@@ -192,6 +192,11 @@ The flow is:
 * When the user exports a diagnostic bundle, the editor may submit actual
   captured PNG preview evidence for rendered contexts. Missing captures are
   recorded as omissions; text placeholders must not be used as preview proof.
+* Preview evidence must be composited from the verified processed output over
+  the relevant preview background, must retain foreground sticker pixels, and
+  must record `evidenceSource`.
+* Automated smoke diagnostics use `automated-synthetic-composite` and
+  `reviewSource: automated-smoke`; they are not human browser visual approval.
 * The editor previews the original image and processed PNG for visual review.
 * Rejecting the result does not upload media.
 * Accepting the result uploads the processed PNG through the existing homepage

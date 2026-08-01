@@ -102,6 +102,10 @@ It explains what is public, what is a placeholder, and what must not be treated 
 * Sticker preview evidence is accepted only through local guarded multipart
   submission, must be PNG, and is stored only under the ignored bridge-run
   directory for the diagnostic bundle.
+* Sticker preview evidence must be bound to the verified processed output
+  dimensions and must contain validated foreground sticker pixels. Browser
+  evidence is marked `browser-rendered-composite`; automated smoke evidence is
+  marked `automated-synthetic-composite`.
 * The provider never calls Personal_Web APIs and never uploads media.
 * A processed sticker is uploaded through the existing homepage media API only
   after asynchronous processing, backend result validation, browser Alpha

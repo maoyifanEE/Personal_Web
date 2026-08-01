@@ -3128,6 +3128,21 @@ select {
   font-weight: 800;
 }
 
+.journey-sticker-tool-preview-matrix figure {
+  position: relative;
+}
+
+.journey-sticker-tool-preview-matrix figure > img:not([data-sticker-preview-background]) {
+  position: relative;
+  z-index: 1;
+}
+
+.journey-sticker-tool-preview-background {
+  border: 0;
+  border-radius: 7px;
+  background: none;
+}
+
 .journey-sticker-tool-preview-grid img,
 .journey-sticker-tool-preview-grid span {
   display: grid;
@@ -3146,6 +3161,12 @@ select {
   object-fit: contain;
   color: var(--ink-soft);
   font-size: 12px;
+}
+
+.journey-sticker-tool-preview-grid img[data-sticker-preview-background] {
+  border: 0;
+  border-radius: 7px;
+  background: none;
 }
 
 .journey-sticker-tool-preview-matrix figure:nth-child(2) img {
