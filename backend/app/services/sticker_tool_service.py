@@ -1477,7 +1477,7 @@ def add_backend_events(archive: ZipFile, inventory: dict[str, str], bridge_run_i
         try:
             for line in path.read_text(encoding="utf-8").splitlines():
                 if bridge_run_id in line:
-                    lines.append(line)
+                    lines.append(sanitize_backend_event_line(line))
         except OSError:
             continue
     if not lines:
@@ -1485,6 +1485,38 @@ def add_backend_events(archive: ZipFile, inventory: dict[str, str], bridge_run_i
     data = ("\n".join(lines[-500:]) + "\n").encode("utf-8")
     archive.writestr("web/backend-events.jsonl", data)
     inventory["web/backend-events.jsonl"] = sha256_bytes(data)
+
+
+def sanitize_backend_event_line(line: str) -> str:
+    try:
+        event = json.loads(line)
+    except json.JSONDecodeError:
+        return sanitize_bundle_text(line)
+    return json.dumps(sanitize_bundle_value(event), ensure_ascii=False, separators=(",", ":"))
+
+
+def sanitize_bundle_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            lowered = str(key).lower()
+            if lowered in {"path", "fullpath", "csrf", "cookie", "token", "password", "database_url"}:
+                result[key] = "[REDACTED]"
+            else:
+                result[key] = sanitize_bundle_value(item)
+        return result
+    if isinstance(value, list):
+        return [sanitize_bundle_value(item) for item in value]
+    if isinstance(value, str):
+        return sanitize_bundle_text(value)
+    return value
+
+
+def sanitize_bundle_text(value: str) -> str:
+    root = str(PROJECT_ROOT.resolve())
+    sanitized = value.replace(root, "[PROJECT_ROOT]")
+    sanitized = sanitized.replace(root.replace("\\", "/"), "[PROJECT_ROOT]")
+    return re.sub(r"[A-Za-z]:(?:\\\\|\\|/)[^\"'\s,}\]]+", "[LOCAL_PATH]", sanitized)
 
 
 def contract_schema_hashes() -> dict[str, str]:
@@ -1580,5 +1612,5 @@ def verify_zip_safety(zip_path: Path) -> None:
             "utf-8",
             errors="ignore",
         )
-    if re.search(r"C:\\Users\\|C:/Users/|DATABASE_URL|csrf|cookie|session|password|token|SECRET", text, re.I):
+    if re.search(r"C:(?:\\\\|\\|/)|/Users/|DATABASE_URL|csrf|cookie|session|password|token|SECRET", text, re.I):
         raise StickerToolError("DIAGNOSTIC_BUNDLE_UNSAFE", "诊断包包含不应导出的路径或敏感字段。", status_code=500)
