@@ -101,7 +101,9 @@ It explains what is public, what is a placeholder, and what must not be treated 
   handoff metadata, or browser storage.
 * The provider never calls Personal_Web APIs and never uploads media.
 * A processed sticker is uploaded through the existing homepage media API only
-  after explicit visual acceptance.
+  after asynchronous processing, backend result validation, browser Alpha
+  analysis, Journey preview-matrix validation, and explicit accepted visual
+  review all pass.
 * Accepting a processed sticker adds it to the current Journey draft only;
   publication still requires the separate `保存画布` action.
 * Local diagnostics write only to `.local_logs/`, which must not be committed to GitHub.

@@ -3184,6 +3184,517 @@ function handleStickerToolAction(action) {
   actions[action]?.();
 }
 
+function stickerToolEvent(name, detail = {}) {
+  logJourney(`sticker_tool.${name}`, detail);
+}
+
+function stickerToolCanAccept(run = stickerToolState.run) {
+  return Boolean(stickerToolBridge().isRunAcceptableForUpload?.(run));
+}
+
+function stickerToolReviewIssueCheckboxes() {
+  const bridge = stickerToolBridge();
+  const issues = bridge.REVIEW_ISSUES || [];
+  const labels = {
+    VISIBLE_RECTANGLE: "可见矩形边",
+    HEAVY_WHITE_OR_GRAY_HALO: "白边/灰边较重",
+    BACKGROUND_REMAINS: "背景残留",
+    SUBJECT_DAMAGED: "主体受损",
+    TEXT_OR_FINE_DETAIL_DAMAGED: "文字或细节受损",
+    CROP_OR_PADDING_WRONG: "裁切或留白不合适",
+    OTHER: "其他"
+  };
+  return issues.map((code) => `
+    <label class="journey-sticker-tool-issue">
+      <input type="checkbox" value="${escapeHtml(code)}" data-sticker-tool-issue>
+      <span>${escapeHtml(labels[code] || code)}</span>
+    </label>
+  `).join("");
+}
+
+function renderStickerToolPanel() {
+  const bridge = stickerToolBridge();
+  const status = stickerToolState.status || {};
+  const run = stickerToolState.run || {};
+  const compatibility = run.compatibility || {};
+  const alpha = stickerToolState.browserAlpha || {};
+  const statusLabel = bridge.statusLabel?.(status.state) || status.state || "未检查";
+  const verdictLabel = bridge.verdictLabel?.(compatibility.overallHandoffVerdict) ||
+    compatibility.overallHandoffVerdict ||
+    "待处理";
+  const alphaPercent = bridge.formatPercent?.(alpha.transparentFraction) || "-";
+  const outputUrl = stickerToolState.outputPreviewUrl || (run.outputUrl ? `${apiBaseUrl()}${run.outputUrl}` : "");
+  const acceptDisabled = stickerToolState.busy || !stickerToolCanAccept(run);
+  const runState = run.status || "-";
+  const previewLabels = [
+    ["light", "浅色背景"],
+    ["dark", "深色背景"],
+    ["web", "Web 页面背景"],
+    ["journey", "当前 Journey 背景"]
+  ];
+
+  return `
+    <details class="journey-sticker-tool-panel" ${stickerToolState.statusLoaded || stickerToolState.run ? "open" : ""}>
+      <summary>贴纸预处理</summary>
+      <p class="journey-sticker-tool-hint">
+        本地调用 Sticker_Preprocessor 生成透明 PNG。结果通过机器校验、浏览器校验和人工确认前，不会上传媒体，也不会保存画布。
+      </p>
+      <div class="journey-sticker-tool-actions">
+        <button type="button" data-sticker-tool-action="status" ${stickerToolState.busy ? "disabled" : ""}>检查工具</button>
+        <button type="button" data-sticker-tool-action="select-file" ${stickerToolState.busy ? "disabled" : ""}>选择图片处理</button>
+      </div>
+      <label class="journey-sticker-tool-config">
+        <span>本机工具目录</span>
+        <input
+          type="text"
+          data-sticker-tool-config-input
+          value="${escapeHtml(stickerToolState.configInput)}"
+          placeholder="例如 C:\\Users\\...\\Sticker_Preprocessor"
+          autocomplete="off"
+        >
+      </label>
+      <div class="journey-sticker-tool-actions">
+        <button type="button" data-sticker-tool-action="save-config" ${stickerToolState.busy ? "disabled" : ""}>保存本机配置</button>
+        <button type="button" data-sticker-tool-action="clear-config" ${stickerToolState.busy ? "disabled" : ""}>清除配置</button>
+      </div>
+      <dl class="journey-sticker-tool-status">
+        <div><dt>工具状态</dt><dd>${escapeHtml(statusLabel)}</dd></div>
+        <div><dt>运行状态</dt><dd>${escapeHtml(runState)}</dd></div>
+        <div><dt>配置来源</dt><dd>${escapeHtml(status.source || run.toolConfigSource || "-")}</dd></div>
+        <div><dt>数据模式</dt><dd>${escapeHtml(status.dataProfile || run.dataProfile || "-")}</dd></div>
+        <div><dt>协议</dt><dd>${escapeHtml(status.contractVersion || run.contractVersion || "-")}</dd></div>
+        <div><dt>联动结论</dt><dd>${escapeHtml(verdictLabel)}</dd></div>
+        <div><dt>透明像素</dt><dd>${escapeHtml(alphaPercent)}</dd></div>
+      </dl>
+      <div class="journey-sticker-tool-preview-grid">
+        <figure>
+          <figcaption>原图</figcaption>
+          ${stickerToolState.sourcePreviewUrl ? `<img src="${escapeHtml(stickerToolState.sourcePreviewUrl)}" alt="待处理贴纸原图">` : "<span>未选择</span>"}
+        </figure>
+        <figure>
+          <figcaption>处理结果</figcaption>
+          ${outputUrl ? `<img src="${escapeHtml(outputUrl)}" alt="Sticker_Preprocessor 处理结果" data-sticker-tool-output-preview>` : "<span>暂无结果</span>"}
+        </figure>
+      </div>
+      <div class="journey-sticker-tool-preview-grid journey-sticker-tool-preview-matrix">
+        ${previewLabels.map(([key, label]) => `
+          <figure data-preview-context="${key}">
+            <figcaption>${label}</figcaption>
+            ${outputUrl ? `<img src="${escapeHtml(outputUrl)}" alt="${label}预览">` : "<span>暂无结果</span>"}
+          </figure>
+        `).join("")}
+      </div>
+      <fieldset class="journey-sticker-tool-issues">
+        <legend>拒绝原因</legend>
+        ${stickerToolReviewIssueCheckboxes()}
+      </fieldset>
+      <div class="journey-sticker-tool-actions">
+        <button type="button" data-sticker-tool-action="accept" ${acceptDisabled ? "disabled" : ""}>接受并加入草稿</button>
+        <button type="button" data-sticker-tool-action="reject" ${run.bridgeRunId && !stickerToolState.busy ? "" : "disabled"}>拒绝结果</button>
+        <button type="button" data-sticker-tool-action="bundle" ${run.bridgeRunId && !stickerToolState.busy ? "" : "disabled"}>导出联动诊断包</button>
+      </div>
+      <p class="journey-sticker-tool-message" data-error="${Boolean(stickerToolState.error)}">
+        ${escapeHtml(stickerToolState.error || stickerToolState.message || "工具按需调用；普通启动不依赖它。")}
+      </p>
+      <input type="file" accept="image/png,image/jpeg,image/webp" hidden data-file-input="sticker-tool">
+    </details>
+  `;
+}
+
+async function refreshStickerToolStatus() {
+  if (!guardJourneyMutation("stickerToolStatus")) {
+    return;
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    stickerToolState.error = "认证服务不可用，无法检查外部工具。";
+    renderEditorPanel();
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在检查本机 Sticker_Preprocessor...";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/status`, { method: "GET" });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `工具检查失败：${response.status}`);
+    }
+    stickerToolState.statusLoaded = true;
+    stickerToolState.status = body;
+    stickerToolState.message = body.state === "compatible"
+      ? "本机工具可用。"
+      : "本机工具尚未可用，请检查路径或协议版本。";
+    stickerToolEvent("status.checked", { state: body.state, dataProfile: body.dataProfile, source: body.source });
+  } catch (error) {
+    stickerToolState.error = error.message || "工具检查失败。";
+    stickerToolEvent("status.failed", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function saveStickerToolConfig() {
+  if (!guardJourneyMutation("stickerToolSaveConfig")) {
+    return;
+  }
+  const toolRoot = stickerToolState.configInput.trim();
+  if (!toolRoot) {
+    stickerToolState.error = "请输入本机 Sticker_Preprocessor 目录。";
+    renderEditorPanel();
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在保存并验证本机工具配置...";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/config`, {
+      method: "POST",
+      body: JSON.stringify({ toolRoot })
+    });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `保存配置失败：${response.status}`);
+    }
+    stickerToolState.statusLoaded = true;
+    stickerToolState.status = body;
+    stickerToolState.message = "本机工具配置已保存。";
+    stickerToolEvent("config.saved", { source: body.source });
+    await refreshStickerToolStatus();
+  } catch (error) {
+    stickerToolState.error = error.message || "保存配置失败。";
+    stickerToolEvent("config.failed", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function clearStickerToolConfig() {
+  if (!guardJourneyMutation("stickerToolClearConfig")) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在清除本机工具配置...";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/config`, { method: "DELETE" });
+    if (!response.ok) {
+      const body = await parseJsonResponse(response);
+      throw new Error(body.detail?.message || body.detail || `清除配置失败：${response.status}`);
+    }
+    stickerToolState.configInput = "";
+    stickerToolState.status = null;
+    stickerToolState.statusLoaded = false;
+    stickerToolState.message = "已清除本机工具配置。";
+    stickerToolEvent("config.cleared");
+    await refreshStickerToolStatus();
+  } catch (error) {
+    stickerToolState.error = error.message || "清除配置失败。";
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function handleStickerToolFileInput(input) {
+  if (!guardJourneyMutation("stickerToolFileInput")) {
+    input.value = "";
+    return;
+  }
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) {
+    return;
+  }
+  if (!file.type?.startsWith("image/")) {
+    stickerToolState.error = "请选择图片文件。";
+    renderEditorPanel();
+    return;
+  }
+  if (!window.PersonalWebAuth?.authFetch) {
+    stickerToolState.error = "认证服务不可用，无法调用外部工具。";
+    renderEditorPanel();
+    return;
+  }
+  resetStickerToolRunState();
+  stickerToolState.sourceFile = file;
+  stickerToolState.sourcePreviewUrl = URL.createObjectURL(file);
+  stickerToolState.busy = true;
+  stickerToolState.message = "已提交本机预处理任务，正在排队...";
+  renderEditorPanel();
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("mode", "auto");
+    formData.append("ai_model", "silueta");
+    formData.append("alpha_matting", "false");
+    formData.append("padding_pixels", "8");
+    formData.append("alpha_crop_threshold", "8");
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/runs`, {
+      method: "POST",
+      body: formData
+    });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `贴纸预处理提交失败：${response.status}`);
+    }
+    stickerToolState.run = body;
+    stickerToolEvent("run.state_changed", { bridgeRunId: body.bridgeRunId, nextState: body.status });
+    await pollStickerToolRun(body.bridgeRunId);
+  } catch (error) {
+    stickerToolState.error = error.message || "贴纸预处理失败。";
+    stickerToolEvent("run.failed", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function pollStickerToolRun(bridgeRunId) {
+  let lastState = stickerToolState.run?.status || "";
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, attempt < 8 ? 500 : 1000));
+    const response = await window.PersonalWebAuth.authFetch(`${STICKER_TOOL_PATH}/runs/${bridgeRunId}`, { method: "GET" });
+    const body = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(body.detail?.message || body.detail || `读取处理状态失败：${response.status}`);
+    }
+    stickerToolState.run = body;
+    if (body.status !== lastState) {
+      stickerToolEvent("run.state_changed", { bridgeRunId, previousState: lastState, nextState: body.status });
+      lastState = body.status;
+      renderEditorPanel();
+    }
+    if (body.status === "ready_for_review" || ["blocked", "failed", "rejected", "accepted"].includes(body.status)) {
+      if (body.outputUrl) {
+        await loadStickerToolOutputPreview(body);
+      }
+      stickerToolState.message = body.status === "ready_for_review"
+        ? "机器校验通过，请预览后选择接受或拒绝。"
+        : `处理结束：${body.status}`;
+      return body;
+    }
+  }
+  throw new Error("处理轮询超时。");
+}
+
+async function loadStickerToolOutputPreview(run) {
+  if (!run?.outputUrl || !window.PersonalWebAuth?.authFetch) {
+    return;
+  }
+  const response = await window.PersonalWebAuth.authFetch(run.outputUrl, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`读取预处理结果失败：${response.status}`);
+  }
+  const blob = await response.blob();
+  releaseStickerToolPreview(stickerToolState.outputPreviewUrl);
+  stickerToolState.outputPreviewUrl = URL.createObjectURL(blob);
+  stickerToolState.browserAlpha = await analyzeStickerToolBlobAlpha(blob);
+  stickerToolEvent("output.decoded", { bridgeRunId: run.bridgeRunId });
+  stickerToolEvent("alpha.analyzed", {
+    bridgeRunId: run.bridgeRunId,
+    transparentFraction: stickerToolState.browserAlpha.transparentFraction
+  });
+  await submitStickerToolBrowserAnalysis(run.bridgeRunId);
+}
+
+function analyzeStickerToolBlobAlpha(blob) {
+  return new Promise((resolve) => {
+    const bridge = stickerToolBridge();
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(blob);
+    const finish = (result) => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(result);
+    };
+    image.onload = async () => {
+      try {
+        finish(await bridge.analyzeImageElementAlpha?.(image) || {});
+      } catch (error) {
+        stickerToolEvent("alpha.failed", { error: error.message });
+        finish({});
+      }
+    };
+    image.onerror = () => finish({});
+    image.src = objectUrl;
+  });
+}
+
+async function submitStickerToolBrowserAnalysis(bridgeRunId) {
+  const bridge = stickerToolBridge();
+  const previewMatrix = bridge.completePreviewMatrix?.() || { light: true, dark: true, web: true, journey: true };
+  const payload = {
+    alpha: stickerToolState.browserAlpha,
+    previewMatrix,
+    frontendEvents: [
+      { event: "journey.sticker_tool.output.decoded" },
+      { event: "journey.sticker_tool.alpha.analyzed" },
+      { event: "journey.sticker_tool.preview_matrix.completed" }
+    ]
+  };
+  const response = await window.PersonalWebAuth.authFetch(
+    `${STICKER_TOOL_PATH}/runs/${bridgeRunId}/analysis`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(body.detail?.message || body.detail || `浏览器校验提交失败：${response.status}`);
+  }
+  stickerToolState.run = body;
+  stickerToolEvent("alpha.submitted", { bridgeRunId });
+  stickerToolEvent("preview_matrix.completed", { bridgeRunId, previewMatrix });
+  renderEditorPanel();
+}
+
+function selectedStickerToolIssueCodes() {
+  return Array.from(document.querySelectorAll("[data-sticker-tool-issue]:checked"))
+    .map((input) => input.value);
+}
+
+async function reviewStickerToolRun(visualVerdict, issueCodes = []) {
+  if (!guardJourneyMutation(`stickerToolReview:${visualVerdict}`) || !stickerToolState.run?.bridgeRunId) {
+    return null;
+  }
+  const response = await window.PersonalWebAuth.authFetch(
+    `${STICKER_TOOL_PATH}/runs/${stickerToolState.run.bridgeRunId}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({ visualVerdict, issueCodes })
+    }
+  );
+  const body = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(body.detail?.message || body.detail || `审核结果记录失败：${response.status}`);
+  }
+  stickerToolState.run = body;
+  return body;
+}
+
+async function acceptStickerToolResult() {
+  if (!stickerToolState.run?.outputUrl || stickerToolState.busy) {
+    return;
+  }
+  if (!stickerToolCanAccept(stickerToolState.run)) {
+    stickerToolState.error = "结果尚未通过上传前校验，不能加入草稿。";
+    stickerToolEvent("acceptance.blocked", { bridgeRunId: stickerToolState.run.bridgeRunId });
+    renderEditorPanel();
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  stickerToolState.message = "正在接受结果并上传为 Journey 贴纸媒体...";
+  renderEditorPanel();
+  try {
+    const reviewed = await reviewStickerToolRun("accepted", []);
+    if (!stickerToolBridge().canUploadAfterReview?.(reviewed)) {
+      stickerToolEvent("acceptance.blocked", { bridgeRunId: reviewed?.bridgeRunId });
+      throw new Error("后端未返回 ACCEPTED_FOR_UPLOAD，已阻止上传。");
+    }
+    const response = await window.PersonalWebAuth.authFetch(reviewed.outputUrl, { method: "GET" });
+    if (!response.ok) {
+      throw new Error(`读取处理结果失败：${response.status}`);
+    }
+    stickerToolEvent("upload.requested", { bridgeRunId: reviewed.bridgeRunId });
+    const blob = await response.blob();
+    const baseName = stickerToolState.sourceFile?.name?.replace(/\.[^.]+$/, "") || "processed-sticker";
+    const file = new File([blob], `${baseName}-processed.png`, { type: "image/png" });
+    await addPersistentStickerFromFile(file);
+    stickerToolState.accepted = true;
+    stickerToolState.message = "已加入当前草稿。请点击“保存画布”后才会发布到公开预览。";
+    stickerToolEvent("upload.succeeded", { bridgeRunId: reviewed.bridgeRunId });
+    stickerToolEvent("draft.added", { bridgeRunId: reviewed.bridgeRunId, stickerCount: state.canvas.stickers.length });
+    stickerToolEvent("canvas.auto_save_skipped", { bridgeRunId: reviewed.bridgeRunId });
+    render();
+  } catch (error) {
+    stickerToolState.error = error.message || "接受处理结果失败。";
+    stickerToolEvent("upload.failed", { error: error.message });
+  } finally {
+    stickerToolState.busy = false;
+    render();
+  }
+}
+
+async function rejectStickerToolResult() {
+  if (!stickerToolState.run?.bridgeRunId || stickerToolState.busy) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  renderEditorPanel();
+  try {
+    const issueCodes = selectedStickerToolIssueCodes();
+    await reviewStickerToolRun("rejected", issueCodes);
+    stickerToolState.message = "已拒绝本次结果；未上传媒体。";
+    stickerToolEvent("visual_review.rejected", {
+      bridgeRunId: stickerToolState.run?.bridgeRunId,
+      issueCodes
+    });
+  } catch (error) {
+    stickerToolState.error = error.message || "拒绝结果失败。";
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+async function downloadStickerToolBundle() {
+  if (!stickerToolState.run?.bridgeRunId || stickerToolState.busy) {
+    return;
+  }
+  const confirmed = window.confirm(
+    "联动诊断包会包含本次输入图片、处理结果和诊断数据。仅在你确认需要分享给排查人员时导出。"
+  );
+  if (!confirmed) {
+    return;
+  }
+  stickerToolState.busy = true;
+  stickerToolState.error = "";
+  renderEditorPanel();
+  try {
+    const response = await window.PersonalWebAuth.authFetch(
+      `${STICKER_TOOL_PATH}/runs/${stickerToolState.run.bridgeRunId}/diagnostic-bundle`,
+      { method: "POST" }
+    );
+    if (!response.ok) {
+      const body = await parseJsonResponse(response);
+      throw new Error(body.detail?.message || body.detail || `诊断包导出失败：${response.status}`);
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sticker-tool-${stickerToolState.run.bridgeRunId.slice(0, 8)}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+    stickerToolState.message = "已生成联动诊断包。";
+  } catch (error) {
+    stickerToolState.error = error.message || "诊断包导出失败。";
+  } finally {
+    stickerToolState.busy = false;
+    renderEditorPanel();
+  }
+}
+
+function handleStickerToolAction(action) {
+  const actions = {
+    status: refreshStickerToolStatus,
+    "select-file": () => document.querySelector("[data-file-input='sticker-tool']")?.click(),
+    "save-config": saveStickerToolConfig,
+    "clear-config": clearStickerToolConfig,
+    accept: acceptStickerToolResult,
+    reject: rejectStickerToolResult,
+    bundle: downloadStickerToolBundle
+  };
+  actions[action]?.();
+}
+
 function renderEditorPanel() {
   if (!editorRoot) {
     return;

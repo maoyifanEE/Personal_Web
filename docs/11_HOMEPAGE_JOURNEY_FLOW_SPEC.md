@@ -179,10 +179,19 @@ The flow is:
   ignored runtime directory.
 * Personal_Web verifies the manifest, hashes, output path, PNG dimensions, and
   Alpha metrics.
+* Personal_Web keeps the run as local async bridge state until processing is
+  complete; the editor polls the run instead of blocking the UI.
+* The editor decodes the processed PNG, computes browser Alpha metrics, and
+  submits a browser analysis plus light, dark, web, and Journey preview-matrix
+  completion evidence.
+* The backend rejects accepted review if machine checks are blocked, browser
+  analysis is missing or mismatched, the preview matrix is incomplete, or the
+  run is not ready for review.
 * The editor previews the original image and processed PNG for visual review.
 * Rejecting the result does not upload media.
 * Accepting the result uploads the processed PNG through the existing homepage
-  media API and adds it to the unsaved Journey draft.
+  media API only after the backend returns `ACCEPTED_FOR_UPLOAD`, then adds it
+  to the unsaved Journey draft.
 * The public canvas is not updated until the user separately clicks
   `保存画布`.
 

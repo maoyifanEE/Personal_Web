@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -98,7 +98,7 @@ def read_capabilities(_: AppUser = Depends(require_local_sticker_tool)) -> dict[
         raise_service_error(error)
 
 
-@router.post("/runs")
+@router.post("/runs", status_code=status.HTTP_202_ACCEPTED)
 async def create_run(
     file: UploadFile = File(...),
     mode: str = Form(default="auto"),
@@ -136,14 +136,26 @@ def read_run(bridge_run_id: str, _: AppUser = Depends(require_local_sticker_tool
         raise_service_error(error)
 
 
-@router.post("/runs/{bridge_run_id}/review")
-def review_run(
+@router.post("/runs/{bridge_run_id}/analysis")
+def submit_analysis(
     bridge_run_id: str,
-    payload: dict[str, str],
+    payload: dict[str, Any],
     _: AppUser = Depends(require_local_sticker_tool),
 ) -> dict[str, Any]:
     try:
-        return service.record_review(bridge_run_id, payload.get("verdict", ""))
+        return service.submit_browser_analysis(bridge_run_id, payload)
+    except service.StickerToolError as error:
+        raise_service_error(error)
+
+
+@router.post("/runs/{bridge_run_id}/review")
+def review_run(
+    bridge_run_id: str,
+    payload: dict[str, Any],
+    _: AppUser = Depends(require_local_sticker_tool),
+) -> dict[str, Any]:
+    try:
+        return service.record_review(bridge_run_id, payload)
     except service.StickerToolError as error:
         raise_service_error(error)
 

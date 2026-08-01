@@ -142,3 +142,52 @@ def test_sticker_tool_unsafe_request_requires_csrf(db_session: Session, admin_us
         assert response.status_code == 403
     finally:
         close_client(client)
+
+
+def test_sticker_tool_create_run_returns_accepted_queued_state(db_session: Session, admin_user, monkeypatch):
+    run_id = "a" * 32
+
+    def fake_create_bridge_run(content, filename, content_type, options, *, data_profile=None):
+        assert content == b"png"
+        assert filename == "source.png"
+        assert content_type == "image/png"
+        assert options["mode"] == "alpha_cleanup"
+        assert data_profile == "local"
+        return {
+            "schemaVersion": "personal-web-sticker-tool-run-v1",
+            "bridgeRunId": run_id,
+            "toolRunId": None,
+            "contractVersion": sticker_tool_service.CONTRACT_VERSION,
+            "status": "queued",
+            "dataProfile": "local",
+            "toolConfigSource": "env",
+            "toolPathFingerprint": None,
+            "compatibility": {"overallHandoffVerdict": "PROCESSING"},
+            "userVisualVerdict": "PENDING",
+            "previewMatrix": {},
+            "outputUrl": None,
+        }
+
+    monkeypatch.setattr(sticker_tool_service, "create_bridge_run", fake_create_bridge_run)
+    client = client_with_settings(db_session, dev_settings())
+    try:
+        csrf = login_and_csrf(client, "admin", "adminpass")
+        response = client.post(
+            "/api/sticker-tool/runs",
+            data={
+                "mode": "alpha_cleanup",
+                "ai_model": "silueta",
+                "alpha_matting": "false",
+                "padding_pixels": "2",
+                "alpha_crop_threshold": "8",
+            },
+            files={"file": ("source.png", b"png", "image/png")},
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert response.status_code == 202
+        body = response.json()
+        assert body["bridgeRunId"] == run_id
+        assert body["status"] == "queued"
+        assert body["outputUrl"] is None
+    finally:
+        close_client(client)

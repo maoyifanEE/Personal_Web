@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
-import sys
-import time
+import threading
 import uuid
 from typing import Any
 import zlib
@@ -27,6 +28,7 @@ CAPABILITIES_SCHEMA_VERSION = "sticker-preprocessor-capabilities-v1"
 RESULT_SCHEMA_VERSION = "sticker-preprocessor-result-v1"
 LOCAL_CONFIG_SCHEMA_VERSION = "personal-web-local-tool-config-v1"
 RUN_STATUS_SCHEMA_VERSION = "personal-web-sticker-tool-run-v1"
+
 SUPPORTED_PROFILES = {"local", "shared_remote"}
 SUPPORTED_MIME_TYPES = {
     ".png": "image/png",
@@ -34,9 +36,43 @@ SUPPORTED_MIME_TYPES = {
     ".jpeg": "image/jpeg",
     ".webp": "image/webp",
 }
+SUPPORTED_REVIEW_ISSUES = {
+    "VISIBLE_RECTANGLE",
+    "HEAVY_WHITE_OR_GRAY_HALO",
+    "BACKGROUND_REMAINS",
+    "SUBJECT_DAMAGED",
+    "TEXT_OR_FINE_DETAIL_DAMAGED",
+    "CROP_OR_PADDING_WRONG",
+    "OTHER",
+}
+PROCESSING_STATES = {"queued", "validating_tool", "running", "validating_result"}
+TERMINAL_STATES = {"ready_for_review", "blocked", "failed", "accepted", "rejected", "uploaded", "interrupted"}
+BLOCKING_CODES = {
+    "CONTRACT_MISMATCH",
+    "MANIFEST_MISMATCH",
+    "TOOL_PATH_ESCAPE",
+    "OUTPUT_HASH_MISMATCH",
+    "OUTPUT_BYTE_MISMATCH",
+    "OUTPUT_MIME_INVALID",
+    "OUTPUT_NOT_RGBA_PNG",
+    "PROVIDER_CLIENT_ALPHA_MISMATCH",
+    "PROVIDER_BROWSER_ALPHA_MISMATCH",
+    "NO_FULLY_TRANSPARENT_PIXELS",
+    "BORDER_ALPHA_NOT_CLEAN",
+    "RECTANGULAR_HAZE_SUSPECTED",
+    "TOOL_QUALITY_FAIL",
+    "BROWSER_DECODE_FAILED",
+}
 MAX_INPUT_BYTES = 50 * 1024 * 1024
 PROCESS_TIMEOUT_SECONDS = 90
-MAX_ACTIVE_RUNS = 4
+MAX_ACTIVE_RUNS = 3
+ALPHA_FRACTION_TOLERANCE = 0.0001
+BRIDGE_RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sticker-tool")
+_worker_lock = threading.Lock()
+_active_futures: dict[str, Future] = {}
+_stale_runs_marked = False
 
 
 class StickerToolError(RuntimeError):
@@ -75,6 +111,17 @@ def safe_path_fingerprint(path: Path) -> dict[str, str]:
     }
 
 
+def log_event(name: str, details: dict[str, Any]) -> None:
+    safe = {
+        key: value
+        for key, value in details.items()
+        if key.lower() not in {"path", "fullpath", "csrf", "cookie", "token", "password", "database_url"}
+    }
+    safe.setdefault("contractVersion", CONTRACT_VERSION)
+    safe.setdefault("clientCommit", git_commit())
+    write_jsonl_event("sticker-tool", name, safe)
+
+
 def config_path() -> Path:
     return PROJECT_ROOT / ".runtime" / "local-tools" / "sticker-preprocessor.json"
 
@@ -95,6 +142,24 @@ def review_bundles_root() -> Path:
     return bridge_root() / "review-bundles"
 
 
+def validate_bridge_run_id(bridge_run_id: str) -> str:
+    if not BRIDGE_RUN_ID_RE.fullmatch(str(bridge_run_id or "")):
+        raise StickerToolError("RUN_ID_INVALID", "处理记录不存在。", status_code=404)
+    return bridge_run_id
+
+
+def validate_tool_run_id(tool_run_id: str | None) -> str | None:
+    if tool_run_id is None:
+        return None
+    if not BRIDGE_RUN_ID_RE.fullmatch(str(tool_run_id)):
+        raise StickerToolError("TOOL_RUN_ID_INVALID", "工具运行 ID 无效。", status_code=502)
+    return str(tool_run_id)
+
+
+def run_dir_for_id(bridge_run_id: str) -> Path:
+    return runs_root() / validate_bridge_run_id(bridge_run_id)
+
+
 def prune_runs(days: int = 7) -> dict[str, int]:
     root = bridge_root()
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
@@ -112,28 +177,63 @@ def prune_runs(days: int = 7) -> dict[str, int]:
             shutil.rmtree(child)
             deleted += 1
     result = {"scanned": scanned, "deleted": deleted}
-    write_jsonl_event("sticker-tool", "sticker_tool.retention.pruned", result)
+    log_event("sticker_tool.retention.pruned", result)
     return result
 
 
-def active_run_count() -> int:
+def mark_stale_processing_runs_interrupted() -> None:
+    global _stale_runs_marked
+    with _worker_lock:
+        if _stale_runs_marked:
+            return
+        active_ids = {
+            bridge_run_id
+            for bridge_run_id, future in _active_futures.items()
+            if not future.done()
+        }
+        _stale_runs_marked = True
     root = runs_root()
     if not root.exists():
-        return 0
+        return
+    for state_path in root.glob("*/run-status.json"):
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        bridge_run_id = state.get("bridgeRunId")
+        if bridge_run_id in active_ids or state.get("status") not in PROCESSING_STATES:
+            continue
+        run_dir = state_path.parent
+        set_run_status(run_dir, state, "interrupted", reason_code="STALE_LOCAL_WORKER")
+
+
+def active_run_count() -> int:
+    mark_stale_processing_runs_interrupted()
     count = 0
+    with _worker_lock:
+        for bridge_run_id, future in list(_active_futures.items()):
+            if future.done():
+                _active_futures.pop(bridge_run_id, None)
+            else:
+                count += 1
+    root = runs_root()
+    if not root.exists():
+        return count
     for status_path in root.glob("*/run-status.json"):
         try:
             state = json.loads(status_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if state.get("status") in {"queued", "processing"}:
+        if state.get("bridgeRunId") in _active_futures:
+            continue
+        if state.get("status") in PROCESSING_STATES:
             count += 1
     return count
 
 
 def ensure_run_capacity() -> None:
     if active_run_count() >= MAX_ACTIVE_RUNS:
-        write_jsonl_event("sticker-tool", "sticker_tool.run.rejected_capacity", {"maxActiveRuns": MAX_ACTIVE_RUNS})
+        log_event("sticker_tool.run.rejected_capacity", {"maxActiveRuns": MAX_ACTIVE_RUNS})
         raise StickerToolError("RUN_CAPACITY_REACHED", "本机贴纸预处理任务过多，请稍后再试。", status_code=429)
 
 
@@ -180,11 +280,7 @@ def save_config(tool_root: Path, *, source: str = "user") -> dict[str, Any]:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
-    write_jsonl_event(
-        "sticker-tool",
-        "sticker_tool.config.saved",
-        {"source": source, **safe_path_fingerprint(resolved)},
-    )
+    log_event("sticker_tool.config.saved", {"source": source, **safe_path_fingerprint(resolved)})
     return public_config_status(resolved, source=source)
 
 
@@ -192,7 +288,7 @@ def clear_config() -> None:
     path = config_path()
     if path.exists():
         path.unlink()
-    write_jsonl_event("sticker-tool", "sticker_tool.config.cleared", {})
+    log_event("sticker_tool.config.cleared", {})
 
 
 def auto_detect_candidates() -> list[Path]:
@@ -248,11 +344,7 @@ def minimal_child_env() -> dict[str, str]:
 
 def run_tool_command(tool_root: Path, args: list[str], *, timeout: int = 30) -> subprocess.CompletedProcess[str]:
     python = resolve_tool_python(tool_root)
-    write_jsonl_event(
-        "sticker-tool",
-        "sticker_tool.run.process_spawned",
-        {"tool": safe_path_fingerprint(tool_root), "args": args[:2]},
-    )
+    log_event("sticker_tool.run.process_spawned", {"tool": safe_path_fingerprint(tool_root), "args": args[:2]})
     return subprocess.run(
         [str(python), "-m", "sticker_preprocessor", *args],
         cwd=tool_root,
@@ -280,14 +372,14 @@ def parse_single_json_stdout(stdout: str) -> dict[str, Any]:
 
 def get_capabilities(tool_root: Path) -> dict[str, Any]:
     validated = validate_tool_root(tool_root)
-    write_jsonl_event("sticker-tool", "sticker_tool.capabilities.started", safe_path_fingerprint(validated))
+    log_event("sticker_tool.capabilities.started", safe_path_fingerprint(validated))
     completed = run_tool_command(validated, ["--bridge-capabilities"], timeout=15)
     if completed.returncode != 0:
-        write_jsonl_event("sticker-tool", "sticker_tool.capabilities.failed", {"exitCode": completed.returncode})
+        log_event("sticker_tool.capabilities.failed", {"exitCode": completed.returncode})
         raise StickerToolError("CAPABILITIES_FAILED", "工具能力检测失败。", status_code=502)
     data = parse_single_json_stdout(completed.stdout)
     validate_capabilities(data)
-    write_jsonl_event("sticker-tool", "sticker_tool.capabilities.succeeded", {"tool": data.get("tool", {})})
+    log_event("sticker_tool.capabilities.succeeded", {"tool": data.get("tool", {})})
     return data
 
 
@@ -295,11 +387,11 @@ def validate_capabilities(data: dict[str, Any]) -> None:
     if data.get("schemaVersion") != CAPABILITIES_SCHEMA_VERSION:
         raise StickerToolError("CAPABILITIES_SCHEMA_UNSUPPORTED", "工具能力协议不兼容。", status_code=409)
     if CONTRACT_VERSION not in data.get("contractVersions", []):
-        write_jsonl_event("sticker-tool", "sticker_tool.contract.incompatible", {})
+        log_event("sticker_tool.contract.incompatible", {})
         raise StickerToolError("CONTRACT_UNSUPPORTED", "工具不支持当前联动协议。", status_code=409)
     if data.get("resultSchemaVersion") != RESULT_SCHEMA_VERSION:
         raise StickerToolError("RESULT_SCHEMA_UNSUPPORTED", "工具结果协议不兼容。", status_code=409)
-    write_jsonl_event("sticker-tool", "sticker_tool.contract.compatible", {"contractVersion": CONTRACT_VERSION})
+    log_event("sticker_tool.contract.compatible", {"contractVersion": CONTRACT_VERSION})
 
 
 def public_config_status(tool_root: Path | None, *, source: str) -> dict[str, Any]:
@@ -319,6 +411,7 @@ def public_config_status(tool_root: Path | None, *, source: str) -> dict[str, An
 
 
 def status_payload(settings: Settings) -> dict[str, Any]:
+    mark_stale_processing_runs_interrupted()
     root, source = resolve_configured_tool_root()
     payload = public_config_status(root, source=source)
     payload.update(
@@ -369,16 +462,15 @@ def create_bridge_run(
     if root is None:
         raise StickerToolError("TOOL_NOT_CONFIGURED", "请先配置 Sticker_Preprocessor。")
     tool_root = validate_tool_root(root)
-    capabilities_data = get_capabilities(tool_root)
-    limit = int(capabilities_data.get("limits", {}).get("maxInputBytes", MAX_INPUT_BYTES))
-    if not input_bytes or len(input_bytes) > min(limit, MAX_INPUT_BYTES):
+    if not input_bytes or len(input_bytes) > MAX_INPUT_BYTES:
         raise StickerToolError("INPUT_SIZE_INVALID", "图片大小不符合要求。", status_code=413)
     ext = Path(filename).suffix.lower()
     mime_type = SUPPORTED_MIME_TYPES.get(ext) or content_type
     if mime_type not in SUPPORTED_MIME_TYPES.values():
         raise StickerToolError("INPUT_MIME_UNSUPPORTED", "不支持的图片格式。")
+
     bridge_run_id = uuid.uuid4().hex
-    run_dir = runs_root() / bridge_run_id
+    run_dir = run_dir_for_id(bridge_run_id)
     input_dir = run_dir / "input"
     output_dir = outputs_root() / bridge_run_id
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -404,7 +496,22 @@ def create_bridge_run(
     }
     request_path = run_dir / "request.json"
     request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
-    state = {
+    state = initial_run_state(
+        bridge_run_id,
+        source,
+        tool_root,
+        request_path,
+        data_profile=data_profile,
+    )
+    write_run_state(run_dir, state)
+    log_event("sticker_tool.run.created", {"bridgeRunId": bridge_run_id, "dataProfile": state.get("dataProfile")})
+    log_event("sticker_tool.run.input_saved", {"bridgeRunId": bridge_run_id, "bytes": len(input_bytes)})
+    submit_worker(bridge_run_id, tool_root, run_dir, request_path)
+    return public_run_payload(state)
+
+
+def initial_run_state(bridge_run_id: str, source: str, tool_root: Path, request_path: Path, *, data_profile: str | None) -> dict[str, Any]:
+    return {
         "schemaVersion": RUN_STATUS_SCHEMA_VERSION,
         "bridgeRunId": bridge_run_id,
         "toolRunId": None,
@@ -419,13 +526,27 @@ def create_bridge_run(
         "outputRelativePath": None,
         "toolArtifactRelativePaths": {},
         "manifest": None,
-        "compatibility": None,
-        "userVisualVerdict": "pending",
+        "capabilities": None,
+        "providerAlphaMetrics": None,
+        "clientAlphaMetrics": None,
+        "browserAnalysis": None,
+        "previewMatrix": {},
+        "review": None,
+        "compatibility": compatibility_payload(overall="PROCESSING"),
+        "userVisualVerdict": "PENDING",
     }
-    write_run_state(run_dir, state)
-    write_jsonl_event("sticker-tool", "sticker_tool.run.created", {"bridgeRunId": bridge_run_id})
-    write_jsonl_event("sticker-tool", "sticker_tool.run.input_saved", {"bridgeRunId": bridge_run_id, "bytes": len(input_bytes)})
-    return execute_bridge_run(tool_root, run_dir, request_path, state)
+
+
+def submit_worker(bridge_run_id: str, tool_root: Path, run_dir: Path, request_path: Path) -> None:
+    with _worker_lock:
+        future = _executor.submit(process_bridge_run_worker, bridge_run_id, tool_root, run_dir, request_path)
+        _active_futures[bridge_run_id] = future
+        future.add_done_callback(lambda _future, run_id=bridge_run_id: remove_active_future(run_id))
+
+
+def remove_active_future(bridge_run_id: str) -> None:
+    with _worker_lock:
+        _active_futures.pop(bridge_run_id, None)
 
 
 def normalize_options(options: dict[str, Any]) -> dict[str, Any]:
@@ -441,54 +562,126 @@ def normalize_options(options: dict[str, Any]) -> dict[str, Any]:
 def write_run_state(run_dir: Path, state: dict[str, Any]) -> None:
     state["updatedAt"] = utc_now_iso()
     path = run_dir / "run-status.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
     os.replace(tmp, path)
 
 
-def execute_bridge_run(tool_root: Path, run_dir: Path, request_path: Path, state: dict[str, Any]) -> dict[str, Any]:
-    state["status"] = "processing"
+def set_run_status(run_dir: Path, state: dict[str, Any], next_status: str, *, reason_code: str) -> None:
+    previous = state.get("status")
+    state["status"] = next_status
     write_run_state(run_dir, state)
-    write_jsonl_event("sticker-tool", "sticker_tool.run.started", {"bridgeRunId": state["bridgeRunId"]})
+    log_event(
+        "sticker_tool.run.state_changed",
+        {
+            "bridgeRunId": state.get("bridgeRunId"),
+            "toolRunId": state.get("toolRunId"),
+            "dataProfile": state.get("dataProfile"),
+            "previousState": previous,
+            "nextState": next_status,
+            "reasonCode": reason_code,
+        },
+    )
+
+
+def process_bridge_run_worker(bridge_run_id: str, tool_root: Path, run_dir: Path, request_path: Path) -> None:
+    state = get_run_state(bridge_run_id)
     try:
+        set_run_status(run_dir, state, "validating_tool", reason_code="WORKER_STARTED")
+        capabilities_data = get_capabilities(tool_root)
+        state["capabilities"] = safe_capabilities(capabilities_data)
+        limit = int(capabilities_data.get("limits", {}).get("maxInputBytes", MAX_INPUT_BYTES))
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        if int(request.get("input", {}).get("bytes", 0)) > min(limit, MAX_INPUT_BYTES):
+            raise StickerToolError("INPUT_SIZE_INVALID", "图片大小不符合要求。", status_code=413)
+
+        set_run_status(run_dir, state, "running", reason_code="TOOL_VALIDATED")
         completed = run_tool_command(
             tool_root,
             ["--bridge-process-request", str(request_path.resolve())],
             timeout=PROCESS_TIMEOUT_SECONDS,
         )
-    except subprocess.TimeoutExpired as exc:
-        state["status"] = "failed"
-        state["errorCode"] = "TOOL_TIMEOUT"
-        write_run_state(run_dir, state)
-        write_jsonl_event("sticker-tool", "sticker_tool.run.process_timeout", {"bridgeRunId": state["bridgeRunId"]})
-        raise StickerToolError("TOOL_TIMEOUT", "工具处理超时。", status_code=504) from exc
-    write_jsonl_event(
-        "sticker-tool",
-        "sticker_tool.run.process_completed",
-        {"bridgeRunId": state["bridgeRunId"], "exitCode": completed.returncode},
+        log_event(
+            "sticker_tool.run.process_completed",
+            {"bridgeRunId": bridge_run_id, "exitCode": completed.returncode},
+        )
+        set_run_status(run_dir, state, "validating_result", reason_code="TOOL_COMPLETED")
+        response = parse_single_json_stdout(completed.stdout)
+        validate_bridge_response(response, bridge_run_id, completed.returncode)
+        log_event("sticker_tool.result.response_validated", {"bridgeRunId": bridge_run_id})
+        state["toolRunId"] = response.get("toolRunId")
+
+        manifest = validate_result_manifest(tool_root, response, bridge_run_id, request)
+        state["manifest"] = manifest
+        state["toolArtifactRelativePaths"] = copy_tool_artifacts(tool_root, run_dir, manifest)
+        if not response.get("ok"):
+            state["compatibility"] = compatibility_payload(
+                contract="PASS",
+                result="PASS",
+                alpha="FAIL",
+                journey="FAIL",
+                tool=manifest.get("processing", {}).get("qualityVerdict") or "FAIL",
+                browser="PENDING",
+                overall="BLOCKED",
+                issues=[manifest.get("failure", {}).get("code") or "TOOL_FAILED"],
+            )
+            set_run_status(run_dir, state, "failed", reason_code="TOOL_FAILED_RESPONSE")
+            return
+
+        copied = copy_verified_output(tool_root, run_dir, manifest)
+        state["outputRelativePath"] = repo_relative(copied)
+        state["clientAlphaMetrics"] = analyze_png_alpha(copied)
+        state["providerAlphaMetrics"] = manifest.get("output", {}).get("alpha", {})
+        alpha_comparison = compare_alpha_metrics(state["providerAlphaMetrics"], state["clientAlphaMetrics"])
+        log_event(
+            "sticker_tool.result.alpha_compared",
+            {"bridgeRunId": bridge_run_id, "result": "PASS" if alpha_comparison["ok"] else "FAIL"},
+        )
+        state["compatibility"] = evaluate_compatibility(manifest, state["clientAlphaMetrics"], alpha_comparison)
+        next_status = "blocked" if state["compatibility"]["overallHandoffVerdict"] == "BLOCKED" else "ready_for_review"
+        set_run_status(run_dir, state, next_status, reason_code="RESULT_VALIDATED")
+    except subprocess.TimeoutExpired:
+        apply_worker_error(run_dir, state, "TOOL_TIMEOUT", "failed")
+    except StickerToolError as exc:
+        status = "blocked" if exc.code in BLOCKING_CODES or exc.status_code == 502 else "failed"
+        apply_worker_error(run_dir, state, exc.code, status)
+    except Exception as exc:
+        log_event("sticker_tool.run.worker_unhandled_error", {"bridgeRunId": bridge_run_id, "error": type(exc).__name__})
+        apply_worker_error(run_dir, state, "WORKER_UNHANDLED_ERROR", "failed")
+
+
+def apply_worker_error(run_dir: Path, state: dict[str, Any], code: str, status: str) -> None:
+    state["errorCode"] = code
+    state["compatibility"] = compatibility_payload(
+        contract="FAIL" if "CONTRACT" in code else "PASS",
+        result="FAIL",
+        alpha="FAIL",
+        journey="FAIL",
+        browser="PENDING",
+        overall="BLOCKED" if status == "blocked" else "PROCESSING",
+        issues=[code],
     )
-    response = parse_single_json_stdout(completed.stdout)
-    write_jsonl_event("sticker-tool", "sticker_tool.result.response_received", {"bridgeRunId": state["bridgeRunId"]})
-    if response.get("schemaVersion") != "sticker-preprocessor-bridge-response-v1":
-        raise StickerToolError("RESPONSE_SCHEMA_INVALID", "工具响应协议无效。", status_code=502)
-    if response.get("bridgeRunId") != state["bridgeRunId"]:
-        raise StickerToolError("RESPONSE_BRIDGE_ID_MISMATCH", "工具响应关联 ID 不匹配。", status_code=502)
-    state["toolRunId"] = response.get("toolRunId")
-    manifest = validate_result_manifest(tool_root, response, state["bridgeRunId"])
-    state["manifest"] = manifest
-    state["toolArtifactRelativePaths"] = copy_tool_artifacts(tool_root, run_dir, manifest)
-    if not response.get("ok"):
-        state["status"] = "failed"
-        state["errorCode"] = response.get("errorCode") or "TOOL_FAILED"
-        write_run_state(run_dir, state)
-        raise StickerToolError(state["errorCode"], "工具处理失败。", status_code=502)
-    copied = copy_verified_output(tool_root, run_dir, manifest)
-    state["outputRelativePath"] = repo_relative(copied)
-    state["compatibility"] = evaluate_compatibility(manifest)
-    state["status"] = "ready_for_review"
-    write_run_state(run_dir, state)
-    write_jsonl_event("sticker-tool", "sticker_tool.result.ready_for_review", {"bridgeRunId": state["bridgeRunId"]})
-    return public_run_payload(state)
+    set_run_status(run_dir, state, status, reason_code=code)
+
+
+def validate_bridge_response(response: dict[str, Any], bridge_run_id: str, exit_code: int) -> None:
+    if response.get("schemaVersion") != RESPONSE_SCHEMA_VERSION:
+        raise StickerToolError("CONTRACT_MISMATCH", "工具响应协议无效。", status_code=502)
+    if response.get("contractVersion") != CONTRACT_VERSION:
+        raise StickerToolError("CONTRACT_MISMATCH", "工具响应协议版本无效。", status_code=502)
+    if not isinstance(response.get("ok"), bool):
+        raise StickerToolError("CONTRACT_MISMATCH", "工具响应 ok 字段无效。", status_code=502)
+    if response.get("bridgeRunId") != bridge_run_id:
+        raise StickerToolError("MANIFEST_MISMATCH", "工具响应关联 ID 不匹配。", status_code=502)
+    validate_bridge_run_id(response.get("bridgeRunId"))
+    validate_tool_run_id(response.get("toolRunId"))
+    if not response.get("resultManifestRelativePath"):
+        raise StickerToolError("MANIFEST_MISMATCH", "工具响应缺少结果清单。", status_code=502)
+    if response["ok"] and exit_code != 0:
+        raise StickerToolError("MANIFEST_MISMATCH", "工具成功响应必须使用退出码 0。", status_code=502)
+    if not response["ok"] and exit_code == 0:
+        raise StickerToolError("MANIFEST_MISMATCH", "工具失败响应必须使用非 0 退出码。", status_code=502)
 
 
 def copy_tool_artifacts(tool_root: Path, run_dir: Path, manifest: dict[str, Any]) -> dict[str, str]:
@@ -524,19 +717,58 @@ def resolve_tool_relative(tool_root: Path, relative: str | None) -> Path:
     return resolved
 
 
-def validate_result_manifest(tool_root: Path, response: dict[str, Any], bridge_run_id: str) -> dict[str, Any]:
+def validate_result_manifest(
+    tool_root: Path,
+    response: dict[str, Any],
+    bridge_run_id: str,
+    request: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     manifest_path = resolve_tool_relative(tool_root, response.get("resultManifestRelativePath"))
     if not manifest_path.is_file():
         raise StickerToolError("MANIFEST_MISSING", "工具结果清单不存在。", status_code=502)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schemaVersion") != RESULT_SCHEMA_VERSION:
         raise StickerToolError("MANIFEST_SCHEMA_INVALID", "工具结果清单协议无效。", status_code=502)
+    if manifest.get("contractVersion") != CONTRACT_VERSION:
+        raise StickerToolError("CONTRACT_MISMATCH", "工具结果协议版本无效。", status_code=502)
     if manifest.get("bridgeRunId") != bridge_run_id:
         raise StickerToolError("MANIFEST_BRIDGE_ID_MISMATCH", "工具结果关联 ID 不匹配。", status_code=502)
-    if manifest.get("contractVersion") != CONTRACT_VERSION:
-        raise StickerToolError("MANIFEST_CONTRACT_INVALID", "工具结果协议版本无效。", status_code=502)
-    write_jsonl_event("sticker-tool", "sticker_tool.result.manifest_validated", {"bridgeRunId": bridge_run_id})
+    if manifest.get("toolRunId") != response.get("toolRunId"):
+        raise StickerToolError("MANIFEST_MISMATCH", "工具运行 ID 不匹配。", status_code=502)
+    if manifest.get("status") not in {"success", "failed"}:
+        raise StickerToolError("MANIFEST_MISMATCH", "工具结果状态无效。", status_code=502)
+    if bool(response.get("ok")) != (manifest.get("status") == "success"):
+        raise StickerToolError("MANIFEST_MISMATCH", "工具响应状态与清单状态不一致。", status_code=502)
+    if request:
+        validate_manifest_input_identity(manifest, request)
+    validate_manifest_options(manifest.get("options") or {})
+    if manifest.get("status") == "success":
+        output = manifest.get("output") or {}
+        if output.get("mimeType") != "image/png":
+            raise StickerToolError("OUTPUT_MIME_INVALID", "工具输出 MIME 无效。", status_code=502)
+    log_event("sticker_tool.result.manifest_validated", {"bridgeRunId": bridge_run_id, "toolRunId": manifest.get("toolRunId")})
     return manifest
+
+
+def validate_manifest_input_identity(manifest: dict[str, Any], request: dict[str, Any]) -> None:
+    expected = request.get("input") or {}
+    actual = manifest.get("input") or {}
+    for key in ("safeBasename", "mimeType", "bytes", "sha256"):
+        if actual.get(key) != expected.get(key):
+            raise StickerToolError("MANIFEST_MISMATCH", f"工具输入身份字段不匹配: {key}", status_code=502)
+    log_event("sticker_tool.result.input_identity_validated", {"bridgeRunId": manifest.get("bridgeRunId")})
+
+
+def validate_manifest_options(options: dict[str, Any]) -> None:
+    if options.get("mode") not in {"auto", "alpha_cleanup", "checkerboard", "ai"}:
+        raise StickerToolError("MANIFEST_MISMATCH", "工具选项 mode 无效。", status_code=502)
+    if options.get("aiModel") not in {"silueta", "u2netp", "isnet-general-use"}:
+        raise StickerToolError("MANIFEST_MISMATCH", "工具选项 aiModel 无效。", status_code=502)
+    if not isinstance(options.get("alphaMatting"), bool):
+        raise StickerToolError("MANIFEST_MISMATCH", "工具选项 alphaMatting 无效。", status_code=502)
+    for key in ("paddingPixels", "alphaCropThreshold"):
+        if not isinstance(options.get(key), int):
+            raise StickerToolError("MANIFEST_MISMATCH", f"工具选项 {key} 无效。", status_code=502)
 
 
 def copy_verified_output(tool_root: Path, run_dir: Path, manifest: dict[str, Any]) -> Path:
@@ -544,6 +776,8 @@ def copy_verified_output(tool_root: Path, run_dir: Path, manifest: dict[str, Any
     source = resolve_tool_relative(tool_root, output.get("relativePath"))
     if not source.is_file():
         raise StickerToolError("OUTPUT_MISSING", "工具输出文件不存在。", status_code=502)
+    if source.stat().st_size != output.get("bytes"):
+        raise StickerToolError("OUTPUT_BYTE_MISMATCH", "工具输出字节数不匹配。", status_code=502)
     if sha256_path(source) != output.get("sha256"):
         raise StickerToolError("OUTPUT_HASH_MISMATCH", "工具输出哈希不匹配。", status_code=502)
     png_metrics = analyze_png_alpha(source)
@@ -554,8 +788,7 @@ def copy_verified_output(tool_root: Path, run_dir: Path, manifest: dict[str, Any
     shutil.copy2(source, dest)
     if sha256_path(dest) != output.get("sha256"):
         raise StickerToolError("COPIED_OUTPUT_HASH_MISMATCH", "复制后的输出哈希不匹配。", status_code=502)
-    write_jsonl_event("sticker-tool", "sticker_tool.result.hash_validated", {"bridgeRunId": manifest.get("bridgeRunId")})
-    write_jsonl_event("sticker-tool", "sticker_tool.result.copied", {"bridgeRunId": manifest.get("bridgeRunId")})
+    log_event("sticker_tool.result.output_identity_validated", {"bridgeRunId": manifest.get("bridgeRunId")})
     return dest
 
 
@@ -578,7 +811,7 @@ def analyze_png_alpha(path: Path) -> dict[str, Any]:
         elif chunk_type == b"IEND":
             break
     if width is None or height is None or bit_depth != 8 or color_type != 6:
-        raise StickerToolError("OUTPUT_NOT_RGBA_PNG", "工具输出不是 RGBA PNG。", status_code=502)
+        raise StickerToolError("OUTPUT_NOT_RGBA_PNG", "工具输出不是 8-bit RGBA PNG。", status_code=502)
     raw = zlib.decompress(bytes(compressed))
     stride = width * 4
     pos = 0
@@ -586,6 +819,8 @@ def analyze_png_alpha(path: Path) -> dict[str, Any]:
     alphas: list[int] = []
     border_nonzero = 0
     border_alpha_max = 0
+    top = bottom = left = right = 0
+    boxes = {0: empty_box(), 8: empty_box(), 32: empty_box()}
     for y in range(height):
         filter_type = raw[pos]
         pos += 1
@@ -595,6 +830,17 @@ def analyze_png_alpha(path: Path) -> dict[str, Any]:
         for x in range(width):
             alpha = recon[x * 4 + 3]
             alphas.append(alpha)
+            for threshold, box in boxes.items():
+                if alpha > threshold:
+                    extend_box(box, x, y)
+            if y == 0 and alpha > 0:
+                top += 1
+            if y == height - 1 and alpha > 0:
+                bottom += 1
+            if x == 0 and alpha > 0:
+                left += 1
+            if x == width - 1 and alpha > 0:
+                right += 1
             if x in {0, width - 1} or y in {0, height - 1}:
                 if alpha > 0:
                     border_nonzero += 1
@@ -604,19 +850,52 @@ def analyze_png_alpha(path: Path) -> dict[str, Any]:
     fully_transparent = sum(1 for value in alphas if value == 0)
     fully_opaque = sum(1 for value in alphas if value == 255)
     semitransparent = sum(1 for value in alphas if 0 < value < 255)
+    transparent_fraction = fully_transparent / total
+    nonopaque_fraction = (total - fully_opaque) / total
+    low_alpha = sum(1 for value in alphas if 0 < value <= 32)
+    border_pixels = max(1, (width * 2) + (height * 2) - 4)
+    rectangular_haze = border_nonzero / border_pixels > 0.35 and border_alpha_max > 32
     return {
         "width": width,
         "height": height,
+        "totalPixels": total,
         "alphaMin": min(alphas),
         "alphaMax": max(alphas),
         "fullyTransparentCount": fully_transparent,
         "fullyOpaqueCount": fully_opaque,
         "semitransparentCount": semitransparent,
-        "transparentFraction": fully_transparent / total,
-        "nonopaqueFraction": (total - fully_opaque) / total,
+        "transparentFraction": transparent_fraction,
+        "nonopaqueFraction": nonopaque_fraction,
+        "topBorderNonzeroCount": top,
+        "bottomBorderNonzeroCount": bottom,
+        "leftBorderNonzeroCount": left,
+        "rightBorderNonzeroCount": right,
         "borderNonzeroCount": border_nonzero,
         "borderAlphaMax": border_alpha_max,
+        "alphaBoundingBoxes": {
+            "gt0": finalize_box(boxes[0]),
+            "gt8": finalize_box(boxes[8]),
+            "gt32": finalize_box(boxes[32]),
+        },
+        "lowAlphaHazeSuspected": (low_alpha / total) > 0.2,
+        "rectangularHazeSuspected": rectangular_haze,
+        "heavySemitransparentHaloWarning": (semitransparent / total) > 0.45,
     }
+
+
+def empty_box() -> dict[str, int | None]:
+    return {"minX": None, "minY": None, "maxX": None, "maxY": None}
+
+
+def extend_box(box: dict[str, int | None], x: int, y: int) -> None:
+    box["minX"] = x if box["minX"] is None else min(int(box["minX"]), x)
+    box["minY"] = y if box["minY"] is None else min(int(box["minY"]), y)
+    box["maxX"] = x if box["maxX"] is None else max(int(box["maxX"]), x)
+    box["maxY"] = y if box["maxY"] is None else max(int(box["maxY"]), y)
+
+
+def finalize_box(box: dict[str, int | None]) -> dict[str, int | None]:
+    return dict(box)
 
 
 def unfilter_row(row: list[int], prev: list[int], filter_type: int, bpp: int) -> list[int]:
@@ -653,30 +932,100 @@ def paeth(a: int, b: int, c: int) -> int:
     return c
 
 
-def evaluate_compatibility(manifest: dict[str, Any]) -> dict[str, Any]:
-    alpha = manifest.get("output", {}).get("alpha", {})
-    issues = []
-    if alpha.get("fullyTransparentCount", 0) <= 0:
+def compare_alpha_metrics(provider: dict[str, Any], client: dict[str, Any]) -> dict[str, Any]:
+    mismatches: list[str] = []
+    integer_keys = [
+        "alphaMin",
+        "alphaMax",
+        "fullyTransparentCount",
+        "fullyOpaqueCount",
+        "semitransparentCount",
+        "borderNonzeroCount",
+        "borderAlphaMax",
+    ]
+    for key in integer_keys:
+        if provider.get(key) != client.get(key):
+            mismatches.append(key)
+    for key in ("transparentFraction", "nonopaqueFraction"):
+        if abs(float(provider.get(key, -1)) - float(client.get(key, -2))) > ALPHA_FRACTION_TOLERANCE:
+            mismatches.append(key)
+    return {"ok": not mismatches, "mismatches": mismatches}
+
+
+def evaluate_compatibility(
+    manifest: dict[str, Any],
+    client_alpha: dict[str, Any],
+    alpha_comparison: dict[str, Any],
+    *,
+    browser_analysis: dict[str, Any] | None = None,
+    preview_matrix: dict[str, bool] | None = None,
+) -> dict[str, Any]:
+    issues: list[str] = []
+    alpha_verdict = "PASS"
+    journey_verdict = "WARNING"
+    browser_verdict = "PENDING"
+    tool_verdict = manifest.get("processing", {}).get("qualityVerdict") or "WARNING"
+    if tool_verdict not in {"PASS", "WARNING", "FAIL"}:
+        tool_verdict = "WARNING"
+    if not alpha_comparison.get("ok"):
+        issues.append("PROVIDER_CLIENT_ALPHA_MISMATCH")
+    if client_alpha.get("fullyTransparentCount", 0) <= 0:
         issues.append("NO_FULLY_TRANSPARENT_PIXELS")
-    if alpha.get("alphaMax", 0) < 250:
-        issues.append("NO_OPAQUE_SUBJECT")
-    if alpha.get("borderAlphaMax", 0) > 32:
+    if client_alpha.get("borderAlphaMax", 0) > 32:
         issues.append("BORDER_ALPHA_NOT_CLEAN")
-    if alpha.get("rectangularHazeSuspected"):
+    if client_alpha.get("rectangularHazeSuspected"):
         issues.append("RECTANGULAR_HAZE_SUSPECTED")
-    verdict = "BLOCKED" if issues else "REVIEW_REQUIRED"
-    result = {
-        "contractCompatibility": "PASS",
-        "resultIntegrity": "PASS",
-        "alphaCompatibility": "PASS" if not issues else "FAIL",
-        "journeyRenderCompatibility": "REVIEW_REQUIRED",
-        "toolQualityVerdict": manifest.get("processing", {}).get("qualityVerdict"),
-        "userVisualVerdict": "pending",
-        "overallHandoffVerdict": verdict,
-        "issueCodes": issues,
-    }
-    write_jsonl_event("sticker-tool", "sticker_tool.compatibility.evaluated", result)
+    if tool_verdict == "FAIL":
+        issues.append("TOOL_QUALITY_FAIL")
+    if issues:
+        alpha_verdict = "FAIL"
+    if browser_analysis:
+        browser_verdict = "PASS" if browser_analysis.get("comparison", {}).get("ok") else "FAIL"
+        if browser_verdict == "FAIL":
+            issues.append("PROVIDER_BROWSER_ALPHA_MISMATCH")
+    if preview_matrix:
+        required = {"light", "dark", "web", "journey"}
+        journey_verdict = "PASS" if all(preview_matrix.get(key) for key in required) else "FAIL"
+        if journey_verdict == "FAIL":
+            issues.append("PREVIEW_MATRIX_INCOMPLETE")
+    overall = "BLOCKED" if any(issue in BLOCKING_CODES for issue in issues) else "REVIEW_REQUIRED"
+    result = compatibility_payload(
+        contract="PASS",
+        result="PASS",
+        alpha=alpha_verdict,
+        journey=journey_verdict,
+        tool=tool_verdict,
+        browser=browser_verdict,
+        overall=overall,
+        issues=issues,
+    )
+    log_event("sticker_tool.compatibility.evaluated", result)
     return result
+
+
+def compatibility_payload(
+    *,
+    contract: str = "PASS",
+    result: str = "PASS",
+    alpha: str = "WARNING",
+    journey: str = "WARNING",
+    tool: str = "WARNING",
+    browser: str = "PENDING",
+    user: str = "PENDING",
+    overall: str = "REVIEW_REQUIRED",
+    issues: list[str] | None = None,
+) -> dict[str, Any]:
+    return {
+        "contractCompatibility": contract,
+        "resultIntegrity": result,
+        "alphaCompatibility": alpha,
+        "journeyRenderCompatibility": journey,
+        "toolQualityVerdict": tool,
+        "browserAnalysisCompatibility": browser,
+        "userVisualVerdict": user,
+        "overallHandoffVerdict": overall,
+        "issueCodes": sorted(set(issues or [])),
+    }
 
 
 def public_run_payload(state: dict[str, Any]) -> dict[str, Any]:
@@ -690,7 +1039,8 @@ def public_run_payload(state: dict[str, Any]) -> dict[str, Any]:
         "toolConfigSource": state.get("toolConfigSource"),
         "toolPathFingerprint": state.get("toolPathFingerprint"),
         "compatibility": state.get("compatibility"),
-        "userVisualVerdict": state.get("userVisualVerdict", "pending"),
+        "userVisualVerdict": state.get("userVisualVerdict", "PENDING"),
+        "previewMatrix": state.get("previewMatrix") or {},
         "outputUrl": f"/api/sticker-tool/runs/{state['bridgeRunId']}/output"
         if state.get("outputRelativePath")
         else None,
@@ -698,25 +1048,169 @@ def public_run_payload(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_run_state(bridge_run_id: str) -> dict[str, Any]:
-    path = runs_root() / bridge_run_id / "run-status.json"
+    path = run_dir_for_id(bridge_run_id) / "run-status.json"
     if not path.is_file():
         raise StickerToolError("RUN_NOT_FOUND", "处理记录不存在。", status_code=404)
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def record_review(bridge_run_id: str, verdict: str) -> dict[str, Any]:
-    if verdict not in {"accepted", "rejected"}:
-        raise StickerToolError("REVIEW_VERDICT_INVALID", "视觉审核结果无效。")
-    run_dir = runs_root() / bridge_run_id
+def submit_browser_analysis(bridge_run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    run_dir = run_dir_for_id(bridge_run_id)
     state = get_run_state(bridge_run_id)
-    state["userVisualVerdict"] = verdict
+    if not state.get("clientAlphaMetrics"):
+        raise StickerToolError("RUN_NOT_READY_FOR_ANALYSIS", "处理结果尚未准备好。", status_code=409)
+    analysis = normalize_browser_analysis(payload)
+    comparison = compare_alpha_metrics(state["clientAlphaMetrics"], analysis["alpha"])
+    analysis["comparison"] = comparison
+    previews = analysis.get("previewMatrix") or {}
+    state["browserAnalysis"] = analysis
+    state["previewMatrix"] = previews
+    (run_dir / "web-analysis.json").write_text(json.dumps(analysis, ensure_ascii=False, indent=2), encoding="utf-8")
+    log_event(
+        "sticker_tool.browser_analysis.received",
+        {"bridgeRunId": bridge_run_id, "previewMatrix": previews},
+    )
+    event_name = "sticker_tool.browser_analysis.validated" if comparison["ok"] else "sticker_tool.browser_analysis.mismatch"
+    log_event(event_name, {"bridgeRunId": bridge_run_id, "mismatches": comparison.get("mismatches", [])})
+    log_event("sticker_tool.preview_matrix.completed", {"bridgeRunId": bridge_run_id, "previewMatrix": previews})
+    provider_client_comparison = compare_alpha_metrics(
+        state.get("providerAlphaMetrics") or {},
+        state["clientAlphaMetrics"],
+    )
+    state["compatibility"] = evaluate_compatibility(
+        state.get("manifest") or {},
+        state["clientAlphaMetrics"],
+        provider_client_comparison,
+        browser_analysis=analysis,
+        preview_matrix=previews,
+    )
+    if state["compatibility"]["overallHandoffVerdict"] == "BLOCKED":
+        set_run_status(run_dir, state, "blocked", reason_code="BROWSER_ANALYSIS_BLOCKED")
+    else:
+        set_run_status(run_dir, state, "ready_for_review", reason_code="BROWSER_ANALYSIS_PASS")
+    return public_run_payload(state)
+
+
+def normalize_browser_analysis(payload: dict[str, Any]) -> dict[str, Any]:
+    alpha = payload.get("alpha") or payload
+    normalized = {
+        key: alpha.get(key)
+        for key in (
+            "width",
+            "height",
+            "totalPixels",
+            "alphaMin",
+            "alphaMax",
+            "fullyTransparentCount",
+            "fullyOpaqueCount",
+            "semitransparentCount",
+            "transparentFraction",
+            "nonopaqueFraction",
+            "topBorderNonzeroCount",
+            "bottomBorderNonzeroCount",
+            "leftBorderNonzeroCount",
+            "rightBorderNonzeroCount",
+            "borderNonzeroCount",
+            "borderAlphaMax",
+            "alphaBoundingBoxes",
+            "lowAlphaHazeSuspected",
+            "rectangularHazeSuspected",
+            "heavySemitransparentHaloWarning",
+        )
+    }
+    for key in ("width", "height", "totalPixels"):
+        if not isinstance(normalized.get(key), int) or normalized[key] <= 0:
+            raise StickerToolError("BROWSER_ANALYSIS_INVALID", f"浏览器分析字段无效: {key}", status_code=422)
+    preview_matrix = payload.get("previewMatrix") or {}
+    return {
+        "schemaVersion": "personal-web-sticker-browser-analysis-v1",
+        "createdAt": utc_now_iso(),
+        "alpha": normalized,
+        "previewMatrix": {key: bool(preview_matrix.get(key)) for key in ("light", "dark", "web", "journey")},
+        "frontendEvents": payload.get("frontendEvents") if isinstance(payload.get("frontendEvents"), list) else [],
+    }
+
+
+def record_review(bridge_run_id: str, payload: dict[str, Any] | str) -> dict[str, Any]:
+    run_dir = run_dir_for_id(bridge_run_id)
+    state = get_run_state(bridge_run_id)
+    visual_verdict, issue_codes = normalize_review_payload(payload)
+    if visual_verdict == "accepted":
+        assert_acceptable_for_upload(state)
+    state["userVisualVerdict"] = visual_verdict.upper()
+    state["review"] = {
+        "schemaVersion": "personal-web-sticker-user-review-v1",
+        "visualVerdict": visual_verdict,
+        "issueCodes": issue_codes,
+        "previewContextsReviewed": sorted([key for key, ok in (state.get("previewMatrix") or {}).items() if ok]),
+        "reviewedAt": utc_now_iso(),
+    }
+    (run_dir / "user-review.json").write_text(json.dumps(state["review"], ensure_ascii=False, indent=2), encoding="utf-8")
     if state.get("compatibility"):
-        state["compatibility"]["userVisualVerdict"] = verdict
-        if verdict == "accepted" and state["compatibility"]["overallHandoffVerdict"] != "BLOCKED":
-            state["compatibility"]["overallHandoffVerdict"] = "ACCEPTED_FOR_UPLOAD"
-    write_run_state(run_dir, state)
-    event = "sticker_tool.review.accepted" if verdict == "accepted" else "sticker_tool.review.rejected"
-    write_jsonl_event("sticker-tool", event, {"bridgeRunId": bridge_run_id})
+        state["compatibility"]["userVisualVerdict"] = visual_verdict.upper()
+        state["compatibility"]["overallHandoffVerdict"] = "ACCEPTED_FOR_UPLOAD" if visual_verdict == "accepted" else "REJECTED"
+    next_state = "accepted" if visual_verdict == "accepted" else "rejected"
+    set_run_status(run_dir, state, next_state, reason_code=f"USER_{next_state.upper()}")
+    event = "sticker_tool.review.accepted" if visual_verdict == "accepted" else "sticker_tool.review.rejected"
+    log_event(event, {"bridgeRunId": bridge_run_id, "issueCodes": issue_codes})
+    return public_run_payload(state)
+
+
+def normalize_review_payload(payload: dict[str, Any] | str) -> tuple[str, list[str]]:
+    if isinstance(payload, str):
+        verdict = payload
+        codes: list[str] = []
+    else:
+        verdict = payload.get("visualVerdict") or payload.get("verdict") or ""
+        codes = list(payload.get("issueCodes") or [])
+    if verdict not in {"accepted", "rejected"}:
+        raise StickerToolError("REVIEW_VERDICT_INVALID", "视觉审核结果无效。", status_code=422)
+    deduped = sorted(set(str(code) for code in codes))
+    unsupported = [code for code in deduped if code not in SUPPORTED_REVIEW_ISSUES]
+    if unsupported:
+        raise StickerToolError("REVIEW_ISSUE_CODE_INVALID", "拒绝原因无效。", status_code=422)
+    if verdict == "accepted" and deduped:
+        raise StickerToolError("ACCEPTED_REVIEW_CANNOT_HAVE_ISSUES", "接受结果不能包含问题原因。", status_code=422)
+    if verdict == "rejected" and not deduped:
+        deduped = ["OTHER"]
+    return verdict, deduped
+
+
+def assert_acceptable_for_upload(state: dict[str, Any]) -> None:
+    compatibility = state.get("compatibility") or {}
+    required = {
+        "contractCompatibility": "PASS",
+        "resultIntegrity": "PASS",
+        "alphaCompatibility": "PASS",
+        "journeyRenderCompatibility": "PASS",
+        "browserAnalysisCompatibility": "PASS",
+    }
+    blocked_reasons = []
+    if state.get("status") != "ready_for_review":
+        blocked_reasons.append("RUN_NOT_READY_FOR_REVIEW")
+    if compatibility.get("overallHandoffVerdict") == "BLOCKED":
+        blocked_reasons.append("MACHINE_BLOCKED")
+    for key, expected in required.items():
+        if compatibility.get(key) != expected:
+            blocked_reasons.append(key)
+    if compatibility.get("toolQualityVerdict") == "FAIL":
+        blocked_reasons.append("TOOL_QUALITY_FAIL")
+    if not state.get("browserAnalysis"):
+        blocked_reasons.append("BROWSER_ANALYSIS_REQUIRED")
+    if blocked_reasons:
+        log_event(
+            "sticker_tool.review.acceptance_blocked",
+            {"bridgeRunId": state.get("bridgeRunId"), "reasonCode": ",".join(sorted(set(blocked_reasons)))},
+        )
+        log_event("sticker_tool.media_upload.blocked", {"bridgeRunId": state.get("bridgeRunId")})
+        raise StickerToolError("RESULT_NOT_ACCEPTABLE_FOR_UPLOAD", "结果尚未通过上传前校验。", status_code=409)
+    log_event("sticker_tool.media_upload.allowed", {"bridgeRunId": state.get("bridgeRunId")})
+
+
+def mark_uploaded(bridge_run_id: str) -> dict[str, Any]:
+    run_dir = run_dir_for_id(bridge_run_id)
+    state = get_run_state(bridge_run_id)
+    set_run_status(run_dir, state, "uploaded", reason_code="MEDIA_UPLOAD_SUCCEEDED")
     return public_run_payload(state)
 
 
@@ -739,41 +1233,131 @@ def create_integration_bundle(bridge_run_id: str) -> tuple[Path, str]:
     filename = f"sticker-tool-integration-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{bridge_run_id[:8]}.zip"
     zip_path = bundle_dir / filename
     output_path = output_path_for_run(bridge_run_id)
-    manifest = {
-        "bridgeRunId": bridge_run_id,
-        "toolRunId": state.get("toolRunId"),
-        "contractVersion": CONTRACT_VERSION,
-        "clientCommit": git_commit(),
-        "toolCommit": (state.get("manifest") or {}).get("tool", {}).get("gitCommit"),
-        "dataProfile": state.get("dataProfile"),
-        "toolConfigSource": state.get("toolConfigSource"),
-        "toolPathFingerprint": state.get("toolPathFingerprint"),
-        "compatibility": state.get("compatibility"),
-        "userVisualVerdict": state.get("userVisualVerdict"),
-        "privacyWarning": "联动诊断包包含本次输入图片、处理结果和预览图，仅在确认后手动分享。",
-    }
+    manifest = diagnostic_manifest(state)
+    inventory: dict[str, str] = {}
     with ZipFile(zip_path, "w", ZIP_DEFLATED) as archive:
-        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-        archive.writestr("web/run-status.json", json.dumps(state, ensure_ascii=False, indent=2))
-        archive.writestr("web/provider-result.json", json.dumps(state.get("manifest"), ensure_ascii=False, indent=2))
+        if state.get("capabilities"):
+            add_json(archive, inventory, "contract/capabilities.json", state.get("capabilities"))
+        add_json(archive, inventory, "contract/schema-hashes.json", contract_schema_hashes())
+        add_json(archive, inventory, "web/run-status.json", sanitized_state_for_bundle(state))
+        add_json(archive, inventory, "web/provider-result.json", state.get("manifest"))
         request_path = PROJECT_ROOT / state.get("requestRelativePath", "")
         if request_path.is_file():
-            archive.writestr(
-                "web/request.json",
-                json.dumps(sanitize_request_for_bundle(request_path), ensure_ascii=False, indent=2),
-            )
+            add_json(archive, inventory, "web/request.json", sanitize_request_for_bundle(request_path))
+        for name in ("web-analysis.json", "user-review.json"):
+            path = run_dir_for_id(bridge_run_id) / name
+            if path.is_file():
+                archive.writestr(f"web/{name}", path.read_bytes())
+                inventory[f"web/{name}"] = sha256_bytes(path.read_bytes())
+        frontend_events = (state.get("browserAnalysis") or {}).get("frontendEvents")
+        if frontend_events:
+            add_json(archive, inventory, "web/frontend-events.json", frontend_events)
+        add_backend_events(archive, inventory, bridge_run_id)
         input_dir = runs_root() / bridge_run_id / "input"
         if input_dir.is_dir():
             for input_path in input_dir.iterdir():
                 if input_path.is_file() and not input_path.is_symlink():
-                    archive.write(input_path, f"input/{input_path.name}")
+                    add_file(archive, inventory, input_path, f"input/{input_path.name}")
         for relative in (state.get("toolArtifactRelativePaths") or {}).values():
             artifact_path = PROJECT_ROOT / relative
             if artifact_path.is_file():
-                archive.write(artifact_path, f"tool/{artifact_path.name}")
-        archive.write(output_path, "output/processed.png")
-    write_jsonl_event("sticker-tool", "sticker_tool.bundle.created", {"bridgeRunId": bridge_run_id, "bytes": zip_path.stat().st_size})
+                add_file(archive, inventory, artifact_path, f"tool/{artifact_path.name}")
+        add_file(archive, inventory, output_path, "output/processed.png")
+        add_preview_placeholders(archive, inventory, state)
+        manifest["fileInventory"] = inventory
+        add_json(archive, inventory, "manifest.json", manifest)
+    verify_zip_safety(zip_path)
+    log_event("sticker_tool.bundle.created", {"bridgeRunId": bridge_run_id, "bytes": zip_path.stat().st_size})
     return zip_path, filename
+
+
+def add_json(archive: ZipFile, inventory: dict[str, str], name: str, data: Any) -> None:
+    payload = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+    archive.writestr(name, payload)
+    inventory[name] = sha256_bytes(payload)
+
+
+def add_file(archive: ZipFile, inventory: dict[str, str], path: Path, name: str) -> None:
+    data = path.read_bytes()
+    archive.writestr(name, data)
+    inventory[name] = sha256_bytes(data)
+
+
+def add_preview_placeholders(archive: ZipFile, inventory: dict[str, str], state: dict[str, Any]) -> None:
+    matrix = state.get("previewMatrix") or {}
+    for key, filename in {
+        "light": "output-light.txt",
+        "dark": "output-dark.txt",
+        "web": "output-web.txt",
+        "journey": "output-journey.txt",
+    }.items():
+        if matrix.get(key):
+            data = f"{key} preview rendered by browser; PNG capture omitted in synthetic smoke.\n".encode("utf-8")
+            archive.writestr(f"previews/{filename}", data)
+            inventory[f"previews/{filename}"] = sha256_bytes(data)
+
+
+def add_backend_events(archive: ZipFile, inventory: dict[str, str], bridge_run_id: str) -> None:
+    log_dir = PROJECT_ROOT / ".local_logs" / "sticker-tool"
+    if not log_dir.is_dir():
+        return
+    lines: list[str] = []
+    for path in sorted(log_dir.glob("sticker-tool-*.jsonl"))[-7:]:
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if bridge_run_id in line:
+                    lines.append(line)
+        except OSError:
+            continue
+    if not lines:
+        return
+    data = ("\n".join(lines[-500:]) + "\n").encode("utf-8")
+    archive.writestr("web/backend-events.jsonl", data)
+    inventory["web/backend-events.jsonl"] = sha256_bytes(data)
+
+
+def contract_schema_hashes() -> dict[str, str]:
+    root = PROJECT_ROOT / "docs" / "contracts"
+    return {
+        path.name: sha256_path(path)
+        for path in sorted(root.glob("sticker-preprocessor-*"))
+        if path.is_file()
+    }
+
+
+def diagnostic_manifest(state: dict[str, Any]) -> dict[str, Any]:
+    manifest = state.get("manifest") or {}
+    output = manifest.get("output") or {}
+    return {
+        "personalWeb": {"branch": git_branch(PROJECT_ROOT), "commit": git_commit()},
+        "stickerPreprocessor": {"commit": manifest.get("tool", {}).get("gitCommit")},
+        "bridgeRunId": state.get("bridgeRunId"),
+        "toolRunId": state.get("toolRunId"),
+        "contractVersion": CONTRACT_VERSION,
+        "schemaHashes": contract_schema_hashes(),
+        "inputHash": manifest.get("input", {}).get("sha256"),
+        "outputHash": output.get("sha256"),
+        "compatibility": state.get("compatibility"),
+        "userVisualVerdict": state.get("userVisualVerdict"),
+        "userIssueCodes": (state.get("review") or {}).get("issueCodes", []),
+        "previewCompletionMatrix": state.get("previewMatrix") or {},
+        "fileInventory": {},
+        "omissions": ["backend-events.jsonl and frontend preview PNGs are omitted in synthetic smoke unless submitted by browser UI"],
+        "privacyWarning": "联动诊断包包含本次输入图片、处理结果和预览证据，仅在确认后手动分享。",
+    }
+
+
+def git_branch(repo: Path) -> str | None:
+    try:
+        return subprocess.check_output(["git", "branch", "--show-current"], cwd=repo, text=True, timeout=5).strip()
+    except Exception:
+        return None
+
+
+def sanitized_state_for_bundle(state: dict[str, Any]) -> dict[str, Any]:
+    copy = json.loads(json.dumps(state))
+    copy.pop("toolPathFingerprint", None)
+    return copy
 
 
 def sanitize_request_for_bundle(request_path: Path) -> dict[str, Any]:
@@ -782,3 +1366,13 @@ def sanitize_request_for_bundle(request_path: Path) -> dict[str, Any]:
     if isinstance(input_data, dict):
         input_data["path"] = f"input/{input_data.get('safeBasename') or 'source-image'}"
     return request
+
+
+def verify_zip_safety(zip_path: Path) -> None:
+    with ZipFile(zip_path, "r") as archive:
+        text = b"\n".join(archive.read(name) for name in archive.namelist() if not name.endswith("/")).decode(
+            "utf-8",
+            errors="ignore",
+        )
+    if re.search(r"C:\\Users\\|C:/Users/|DATABASE_URL|csrf|cookie|session|password|token|SECRET", text, re.I):
+        raise StickerToolError("DIAGNOSTIC_BUNDLE_UNSAFE", "诊断包包含不应导出的路径或敏感字段。", status_code=500)

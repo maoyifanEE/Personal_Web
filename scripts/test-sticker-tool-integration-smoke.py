@@ -15,6 +15,7 @@ from pathlib import Path
 import subprocess
 from struct import pack
 import sys
+import time
 from zipfile import ZIP_DEFLATED, ZipFile
 import zlib
 
@@ -92,6 +93,10 @@ def enrich_review_zip(zip_path: Path, tool_root: Path, state: dict[str, object])
     compatibility = state.get("compatibility") or {}
     provider_manifest = state.get("manifest") or {}
     output = provider_manifest.get("output") or {}
+    original_manifest: dict[str, object] = {}
+    with ZipFile(zip_path, "r") as archive:
+        if "manifest.json" in archive.namelist():
+            original_manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
     enriched_manifest = {
         "personalWeb": {
             "branch": git_value(REPO_ROOT, "branch", "--show-current"),
@@ -102,11 +107,18 @@ def enrich_review_zip(zip_path: Path, tool_root: Path, state: dict[str, object])
             "commit": git_value(tool_root, "rev-parse", "HEAD"),
         },
         "contractSchemaHashes": contract_hashes(),
+        "schemaHashes": original_manifest.get("schemaHashes", {}),
         "bridgeRunId": state.get("bridgeRunId"),
         "toolRunId": state.get("toolRunId"),
         "toolQualityVerdict": compatibility.get("toolQualityVerdict"),
         "alphaMetrics": output.get("alpha"),
         "compatibilityVerdict": compatibility,
+        "userVisualVerdict": state.get("userVisualVerdict"),
+        "userIssueCodes": (state.get("review") or {}).get("issueCodes", []),
+        "previewCompletionMatrix": state.get("previewMatrix") or {},
+        "fileInventory": original_manifest.get("fileInventory", {}),
+        "omissions": original_manifest.get("omissions", []),
+        "privacyWarning": original_manifest.get("privacyWarning"),
         "testSummary": {
             "syntheticSmoke": "PASS",
             "input": "synthetic RGBA PNG",
@@ -132,6 +144,17 @@ def enrich_review_zip(zip_path: Path, tool_root: Path, state: dict[str, object])
         for name, data in entries.items():
             archive.writestr(name, data)
     os.replace(tmp_path, zip_path)
+
+
+def wait_for_review_state(bridge_run_id: str, timeout_seconds: int = 120) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        state = service.get_run_state(bridge_run_id)
+        status = state.get("status")
+        if status in {"ready_for_review", "blocked", "failed", "interrupted"}:
+            return state
+        time.sleep(0.5)
+    raise SystemExit(f"Smoke run timed out waiting for async worker: {bridge_run_id}")
 
 
 def main() -> int:
@@ -161,21 +184,45 @@ def main() -> int:
         },
         data_profile=os.environ.get("PERSONAL_WEB_DATA_PROFILE"),
     )
-    if result["status"] != "ready_for_review":
-        raise SystemExit(f"Unexpected run status: {result['status']}")
-    if not result.get("outputUrl"):
+    if result["status"] not in {"queued", "validating_tool", "running", "validating_result"}:
+        raise SystemExit(f"Unexpected initial run status: {result['status']}")
+    state = wait_for_review_state(result["bridgeRunId"])
+    if state["status"] != "ready_for_review":
+        raise SystemExit(f"Unexpected completed run status: {state['status']}")
+    public_state = service.public_run_payload(state)
+    if not public_state.get("outputUrl"):
         raise SystemExit("Smoke run did not produce an output URL")
-    state = service.get_run_state(result["bridgeRunId"])
     compatibility = state.get("compatibility") or {}
     if compatibility.get("contractCompatibility") != "PASS":
         raise SystemExit("Contract compatibility did not pass")
     if compatibility.get("resultIntegrity") != "PASS":
         raise SystemExit("Result integrity did not pass")
+    analyzed = service.submit_browser_analysis(
+        result["bridgeRunId"],
+        {
+            "alpha": state.get("clientAlphaMetrics"),
+            "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+            "frontendEvents": [
+                {"name": "output.decoded"},
+                {"name": "alpha.analyzed"},
+                {"name": "preview_matrix.completed"},
+            ],
+        },
+    )
+    if analyzed.get("status") != "ready_for_review":
+        raise SystemExit(f"Browser analysis blocked smoke run: {analyzed.get('status')}")
+    reviewed = service.record_review(result["bridgeRunId"], {"visualVerdict": "accepted", "issueCodes": []})
+    if reviewed.get("compatibility", {}).get("overallHandoffVerdict") != "ACCEPTED_FOR_UPLOAD":
+        raise SystemExit("Accepted review did not produce ACCEPTED_FOR_UPLOAD")
+    state = service.get_run_state(result["bridgeRunId"])
     zip_path, _filename = service.create_integration_bundle(result["bridgeRunId"])
     enrich_review_zip(zip_path, Path(os.environ["STICKER_PREPROCESSOR_PATH"]), state)
     print(f"SMOKE_BRIDGE_RUN_ID={result['bridgeRunId']}")
-    print(f"SMOKE_STATUS={result['status']}")
-    print(f"SMOKE_VERDICT={compatibility.get('overallHandoffVerdict')}")
+    print(f"SMOKE_INITIAL_STATUS={result['status']}")
+    print(f"SMOKE_STATUS={state['status']}")
+    print(f"SMOKE_VERDICT={state.get('compatibility', {}).get('overallHandoffVerdict')}")
+    print("SMOKE_MEDIA_UPLOAD=NOT_RUN")
+    print("SMOKE_DATABASE_WRITE=NOT_RUN")
     print(f"FINAL_INTEGRATION_REVIEW_ZIP={zip_path.resolve()}")
     print("STICKER_TOOL_INTEGRATION_SMOKE_PASS")
     return 0

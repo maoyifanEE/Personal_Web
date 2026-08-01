@@ -1,5 +1,31 @@
 # Project History
 
+## 2026-07-31 - Complete sticker handoff validation and review gating
+
+### Goal
+
+* Continue on `Feature/sticker-preprocessor-external-tool-v1`.
+* Prevent blocked Sticker_Preprocessor results from being accepted and uploaded.
+
+### Actual changes
+
+* Made sticker preprocessing runs asynchronous with queued/running/validation
+  states and local interrupted-run recovery for stale workers.
+* Added strict bridge run ID validation before filesystem access.
+* Added backend result gating for manifest integrity, PNG Alpha checks, browser
+  Alpha analysis, preview-matrix completion, tool quality, and accepted visual
+  review.
+* Added browser analysis submission from the Journey editor and disabled the
+  accept action until the run is ready for review.
+* Updated the synthetic smoke script to poll async runs, submit browser-equivalent
+  analysis, perform accepted review, and avoid media upload or database writes.
+
+### Safety boundaries
+
+* No database migration, real media upload, Journey save, deployment, SSH, SFTP,
+  Auth/RBAC policy change, provider-repository change, or production-server
+  action was added.
+
 ## 2026-07-31 - Add local Sticker_Preprocessor Journey handoff bridge
 
 ### Goal

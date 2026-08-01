@@ -2,8 +2,10 @@
 
 import json
 import zlib
+from concurrent.futures import Future
 from pathlib import Path
 from struct import pack
+from zipfile import ZipFile
 
 import pytest
 
@@ -108,3 +110,265 @@ def test_validate_result_manifest_rejects_schema_and_bridge_mismatch(tmp_path: P
     with pytest.raises(service.StickerToolError) as error:
         service.validate_result_manifest(tool_root, response, "bridge-1")
     assert error.value.code == "MANIFEST_BRIDGE_ID_MISMATCH"
+
+
+def bridge_id(char: str = "a") -> str:
+    return char * 32
+
+
+def use_temp_bridge(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    root = tmp_path / "bridge"
+    monkeypatch.setattr(service, "bridge_root", lambda: root)
+    monkeypatch.setattr(service, "runs_root", lambda: root / "runs")
+    monkeypatch.setattr(service, "outputs_root", lambda: root / "outputs")
+    monkeypatch.setattr(service, "review_bundles_root", lambda: root / "review-bundles")
+    return root
+
+
+def write_state(run_id: str, state: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    use_temp_bridge(monkeypatch, tmp_path)
+    run_dir = service.run_dir_for_id(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    service.write_run_state(run_dir, state)
+    return run_dir
+
+
+def alpha_metrics() -> dict:
+    return {
+        "width": 4,
+        "height": 4,
+        "totalPixels": 16,
+        "alphaMin": 0,
+        "alphaMax": 255,
+        "fullyTransparentCount": 12,
+        "fullyOpaqueCount": 4,
+        "semitransparentCount": 0,
+        "transparentFraction": 0.75,
+        "nonopaqueFraction": 0.75,
+        "topBorderNonzeroCount": 0,
+        "bottomBorderNonzeroCount": 0,
+        "leftBorderNonzeroCount": 0,
+        "rightBorderNonzeroCount": 0,
+        "borderNonzeroCount": 0,
+        "borderAlphaMax": 0,
+        "alphaBoundingBoxes": {},
+        "lowAlphaHazeSuspected": False,
+        "rectangularHazeSuspected": False,
+        "heavySemitransparentHaloWarning": False,
+    }
+
+
+def pass_compatibility() -> dict:
+    return service.compatibility_payload(
+        contract="PASS",
+        result="PASS",
+        alpha="PASS",
+        journey="PASS",
+        tool="PASS",
+        browser="PASS",
+        overall="REVIEW_REQUIRED",
+    )
+
+
+def ready_state(run_id: str) -> dict:
+    metrics = alpha_metrics()
+    return {
+        "schemaVersion": service.RUN_STATUS_SCHEMA_VERSION,
+        "bridgeRunId": run_id,
+        "toolRunId": bridge_id("b"),
+        "contractVersion": service.CONTRACT_VERSION,
+        "createdAt": service.utc_now_iso(),
+        "updatedAt": service.utc_now_iso(),
+        "status": "ready_for_review",
+        "dataProfile": "local",
+        "toolConfigSource": "env",
+        "requestRelativePath": None,
+        "outputRelativePath": None,
+        "toolArtifactRelativePaths": {},
+        "manifest": {
+            "processing": {"qualityVerdict": "PASS"},
+            "output": {"alpha": metrics},
+        },
+        "providerAlphaMetrics": metrics,
+        "clientAlphaMetrics": metrics,
+        "browserAnalysis": {"comparison": {"ok": True, "mismatches": []}},
+        "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+        "review": None,
+        "compatibility": pass_compatibility(),
+        "userVisualVerdict": "PENDING",
+    }
+
+
+def test_validate_bridge_run_id_rejects_path_like_ids():
+    assert service.validate_bridge_run_id(bridge_id()) == bridge_id()
+
+    for bad_id in ("../escape", "ABCDEF" * 6, "not-a-run-id", "a" * 31, "g" * 32):
+        with pytest.raises(service.StickerToolError) as error:
+            service.validate_bridge_run_id(bad_id)
+        assert error.value.code == "RUN_ID_INVALID"
+
+
+def test_accept_review_rejects_blocked_or_unanalyzed_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["browserAnalysis"] = None
+    state["compatibility"]["browserAnalysisCompatibility"] = "PENDING"
+    write_state(run_id, state, monkeypatch, tmp_path)
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+
+    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
+    persisted = service.get_run_state(run_id)
+    assert persisted["userVisualVerdict"] == "PENDING"
+    assert persisted["review"] is None
+
+
+def test_browser_analysis_updates_compatibility_and_accept_review_persists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["browserAnalysis"] = None
+    state["previewMatrix"] = {}
+    state["compatibility"]["browserAnalysisCompatibility"] = "PENDING"
+    state["compatibility"]["journeyRenderCompatibility"] = "WARNING"
+    write_state(run_id, state, monkeypatch, tmp_path)
+
+    analyzed = service.submit_browser_analysis(
+        run_id,
+        {
+            "alpha": alpha_metrics(),
+            "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+            "frontendEvents": [{"name": "alpha.analyzed"}],
+        },
+    )
+    assert analyzed["status"] == "ready_for_review"
+    assert analyzed["compatibility"]["browserAnalysisCompatibility"] == "PASS"
+    assert analyzed["compatibility"]["journeyRenderCompatibility"] == "PASS"
+
+    reviewed = service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+    assert reviewed["status"] == "accepted"
+    assert reviewed["userVisualVerdict"] == "ACCEPTED"
+    assert reviewed["compatibility"]["overallHandoffVerdict"] == "ACCEPTED_FOR_UPLOAD"
+    assert (service.run_dir_for_id(run_id) / "user-review.json").is_file()
+
+
+def test_browser_analysis_mismatch_blocks_acceptance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["browserAnalysis"] = None
+    write_state(run_id, state, monkeypatch, tmp_path)
+    browser_alpha = alpha_metrics()
+    browser_alpha["fullyTransparentCount"] = 0
+
+    analyzed = service.submit_browser_analysis(
+        run_id,
+        {
+            "alpha": browser_alpha,
+            "previewMatrix": {"light": True, "dark": True, "web": True, "journey": True},
+        },
+    )
+
+    assert analyzed["status"] == "blocked"
+    assert analyzed["compatibility"]["browserAnalysisCompatibility"] == "FAIL"
+    with pytest.raises(service.StickerToolError) as error:
+        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
+
+
+def test_rejected_review_defaults_and_persists_issue_codes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    write_state(run_id, ready_state(run_id), monkeypatch, tmp_path)
+
+    reviewed = service.record_review(run_id, {"visualVerdict": "rejected", "issueCodes": []})
+
+    assert reviewed["status"] == "rejected"
+    persisted = json.loads((service.run_dir_for_id(run_id) / "user-review.json").read_text(encoding="utf-8"))
+    assert persisted["issueCodes"] == ["OTHER"]
+
+
+def test_queue_limit_counts_active_worker_futures(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    use_temp_bridge(monkeypatch, tmp_path)
+    monkeypatch.setattr(service, "_stale_runs_marked", False)
+    futures = {bridge_id(char): Future() for char in ("a", "b", "c")}
+    monkeypatch.setattr(service, "_active_futures", futures)
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.ensure_run_capacity()
+
+    assert error.value.code == "RUN_CAPACITY_REACHED"
+
+
+def test_stale_processing_run_becomes_interrupted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["status"] = "running"
+    write_state(run_id, state, monkeypatch, tmp_path)
+    monkeypatch.setattr(service, "_stale_runs_marked", False)
+    monkeypatch.setattr(service, "_active_futures", {})
+
+    service.mark_stale_processing_runs_interrupted()
+
+    assert service.get_run_state(run_id)["status"] == "interrupted"
+
+
+def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    monkeypatch.setattr(service, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(service, "git_commit", lambda repo=None: "personalwebcommit")
+    monkeypatch.setattr(service, "git_branch", lambda repo: "Feature/test")
+    docs_contracts = project_root / "docs" / "contracts"
+    docs_contracts.mkdir(parents=True)
+    (docs_contracts / "sticker-preprocessor-request-v1.schema.json").write_text("{}", encoding="utf-8")
+    run_id = bridge_id()
+    use_temp_bridge(monkeypatch, project_root)
+    run_dir = service.run_dir_for_id(run_id)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    input_dir = run_dir / "input"
+    input_dir.mkdir()
+    (input_dir / "source.png").write_bytes(rgba_png(4, 4))
+    output_path = run_dir / "output" / "processed.png"
+    output_path.parent.mkdir()
+    output_path.write_bytes(rgba_png(4, 4))
+    request_path = run_dir / "request.json"
+    request_path.write_text(
+        json.dumps(
+            {
+                "input": {
+                    "path": r"C:\Users\maoyi\source.png",
+                    "safeBasename": "source.png",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    review_path = run_dir / "user-review.json"
+    review_path.write_text(json.dumps({"visualVerdict": "accepted", "issueCodes": []}), encoding="utf-8")
+    state = ready_state(run_id)
+    state["outputRelativePath"] = service.repo_relative(output_path)
+    state["requestRelativePath"] = service.repo_relative(request_path)
+    state["review"] = {"issueCodes": []}
+    state["userVisualVerdict"] = "ACCEPTED"
+    state["compatibility"]["overallHandoffVerdict"] = "ACCEPTED_FOR_UPLOAD"
+    state["manifest"]["tool"] = {"gitCommit": "providercommit"}
+    state["manifest"]["input"] = {"sha256": "inputhash"}
+    state["manifest"]["output"].update({"sha256": service.sha256_path(output_path)})
+    service.write_run_state(run_dir, state)
+
+    zip_path, _name = service.create_integration_bundle(run_id)
+
+    with ZipFile(zip_path, "r") as archive:
+        names = archive.namelist()
+        assert len(names) == len(set(names))
+        manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+        assert "web/request.json" in names
+        request = json.loads(archive.read("web/request.json").decode("utf-8"))
+        assert request["input"]["path"] == "input/source.png"
+        for name, expected_hash in manifest["fileInventory"].items():
+            assert service.sha256_bytes(archive.read(name)) == expected_hash
+        text = b"\n".join(archive.read(name) for name in names).decode("utf-8", errors="ignore")
+        assert "C:\\Users\\" not in text
+        assert "DATABASE_URL" not in text

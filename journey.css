@@ -3148,6 +3148,48 @@ select {
   font-size: 12px;
 }
 
+.journey-sticker-tool-preview-matrix figure:nth-child(2) img {
+  background-color: #1f2933;
+}
+
+.journey-sticker-tool-preview-matrix figure:nth-child(3) img {
+  background-color: rgba(22, 143, 144, 0.08);
+}
+
+.journey-sticker-tool-preview-matrix figure:nth-child(4) img {
+  background-color: rgba(239, 247, 247, 0.92);
+}
+
+.journey-sticker-tool-issues {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(23, 37, 52, 0.08);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.journey-sticker-tool-issues legend {
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.journey-sticker-tool-issue {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.journey-sticker-tool-issue input {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 560px) {
   .journey-sticker-tool-status,
   .journey-sticker-tool-preview-grid {

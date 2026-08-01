@@ -114,10 +114,12 @@ Journey editor can optionally call a machine-local `Sticker_Preprocessor`
 checkout through `/api/sticker-tool/*` in local development. The bridge is
 disabled outside development, requires loopback access, authentication,
 `homepage:edit`, and CSRF for unsafe requests. It stores tool configuration and
-pre-review artifacts only under ignored `.runtime/` paths. Processed sticker
-media is uploaded through the existing homepage media API only after explicit
-visual acceptance, and the canvas is not saved until the user clicks
-`保存画布`.
+pre-review artifacts only under ignored `.runtime/` paths. Processing runs are
+queued asynchronously, then blocked from upload unless backend manifest checks,
+PNG Alpha checks, browser Alpha analysis, the Journey preview matrix, and the
+explicit visual review all pass. Processed sticker media is uploaded through the
+existing homepage media API only after that accepted review gate, and the canvas
+is not saved until the user clicks `保存画布`.
 
 ## Navigation Behavior
 
