@@ -1084,11 +1084,16 @@ def preview_evidence_complete(state: dict[str, Any]) -> bool:
 
 def preview_evidence_overall(state: dict[str, Any]) -> str:
     evidence = state.get("previewEvidence") or {}
+    if state.get("previewEvidenceInvalid"):
+        return "INVALID"
     if preview_evidence_complete(state):
         return "COMPLETE"
+    omissions = state.get("previewEvidenceOmissions") or {}
     if any((evidence.get(context) or {}).get("captured") for context in PREVIEW_CONTEXTS):
         return "PARTIAL"
-    return "INVALID"
+    if any(omissions.get(context) for context in PREVIEW_CONTEXTS):
+        return "PARTIAL"
+    return "NOT_REQUESTED"
 
 
 def verified_output_dimensions(state: dict[str, Any]) -> tuple[int, int] | None:
@@ -1445,15 +1450,28 @@ def assert_acceptable_for_upload(state: dict[str, Any]) -> None:
         blocked_reasons.append("TOOL_QUALITY_FAIL")
     if not state.get("browserAnalysis"):
         blocked_reasons.append("BROWSER_ANALYSIS_REQUIRED")
-    if not preview_evidence_complete(state):
-        blocked_reasons.append("PREVIEW_EVIDENCE_INCOMPLETE")
+    if not preview_matrix_complete(state.get("previewMatrix") or {}):
+        blocked_reasons.append("PREVIEW_MATRIX_INCOMPLETE")
     if blocked_reasons:
         log_event(
-            "sticker_tool.review.acceptance_blocked",
-            {"bridgeRunId": state.get("bridgeRunId"), "reasonCode": ",".join(sorted(set(blocked_reasons)))},
+            "sticker_tool.review.functional_gate_blocked",
+            {
+                "bridgeRunId": state.get("bridgeRunId"),
+                "reasonCode": ",".join(sorted(set(blocked_reasons))),
+                "overallHandoffVerdict": compatibility.get("overallHandoffVerdict"),
+                "previewEvidenceOverall": preview_evidence_overall(state),
+            },
         )
         log_event("sticker_tool.media_upload.blocked", {"bridgeRunId": state.get("bridgeRunId")})
         raise StickerToolError("RESULT_NOT_ACCEPTABLE_FOR_UPLOAD", "结果尚未通过上传前校验。", status_code=409)
+    log_event(
+        "sticker_tool.review.functional_gate_passed",
+        {
+            "bridgeRunId": state.get("bridgeRunId"),
+            "overallHandoffVerdict": compatibility.get("overallHandoffVerdict"),
+            "previewEvidenceOverall": preview_evidence_overall(state),
+        },
+    )
     log_event("sticker_tool.media_upload.allowed", {"bridgeRunId": state.get("bridgeRunId")})
 
 
@@ -1469,6 +1487,7 @@ def submit_preview_evidence(
     files: list[tuple[str, bytes]],
     *,
     evidence_source: str = "browser-rendered-composite",
+    omissions: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     run_dir = run_dir_for_id(bridge_run_id)
     state = get_run_state(bridge_run_id)
@@ -1477,6 +1496,20 @@ def submit_preview_evidence(
         raise StickerToolError("PREVIEW_MATRIX_REQUIRED", "预览矩阵尚未验证。", status_code=409)
     source = safe_evidence_source(evidence_source, default="browser-rendered-composite")
     evidence = dict(state.get("previewEvidence") or {})
+    evidence_omissions = dict(state.get("previewEvidenceOmissions") or {})
+    for context, code in (omissions or {}).items():
+        if context in PREVIEW_CONTEXTS:
+            evidence_omissions[context] = safe_failure_code(code)
+            log_event(
+                "sticker_tool.preview_evidence.capture_unsupported",
+                {
+                    "bridgeRunId": bridge_run_id,
+                    "context": context,
+                    "renderedInBrowser": bool((preview_matrix.get(context) or {}).get("rendered")),
+                    "captured": False,
+                    "omissionCode": evidence_omissions[context],
+                },
+            )
     seen: set[str] = set()
     for filename, data in files:
         context = preview_context_from_filename(filename or "")
@@ -1519,6 +1552,7 @@ def submit_preview_evidence(
             "uniqueColorCount": content["uniqueColorCount"],
             "omissionCode": None,
         }
+        evidence_omissions.pop(context, None)
         log_event(
             "sticker_tool.preview_evidence.stored",
             {
@@ -1529,9 +1563,12 @@ def submit_preview_evidence(
             },
         )
     state["previewEvidence"] = evidence
+    state["previewEvidenceOmissions"] = evidence_omissions
+    state["previewEvidenceInvalid"] = False
     write_run_state(run_dir, state)
     log_event("sticker_tool.preview_evidence.received", {"bridgeRunId": bridge_run_id, "contexts": sorted(seen)})
     log_event("sticker_tool.preview_evidence.validated", {"bridgeRunId": bridge_run_id, "contexts": sorted(seen)})
+    log_preview_evidence_overall(bridge_run_id, state)
     return public_run_payload(state)
 
 
@@ -1588,6 +1625,20 @@ def analyze_preview_evidence_content(
         "foregroundBoundingBox": finalize_box(foreground_box),
         "uniqueColorCount": len(unique_colors),
     }
+
+
+def log_preview_evidence_overall(bridge_run_id: str, state: dict[str, Any]) -> None:
+    overall = preview_evidence_overall(state)
+    event_by_overall = {
+        "COMPLETE": "sticker_tool.preview_evidence.complete",
+        "PARTIAL": "sticker_tool.preview_evidence.partial",
+        "INVALID": "sticker_tool.preview_evidence.invalid",
+        "NOT_REQUESTED": "sticker_tool.preview_evidence.not_requested",
+    }
+    log_event(
+        event_by_overall.get(overall, "sticker_tool.preview_evidence.not_requested"),
+        {"bridgeRunId": bridge_run_id, "previewEvidenceOverall": overall},
+    )
 
 
 def expected_preview_background_rgb(
@@ -1801,6 +1852,7 @@ def diagnostic_manifest(state: dict[str, Any]) -> dict[str, Any]:
 def preview_evidence_manifest(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
     matrix = state.get("previewMatrix") or {}
     evidence = state.get("previewEvidence") or {}
+    omissions = state.get("previewEvidenceOmissions") or {}
     result: dict[str, dict[str, Any]] = {}
     for context in PREVIEW_CONTEXTS:
         rendered = bool((matrix.get(context) or {}).get("rendered"))
@@ -1817,7 +1869,7 @@ def preview_evidence_manifest(state: dict[str, Any]) -> dict[str, dict[str, Any]
             "uniqueColorCount": record.get("uniqueColorCount") if captured else 0,
             "file": f"previews/{PREVIEW_EVIDENCE_FILES[context]}" if captured else None,
             "sha256": record.get("sha256") if captured else None,
-            "omissionCode": None if captured else preview_omission_code(context, matrix),
+            "omissionCode": None if captured else preview_omission_code(context, matrix, omissions),
         }
     return result
 
@@ -1831,7 +1883,10 @@ def preview_omissions(state: dict[str, Any]) -> list[str]:
     ]
 
 
-def preview_omission_code(context: str, matrix: dict[str, Any]) -> str:
+def preview_omission_code(context: str, matrix: dict[str, Any], omissions: dict[str, Any] | None = None) -> str:
+    explicit = (omissions or {}).get(context)
+    if explicit:
+        return safe_failure_code(explicit)
     record = matrix.get(context) or {}
     if not record.get("rendered"):
         return str(record.get("failureCode") or "PREVIEW_NOT_RENDERED")

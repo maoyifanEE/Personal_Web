@@ -197,7 +197,7 @@ def test_sticker_tool_preview_evidence_endpoint_accepts_multipart(db_session: Se
     run_id = "a" * 32
     captured = {}
 
-    def fake_submit_preview_evidence(bridge_run_id, files):
+    def fake_submit_preview_evidence(bridge_run_id, files, **_kwargs):
         captured["bridgeRunId"] = bridge_run_id
         captured["files"] = files
         return {

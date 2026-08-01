@@ -120,12 +120,17 @@ PNG Alpha checks, browser Alpha analysis, the Journey preview matrix, and the
 explicit visual review all pass. Processed sticker media is uploaded through the
 existing homepage media API only after that accepted review gate, and the canvas
 is not saved until the user clicks `保存画布`.
+Normal acceptance uses the browser-rendered preview matrix and does not require
+the user to export an integration diagnostic ZIP first.
 When the user exports an integration diagnostic bundle, the editor submits
 verified preview PNG evidence for the light, dark, web, and Journey contexts;
 the bundle does not use text placeholders to claim preview success. Preview
 evidence must be composited from the verified processed output over the preview
 background, must contain foreground sticker pixels, and records whether it came
 from a browser-rendered composite or an automated synthetic smoke composite.
+If a CSS gradient or other CSS background cannot be faithfully captured into a
+diagnostic PNG, the bundle records a stable omission code and may be marked
+`PARTIAL`; that does not mean the visible browser preview failed.
 
 ## Navigation Behavior
 

@@ -299,16 +299,20 @@ def test_accept_review_rejects_blocked_or_unanalyzed_run(monkeypatch: pytest.Mon
     assert persisted["review"] is None
 
 
-def test_accept_review_requires_verified_preview_evidence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+def test_accept_review_does_not_require_preview_evidence_export(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
     run_id = bridge_id()
     state = ready_state(run_id)
-    state["previewEvidence"]["light"]["contentVerified"] = False
+    state["previewEvidence"] = {}
     write_state(run_id, state, monkeypatch, tmp_path)
 
-    with pytest.raises(service.StickerToolError) as error:
-        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+    reviewed = service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
 
-    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
+    assert reviewed["status"] == "accepted"
+    assert reviewed["compatibility"]["overallHandoffVerdict"] == "ACCEPTED_FOR_UPLOAD"
+    assert reviewed["previewEvidenceOverall"] == "NOT_REQUESTED"
 
 
 def test_browser_analysis_updates_compatibility_and_accept_review_persists(
@@ -362,6 +366,57 @@ def test_browser_analysis_mismatch_blocks_acceptance(monkeypatch: pytest.MonkeyP
     assert analyzed["compatibility"]["browserAnalysisCompatibility"] == "FAIL"
     with pytest.raises(service.StickerToolError) as error:
         service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
+
+
+def test_preview_output_dimension_mismatch_blocks_acceptance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["browserAnalysis"] = None
+    state["previewMatrix"] = {}
+    state["compatibility"]["browserAnalysisCompatibility"] = "PENDING"
+    write_state(run_id, state, monkeypatch, tmp_path)
+    matrix = preview_matrix()
+    matrix["web"]["naturalWidth"] = 9
+
+    analyzed = service.submit_browser_analysis(
+        run_id,
+        {
+            "alpha": alpha_metrics(),
+            "previewMatrix": matrix,
+        },
+    )
+
+    assert analyzed["status"] == "blocked"
+    assert analyzed["previewMatrix"]["web"]["failureCode"] == "PREVIEW_OUTPUT_DIMENSION_MISMATCH"
+    with pytest.raises(service.StickerToolError) as error:
+        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
+
+
+def test_incomplete_preview_matrix_still_blocks_acceptance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["previewMatrix"]["web"]["rendered"] = False
+    state["compatibility"]["journeyRenderCompatibility"] = "FAIL"
+    state["compatibility"]["overallHandoffVerdict"] = "BLOCKED"
+    write_state(run_id, state, monkeypatch, tmp_path)
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+
+    assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
+
+
+def test_tool_quality_fail_still_blocks_acceptance(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["compatibility"]["toolQualityVerdict"] = "FAIL"
+    write_state(run_id, state, monkeypatch, tmp_path)
+
+    with pytest.raises(service.StickerToolError) as error:
+        service.record_review(run_id, {"visualVerdict": "accepted", "issueCodes": []})
+
     assert error.value.code == "RESULT_NOT_ACCEPTABLE_FOR_UPLOAD"
 
 
@@ -481,6 +536,42 @@ def test_submit_preview_evidence_accepts_png_and_rejects_invalid_inputs(
     assert error.value.code == "PREVIEW_CONTEXT_NOT_RENDERED"
 
 
+def test_preview_evidence_overall_not_requested_partial_and_complete(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    monkeypatch.setattr(service, "PROJECT_ROOT", tmp_path)
+    run_id = bridge_id()
+    state = ready_state(run_id)
+    state["previewEvidence"] = {}
+    write_state(run_id, state, monkeypatch, tmp_path)
+
+    assert service.preview_evidence_overall(service.get_run_state(run_id)) == "NOT_REQUESTED"
+
+    partial = service.submit_preview_evidence(
+        run_id,
+        [("output-light.png", rgba_png(4, 4))],
+        omissions={"web": "CSS_GRADIENT_CAPTURE_UNSUPPORTED"},
+    )
+
+    assert partial["previewEvidenceOverall"] == "PARTIAL"
+    state = service.get_run_state(run_id)
+    assert state["previewEvidenceOmissions"]["web"] == "CSS_GRADIENT_CAPTURE_UNSUPPORTED"
+    assert service.preview_evidence_manifest(state)["web"]["omissionCode"] == "CSS_GRADIENT_CAPTURE_UNSUPPORTED"
+
+    complete = service.submit_preview_evidence(
+        run_id,
+        [
+            ("output-dark.png", rgba_png(4, 4)),
+            ("output-web.png", rgba_png(4, 4)),
+            ("output-journey.png", rgba_png(4, 4)),
+        ],
+    )
+
+    assert complete["previewEvidenceOverall"] == "COMPLETE"
+    assert "web" not in service.get_run_state(run_id).get("previewEvidenceOmissions", {})
+
+
 def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -525,7 +616,11 @@ def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest
     state["manifest"]["input"] = {"sha256": "inputhash"}
     state["manifest"]["output"].update({"sha256": service.sha256_path(output_path)})
     service.write_run_state(run_dir, state)
-    service.submit_preview_evidence(run_id, [("output-light.png", rgba_png(4, 4))])
+    service.submit_preview_evidence(
+        run_id,
+        [("output-light.png", rgba_png(4, 4))],
+        omissions={"web": "CSS_GRADIENT_CAPTURE_UNSUPPORTED"},
+    )
 
     zip_path, _name = service.create_integration_bundle(run_id)
 
@@ -538,8 +633,9 @@ def test_diagnostic_zip_inventory_hashes_and_sanitizes_paths(monkeypatch: pytest
         assert "previews/output-web.txt" not in names
         assert not any(name.startswith("previews/") and name.endswith(".txt") for name in names)
         assert manifest["previewEvidence"]["light"]["captured"] is True
+        assert manifest["previewEvidenceOverall"] == "PARTIAL"
         assert manifest["previewEvidence"]["web"]["captured"] is False
-        assert manifest["previewEvidence"]["web"]["omissionCode"] == "CAPTURE_NOT_SUBMITTED"
+        assert manifest["previewEvidence"]["web"]["omissionCode"] == "CSS_GRADIENT_CAPTURE_UNSUPPORTED"
         request = json.loads(archive.read("web/request.json").decode("utf-8"))
         assert request["input"]["path"] == "input/source.png"
         for name, expected_hash in manifest["fileInventory"].items():

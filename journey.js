@@ -2951,6 +2951,13 @@ function renderStickerToolPanel() {
   const outputUrl = stickerToolState.outputPreviewUrl || (run.outputUrl ? `${apiBaseUrl()}${run.outputUrl}` : "");
   const acceptDisabled = stickerToolState.busy || !stickerToolCanAccept(run);
   const runState = run.status || "-";
+  const previewEvidenceLabels = {
+    NOT_REQUESTED: "未导出诊断包",
+    PARTIAL: "部分诊断证据",
+    COMPLETE: "诊断证据完整",
+    INVALID: "诊断证据无效"
+  };
+  const previewEvidenceLabel = previewEvidenceLabels[run.previewEvidenceOverall] || run.previewEvidenceOverall || "-";
   const previewLabels = [
     ["light", "浅色背景"],
     ["dark", "深色背景"],
@@ -2990,6 +2997,7 @@ function renderStickerToolPanel() {
         <div><dt>协议</dt><dd>${escapeHtml(status.contractVersion || run.contractVersion || "-")}</dd></div>
         <div><dt>联动结论</dt><dd>${escapeHtml(verdictLabel)}</dd></div>
         <div><dt>透明像素</dt><dd>${escapeHtml(alphaPercent)}</dd></div>
+        <div><dt>诊断证据</dt><dd>${escapeHtml(previewEvidenceLabel)}</dd></div>
       </dl>
       <div class="journey-sticker-tool-preview-grid">
         <figure>
@@ -3328,9 +3336,19 @@ async function acceptStickerToolResult() {
   if (!stickerToolCanAccept(stickerToolState.run)) {
     stickerToolState.error = "结果尚未通过上传前校验，不能加入草稿。";
     stickerToolEvent("acceptance.blocked", { bridgeRunId: stickerToolState.run.bridgeRunId });
+    stickerToolEvent("visual_acceptance.blocked", {
+      bridgeRunId: stickerToolState.run.bridgeRunId,
+      overallHandoffVerdict: stickerToolState.run.compatibility?.overallHandoffVerdict,
+      previewEvidenceOverall: stickerToolState.run.previewEvidenceOverall
+    });
     renderEditorPanel();
     return;
   }
+  stickerToolEvent("visual_acceptance.ready", {
+    bridgeRunId: stickerToolState.run.bridgeRunId,
+    overallHandoffVerdict: stickerToolState.run.compatibility?.overallHandoffVerdict,
+    previewEvidenceOverall: stickerToolState.run.previewEvidenceOverall
+  });
   stickerToolState.busy = true;
   stickerToolState.error = "";
   stickerToolState.message = "正在接受结果并上传为 Journey 贴纸媒体...";
@@ -3398,11 +3416,13 @@ async function submitStickerToolPreviewEvidence() {
   const matrix = await bridge.inspectRenderedPreviewMatrix?.(previewContainer);
   const formData = new FormData();
   const contexts = bridge.PREVIEW_CONTEXTS || ["light", "dark", "web", "journey"];
+  const omissions = {};
   let captured = 0;
   stickerToolEvent("preview_capture.started", { bridgeRunId });
   for (const context of contexts) {
     const record = matrix?.[context];
     if (!record?.rendered) {
+      omissions[context] = record?.failureCode || "PREVIEW_NOT_RENDERED";
       stickerToolEvent("preview_capture.failed", {
         bridgeRunId,
         context,
@@ -3420,10 +3440,12 @@ async function submitStickerToolPreviewEvidence() {
       captured += 1;
       stickerToolEvent("preview_capture.succeeded", {
         bridgeRunId,
+        captured: true,
         context,
         bytes: blob.size
       });
     } catch (error) {
+      omissions[context] = error.message || "CAPTURE_FAILED";
       stickerToolEvent("preview_capture.failed", {
         bridgeRunId,
         context,
@@ -3431,7 +3453,8 @@ async function submitStickerToolPreviewEvidence() {
       });
     }
   }
-  if (!captured) {
+  formData.append("omissions", JSON.stringify(omissions));
+  if (!captured && !Object.keys(omissions).length) {
     return null;
   }
   const response = await window.PersonalWebAuth.authFetch(
@@ -3447,6 +3470,14 @@ async function submitStickerToolPreviewEvidence() {
   }
   stickerToolState.run = body;
   stickerToolEvent("preview_evidence.submitted", { bridgeRunId, captured });
+  stickerToolEvent(
+    body.previewEvidenceOverall === "COMPLETE" ? "bundle.capture_complete" : "bundle.capture_partial",
+    {
+      bridgeRunId,
+      captured,
+      previewEvidenceOverall: body.previewEvidenceOverall
+    }
+  );
   return body;
 }
 

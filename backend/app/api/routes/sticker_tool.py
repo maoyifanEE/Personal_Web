@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -152,13 +153,20 @@ def submit_analysis(
 async def submit_preview_evidence(
     bridge_run_id: str,
     files: list[UploadFile] = File(default=[]),
+    omissions: str = Form(default="{}"),
     _: AppUser = Depends(require_local_sticker_tool),
 ) -> dict[str, Any]:
     try:
         payload = []
         for file in files:
             payload.append((file.filename or "", await file.read()))
-        return service.submit_preview_evidence(bridge_run_id, payload)
+        try:
+            omission_payload = json.loads(omissions) if omissions else {}
+        except json.JSONDecodeError as exc:
+            raise service.StickerToolError("PREVIEW_EVIDENCE_OMISSIONS_INVALID", "Preview evidence omissions are invalid.", status_code=422) from exc
+        if not isinstance(omission_payload, dict):
+            raise service.StickerToolError("PREVIEW_EVIDENCE_OMISSIONS_INVALID", "Preview evidence omissions are invalid.", status_code=422)
+        return service.submit_preview_evidence(bridge_run_id, payload, omissions=omission_payload)
     except service.StickerToolError as error:
         raise_service_error(error)
 

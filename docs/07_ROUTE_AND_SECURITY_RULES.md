@@ -106,6 +106,13 @@ It explains what is public, what is a placeholder, and what must not be treated 
   dimensions and must contain validated foreground sticker pixels. Browser
   evidence is marked `browser-rendered-composite`; automated smoke evidence is
   marked `automated-synthetic-composite`.
+* Stored preview PNG evidence is diagnostic-only. Normal accepted review must
+  pass machine validation, browser Alpha analysis, DOM preview matrix validation,
+  and explicit user visual acceptance, but it must not require diagnostic ZIP
+  export first.
+* Diagnostic evidence may be `NOT_REQUESTED`, `PARTIAL`, or `COMPLETE`.
+  Unsupported CSS gradient or background-image capture is recorded with a stable
+  omission code and must not be replaced by a fake screenshot.
 * The provider never calls Personal_Web APIs and never uploads media.
 * A processed sticker is uploaded through the existing homepage media API only
   after asynchronous processing, backend result validation, browser Alpha

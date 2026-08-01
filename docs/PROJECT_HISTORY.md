@@ -1,5 +1,33 @@
 # Project History
 
+## 2026-08-01 - Decouple sticker acceptance from diagnostic evidence
+
+### Goal
+
+* Continue on `Feature/sticker-preprocessor-external-tool-v1`.
+* Fix the remaining workflow blocker where normal sticker acceptance required
+  stored preview PNG evidence that was only submitted during diagnostic ZIP
+  export.
+
+### Actual changes
+
+* Removed complete preview PNG evidence from the normal upload acceptance gate.
+* Kept the functional gate strict: ready run state, machine compatibility,
+  browser Alpha analysis, complete DOM preview matrix, non-failing tool quality,
+  and explicit accepted visual review are still required.
+* Added diagnostic evidence states for `NOT_REQUESTED`, `PARTIAL`, `INVALID`,
+  and `COMPLETE`.
+* Recorded CSS gradient and unsupported CSS background captures as omission
+  codes instead of fabricating solid-color screenshots.
+* Added tests proving accepted review can proceed without diagnostic export and
+  that blocked, mismatched, incomplete, and failed results remain blocked.
+
+### Safety boundaries
+
+* No Sticker_Preprocessor source change, provider contract change, database
+  migration, media upload, Journey save, deployment, SSH, SFTP, main merge, or
+  production server action was added.
+
 ## 2026-08-01 - Bind sticker preview evidence to processed output
 
 ### Goal

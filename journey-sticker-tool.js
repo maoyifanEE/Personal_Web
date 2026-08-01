@@ -414,8 +414,12 @@
     if (!image || !image.complete || !image.naturalWidth || !image.naturalHeight) {
       throw new Error("IMAGE_NOT_READY");
     }
-    if (String(style.backgroundImage || "none") !== "none") {
-      throw new Error("BACKGROUND_IMAGE_CAPTURE_UNSUPPORTED");
+    const cssBackgroundImage = String(style.backgroundImage || "none");
+    if (cssBackgroundImage !== "none") {
+      if (/gradient\(/i.test(cssBackgroundImage)) {
+        throw new Error("CSS_GRADIENT_CAPTURE_UNSUPPORTED");
+      }
+      throw new Error("CSS_BACKGROUND_IMAGE_CAPTURE_UNSUPPORTED");
     }
     const rect = rectFor(frame);
     const width = Math.max(1, Math.min(1024, Math.round(rect.width || image.naturalWidth)));
@@ -434,7 +438,11 @@
         throw new Error("JOURNEY_BACKGROUND_CAPTURE_FAILED");
       }
       context.globalAlpha = Number(frame?.dataset?.journeyBackgroundOpacity || 1);
-      context.drawImage(backgroundImage, 0, 0, width, height);
+      try {
+        context.drawImage(backgroundImage, 0, 0, width, height);
+      } catch (_error) {
+        throw new Error("CROSS_ORIGIN_BACKGROUND_CAPTURE_BLOCKED");
+      }
       context.globalAlpha = 1;
     }
     const scale = Math.min(width / image.naturalWidth, height / image.naturalHeight);

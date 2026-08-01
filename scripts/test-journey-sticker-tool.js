@@ -285,6 +285,27 @@ async function runPreviewTests() {
   ]));
   assert.strictEqual(tool.isPreviewMatrixComplete(incomplete), false);
   assert.strictEqual(incomplete.journey.failureCode, "BACKGROUND_CONTEXT_NOT_DERIVED");
+
+  const previousDocument = global.document;
+  global.document = { createElement: () => ({}) };
+  try {
+    await assert.rejects(
+      tool.capturePreviewPng(fakeFrame("web", {
+        contextSource: "web-computed",
+        backgroundImage: "linear-gradient(rgb(255, 255, 255), rgb(240, 240, 240))"
+      })[1]),
+      /CSS_GRADIENT_CAPTURE_UNSUPPORTED/
+    );
+    await assert.rejects(
+      tool.capturePreviewPng(fakeFrame("web", {
+        contextSource: "web-computed",
+        backgroundImage: "url([redacted])"
+      })[1]),
+      /CSS_BACKGROUND_IMAGE_CAPTURE_UNSUPPORTED/
+    );
+  } finally {
+    global.document = previousDocument;
+  }
 }
 
 function assertSingleStickerToolDeclarations() {
